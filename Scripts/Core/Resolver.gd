@@ -222,7 +222,7 @@ static func _plan(c: Combatant, seq: Array, events: Array) -> Dictionary:
 	var seen_no_guard_spell := false
 	for raw in seq:
 		var rid: String = raw.get("id", "")
-		var want_guard := Config.def(rid).get("category", "") == "guard"
+		var want_guard: bool = Config.def(rid).get("category", "") == "guard"
 		var want_ng := Config.is_spell(rid) and bool(Config.def(rid).get("no_guard_combo", false))
 		# Guard and a no-guard-combo spell (DARK BOLT) can't share one turn: the
 		# spell resolves so late that guarding into it would shield nearly the whole

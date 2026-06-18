@@ -24,7 +24,7 @@ var _buttons := [
 var _diff_buttons := [
 	{"diff": AI.Difficulty.EASY,        "label": "EASY",        "on": true},
 	{"diff": AI.Difficulty.CHALLENGING, "label": "CHALLENGING", "on": true},
-	{"diff": AI.Difficulty.HARD,        "label": "HARD",        "on": false},
+	{"diff": AI.Difficulty.HARD,        "label": "HARD",        "on": true},
 	{"diff": AI.Difficulty.EXTREME,     "label": "EXTREME",     "on": false},
 	{"diff": -1,                        "label": "BACK",        "on": true},
 ]

@@ -29,7 +29,7 @@ static func choose_sequence(difficulty: int, me: Combatant, foe: Combatant,
 		Difficulty.CHALLENGING:
 			return ChallengingAI.choose_sequence(me, foe, grid, spells)
 		Difficulty.HARD, Difficulty.EXTREME:
-			return ChallengingAI.choose_sequence(me, foe, grid, spells)  # TODO: stronger brains
+			return HardAI.choose_sequence(me, foe, grid, spells)
 		_:
 			return StubOpponent.choose_sequence(me, foe, grid, spells)
 
