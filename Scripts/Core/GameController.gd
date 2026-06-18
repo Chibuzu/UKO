@@ -293,7 +293,31 @@ func _key_spell(id: String) -> void:
 	else:
 		_add_action({"id": id})
 
+# True if adding `action` would put Guard and a no-guard-combo spell (DARK BOLT)
+# in the same turn. The resolver forbids that pairing, so we block it at pick
+# time too rather than let the player queue an action that gets voided.
+func _conflicts_with_plan(action: Dictionary) -> bool:
+	var id: String = action.get("id", "")
+	var adding_guard := Config.def(id).get("category", "") == "guard"
+	var adding_ng := Config.is_spell(id) and bool(Config.def(id).get("no_guard_combo", false))
+	if not adding_guard and not adding_ng:
+		return false
+	for prev in seq:
+		var pid: String = prev.get("id", "")
+		var prev_guard := Config.def(pid).get("category", "") == "guard"
+		var prev_ng := Config.is_spell(pid) and bool(Config.def(pid).get("no_guard_combo", false))
+		if (adding_guard and prev_ng) or (adding_ng and prev_guard):
+			return true
+	return false
+
 func _add_action(action: Dictionary) -> void:
+	if _conflicts_with_plan(action):
+		# Guard and DARK BOLT can't share a turn; drop the conflicting pick.
+		pending = ""
+		preview = {}
+		board.clear_highlights()
+		_refresh_menu()
+		return
 	seq.append(action)
 	pending = ""
 	preview = {}

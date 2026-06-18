@@ -45,6 +45,7 @@ const SPELLS := {
 		"needs_tile": true,
 		"shape": "line", "range": 3,
 		"effect": { "type": "damage", "amount": 25 },   # [PH] see balance note
+		"no_guard_combo": true,                          # cannot share a turn with Guard
 		"ai_role": "poke",
 		"vfx": { "style": "projectile", "cast_anim": "bolt", "projectile": "bolt_proj" },
 	},

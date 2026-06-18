@@ -38,8 +38,9 @@ static func resolve(grid: Grid, in_a: Combatant, in_b: Combatant,
 		return x["band_priority"] < y["band_priority"]
 	)
 
-	var guarding := {"A": false, "B": false}
+	var guarding := {"A": false, "B": false}   # live shield: up while it protects
 	var guard_blocked := {"A": false, "B": false}
+	var guarded := {"A": false, "B": false}     # latch: did this fighter guard at all?
 	var damaged_tick := {"A": -1, "B": -1}
 	var dead_tick := {"A": -1, "B": -1}
 
@@ -51,6 +52,15 @@ static func resolve(grid: Grid, in_a: Combatant, in_b: Combatant,
 			group.append(sched[i])
 			i += 1
 
+		# Offensive actions drop the actor's OWN guard the instant they fire, so a
+		# Guard+Attack covers you only up TO (not through) your own strike. Done for
+		# the whole tick-group before any effects resolve, so a foe striking on the
+		# very same tick as your attack is no longer blocked.
+		for s in group:
+			if guarding[s["owner"]] and _is_offensive(s):
+				guarding[s["owner"]] = false
+				events.append(_ev("guard_dropped", tick, s["owner"]))
+
 		for s in group:
 			var actor: Combatant = a if s["owner"] == "A" else b
 			var target: Combatant = b if s["owner"] == "A" else a
@@ -60,6 +70,7 @@ static func resolve(grid: Grid, in_a: Combatant, in_b: Combatant,
 			match s["category"]:
 				"guard":
 					guarding[actor.id] = true
+					guarded[actor.id] = true
 					events.append(_ev("guard_raised", tick, actor.id))
 				"pivot":
 					actor.facing = s["facing"]
@@ -84,9 +95,10 @@ static func resolve(grid: Grid, in_a: Combatant, in_b: Combatant,
 				"noop":
 					pass
 
-	# Guard outcome.
+	# Guard outcome. Use the LATCH, not the live shield (an offensive action may
+	# have dropped it): you still earn the refund if you blocked before striking.
 	for c in [a, b]:
-		if guarding[c.id]:
+		if guarded[c.id]:
 			if guard_blocked[c.id]:
 				c.energy = mini(Config.MAX_ENERGY, c.energy + Config.GUARD_REFUND)
 				c.speed_boost = true
@@ -164,6 +176,16 @@ static func _real_action(action: Dictionary) -> bool:
 	var cat: String = Config.def(action.get("id", "")).get("category", "")
 	return cat != "" and cat != "wait" and cat != "noop"
 
+# Offensive = a basic attack or a damaging spell. Defensive/neutral actions
+# (move, pivot, buff, rest, wait) are NOT offensive and leave a guard standing.
+static func _is_offensive(s: Dictionary) -> bool:
+	match String(s.get("category", "")):
+		"attack":
+			return true
+		"spell":
+			return String(Config.def(s.get("id", "")).get("effect", {}).get("type", "")) == "damage"
+	return false
+
 # Shared metronome: count every real action by BOTH fighters into one tally
 # (mirrored on both combatants so it persists). Each full ENERGY_PULSE_ACTIONS
 # pulses BOTH players' energy at once.
@@ -196,7 +218,18 @@ static func _plan(c: Combatant, seq: Array, events: Array) -> Dictionary:
 	var slot := 0
 	var vpos: Vector2i = c.pos      # projected position as the sequence unfolds
 	var vfacing: int = c.facing
+	var seen_guard := false
+	var seen_no_guard_spell := false
 	for raw in seq:
+		var rid: String = raw.get("id", "")
+		var want_guard := Config.def(rid).get("category", "") == "guard"
+		var want_ng := Config.is_spell(rid) and bool(Config.def(rid).get("no_guard_combo", false))
+		# Guard and a no-guard-combo spell (DARK BOLT) can't share one turn: the
+		# spell resolves so late that guarding into it would shield nearly the whole
+		# turn. Whichever is picked SECOND is voided; the first one stands.
+		if (want_guard and seen_no_guard_spell) or (want_ng and seen_guard):
+			events.append(_ev("illegal_action", -1, c.id, {"reason": "no_guard_combo", "id": rid}))
+			raw = {"id": "_noop"}
 		# Action-based cooldowns: taking an action ages this player's cooldowns
 		# by one BEFORE legalizing, so a spell cast in slot 0 is still on cooldown
 		# for slot 1, and prior-turn cooldowns expire as actions accrue.
@@ -221,6 +254,12 @@ static func _plan(c: Combatant, seq: Array, events: Array) -> Dictionary:
 			vpos = act["tile"]
 		elif cat == "pivot" and act.has("facing"):
 			vfacing = int(act["facing"])
+		# Remember a guard / no-guard-combo spell ONLY if it actually committed
+		# (a cost- or cooldown-nooped pick doesn't lock out its counterpart).
+		if cat == "guard":
+			seen_guard = true
+		elif Config.is_spell(aid) and bool(Config.def(aid).get("no_guard_combo", false)):
+			seen_no_guard_spell = true
 		slot += 1
 	return {"entries": entries, "actions": acts}
 
