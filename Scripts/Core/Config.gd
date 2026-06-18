@@ -127,5 +127,19 @@ static func effective_move_cost(facing: int, from: Vector2i, to: Vector2i, statu
 			reduction += int(status_def(sid).get("energy_cost_reduction", 0))
 	return maxi(0, base - reduction)
 
+# Shared by the resolver's plan-time cost view AND the UI's projection: when a
+# self-buff commits earlier in a sequence, its status is active for the REST of
+# that same turn's planning, so a buff->move combo is both affordable and
+# discounted in the menu and in resolution. Mutates `statuses` in place; a no-op
+# for any action that isn't a self-targeted apply_status spell.
+static func apply_planned_self_buff(statuses: Dictionary, action_id: String) -> void:
+	if not is_spell(action_id):
+		return
+	var eff: Dictionary = def(action_id).get("effect", {})
+	if eff.get("type", "") == "apply_status" and eff.get("to", "self") == "self":
+		var st: String = eff.get("status", "")
+		if st != "":
+			statuses[st] = int(status_def(st).get("duration", 0))
+
 static func energy_pulse_due(turn: int) -> bool:
 	return turn > 0 and turn % ENERGY_PULSE_TURNS == 0

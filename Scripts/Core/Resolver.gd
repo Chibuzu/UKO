@@ -136,7 +136,7 @@ static func resolve(grid: Grid, in_a: Combatant, in_b: Combatant,
 # in the same sequence (so a slot-2 move's cost/direction is judged from where
 # slot-1 left them). Energy/mp/cooldowns come from c, which _pay mutates as the
 # sequence is processed.
-static func _legalize(c: Combatant, action: Dictionary, vpos: Vector2i, vfacing: int, events: Array) -> Dictionary:
+static func _legalize(c: Combatant, action: Dictionary, vpos: Vector2i, vfacing: int, events: Array, statuses: Dictionary) -> Dictionary:
 	var id: String = action.get("id", "")
 	var d := Config.def(id)
 	if d.is_empty() or id == "_noop":
@@ -149,10 +149,10 @@ static func _legalize(c: Combatant, action: Dictionary, vpos: Vector2i, vfacing:
 		events.append(_ev("illegal_action", -1, c.id, {"reason": "cooldown", "id": id}))
 		return {"id": "_noop"}
 	if d.get("category", "") == "move" and action.has("tile"):
-		if c.energy < Config.effective_move_cost(vfacing, vpos, action["tile"], c.statuses):
+		if c.energy < Config.effective_move_cost(vfacing, vpos, action["tile"], statuses):
 			events.append(_ev("illegal_action", -1, c.id, {"reason": "cost", "id": id}))
 			return {"id": "_noop"}
-	elif not Config.can_afford(c.energy, c.mp, c.statuses, id):
+	elif not Config.can_afford(c.energy, c.mp, statuses, id):
 		events.append(_ev("illegal_action", -1, c.id, {"reason": "cost", "id": id}))
 		return {"id": "_noop"}
 	return action
@@ -162,12 +162,12 @@ static func _age_cooldowns(c: Combatant) -> void:
 	for k in c.cooldowns.keys():
 		c.cooldowns[k] = maxi(0, int(c.cooldowns[k]) - 1)
 
-static func _pay(c: Combatant, action: Dictionary, vpos: Vector2i, vfacing: int) -> void:
+static func _pay(c: Combatant, action: Dictionary, vpos: Vector2i, vfacing: int, statuses: Dictionary) -> void:
 	var id: String = action["id"]
 	var d := Config.def(id)
-	var ecost := Config.effective_energy_cost(id, c.statuses)
+	var ecost := Config.effective_energy_cost(id, statuses)
 	if d.get("category", "") == "move" and action.has("tile"):
-		ecost = Config.effective_move_cost(vfacing, vpos, action["tile"], c.statuses)
+		ecost = Config.effective_move_cost(vfacing, vpos, action["tile"], statuses)
 	c.energy = maxi(0, c.energy - ecost)
 	c.mp = maxi(0, c.mp - int(d.get("mp_cost", 0)))
 
@@ -218,6 +218,11 @@ static func _plan(c: Combatant, seq: Array, events: Array) -> Dictionary:
 	var slot := 0
 	var vpos: Vector2i = c.pos      # projected position as the sequence unfolds
 	var vfacing: int = c.facing
+	# Plan-time statuses used ONLY for cost/legality: starts with carry-over
+	# statuses (still in effect) and accumulates self-buffs that commit earlier
+	# in THIS sequence, so a buff->move combo discounts the move. We never write
+	# to c.statuses here -- resolution applies the real status at its own tick.
+	var pstat: Dictionary = c.statuses.duplicate()
 	var seen_guard := false
 	var seen_no_guard_spell := false
 	for raw in seq:
@@ -234,8 +239,8 @@ static func _plan(c: Combatant, seq: Array, events: Array) -> Dictionary:
 		# by one BEFORE legalizing, so a spell cast in slot 0 is still on cooldown
 		# for slot 1, and prior-turn cooldowns expire as actions accrue.
 		_age_cooldowns(c)
-		var act := _legalize(c, raw, vpos, vfacing, events)
-		_pay(c, act, vpos, vfacing)
+		var act := _legalize(c, raw, vpos, vfacing, events, pstat)
+		_pay(c, act, vpos, vfacing, pstat)
 		# A cast goes on cooldown immediately (after the age tick, so it never
 		# shortens its own cooldown), blocking a recast later in this sequence.
 		var aid: String = act.get("id", "")
@@ -254,6 +259,11 @@ static func _plan(c: Combatant, seq: Array, events: Array) -> Dictionary:
 			vpos = act["tile"]
 		elif cat == "pivot" and act.has("facing"):
 			vfacing = int(act["facing"])
+		# A self-buff that commits here discounts LATER actions' energy this same
+		# turn (shared helper, also used by the UI projection). Applied AFTER paying
+		# for the buff itself, and only to pstat -- never c.statuses (resolution
+		# still applies the real status at its tick).
+		Config.apply_planned_self_buff(pstat, aid)
 		# Remember a guard / no-guard-combo spell ONLY if it actually committed
 		# (a cost- or cooldown-nooped pick doesn't lock out its counterpart).
 		if cat == "guard":

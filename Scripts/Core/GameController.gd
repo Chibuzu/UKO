@@ -298,13 +298,13 @@ func _key_spell(id: String) -> void:
 # time too rather than let the player queue an action that gets voided.
 func _conflicts_with_plan(action: Dictionary) -> bool:
 	var id: String = action.get("id", "")
-	var adding_guard: bool = Config.def(id).get("category", "") == "guard"
+	var adding_guard := Config.def(id).get("category", "") == "guard"
 	var adding_ng := Config.is_spell(id) and bool(Config.def(id).get("no_guard_combo", false))
 	if not adding_guard and not adding_ng:
 		return false
 	for prev in seq:
 		var pid: String = prev.get("id", "")
-		var prev_guard: bool = Config.def(pid).get("category", "") == "guard"
+		var prev_guard := Config.def(pid).get("category", "") == "guard"
 		var prev_ng := Config.is_spell(pid) and bool(Config.def(pid).get("no_guard_combo", false))
 		if (adding_guard and prev_ng) or (adding_ng and prev_guard):
 			return true
@@ -352,6 +352,9 @@ func _simulate(c: Combatant, action: Dictionary) -> void:
 			var cd := Config.cooldown_of(id)
 			if cd > 0:
 				c.cooldowns[id] = cd
+	# A self-buff queued earlier discounts later actions THIS turn -- same shared
+	# helper the resolver uses, so the menu's affordability matches resolution.
+	Config.apply_planned_self_buff(c.statuses, id)
 
 func _refresh_menu() -> void:
 	# Show the PROJECTED self (energy/mp/cooldowns after the actions chosen so

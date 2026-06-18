@@ -25,9 +25,22 @@
 class_name HardAI
 extends RefCounted
 
-const TEMP := 15.0   # softmax temperature. HIGH = hedge broadly across foe moves. [tune]
+const TEMP := 6.0    # softmax temperature. Lowered from 15: high temp hedged so broadly it
+					 # never committed to a punish (passive). 6 commits to your stronger moves
+					 # while still mixing a little. [tune: lower = sharper/more aggressive]
 const TOP_K := 12    # how many most-likely foe moves to keep for the expectation. [perf/tune]
 const DEBUG := false # print the foe distribution + chosen line (in-engine verification)
+
+# Position-eval weights. The transition (damage/win) is scored separately; these
+# value what damage alone can't see -- resources, geometry, tempo. [all tunable]
+const W_ENERGY := 0.08   # value of own energy minus foe's (replaces the near-zero W_RES)
+const W_MP     := 0.05   # value of own mp minus foe's (mp gates spells)
+const W_LOCK   := 0.6    # extra penalty per energy point below the lockout threshold
+const LOCK_THRESH := 30  # below this you can't even guard (30) -- options-starved
+const W_FLANK  := 6.0    # value of flank geometry, scaled by (FLANK_MULT-1) and proximity
+const W_TEMPO  := 4.0    # initiative edge (acting first next turn via speed_boost)
+const W_PRESS  := 5.0    # reward for closing on a low-hp foe (deny kiting/free rest)
+const PRESS_HP := 40     # foe hp at/below which we actively press
 
 static func choose_sequence(me: Combatant, foe: Combatant, grid: Grid, spells: Array) -> Array:
 	# My assumed move -- used (depth 1) to judge how good each foe move is FOR THE FOE.
@@ -78,12 +91,13 @@ static func choose_sequence(me: Combatant, foe: Combatant, grid: Grid, spells: A
 		_dump(scored, best, best_exp)
 	return best
 
-# Expected score of my_seq over the foe distribution. Reuses ChallengingAI._score
-# (my perspective; its internal resolve keeps the live A=foe / B=me order).
+# Expected score of my_seq over the foe distribution, using the position-aware
+# scorer (transition + _eval_position), so the AI values where it ends up, not
+# just the damage it traded this turn.
 static func _expected(me: Combatant, foe: Combatant, grid: Grid, my_seq: Array, dist: Array) -> float:
 	var s := 0.0
 	for e in dist:
-		s += float(e["p"]) * ChallengingAI._score(me, foe, grid, my_seq, e["seq"])
+		s += float(e["p"]) * _score_rich(me, foe, grid, my_seq, e["seq"])
 	return s
 
 # Score a foe sequence FROM THE FOE'S SIDE, vs my assumed move, using the SAME
@@ -99,9 +113,64 @@ static func _foe_score(foe: Combatant, me: Combatant, grid: Grid, foe_seq: Array
 	match String(out["result"]):
 		"a_wins": s += ChallengingAI.W_WIN
 		"b_wins": s -= ChallengingAI.W_WIN
-	s += float(foe_after.energy + foe_after.mp) * ChallengingAI.W_RES
-	s -= float(Grid.dist(me_after.pos, foe_after.pos)) * ChallengingAI.W_DIST
+	s += _eval_position(foe_after, me_after, grid)   # foe's perspective: it wants position too
 	return s
+
+# Position-aware score of my_seq vs one foe move, MY perspective. Transition
+# (damage dealt/taken/win) plus the position value of where it leaves both of us.
+# Same A=foe / B=me resolve order as the live game so tie-breaks stay correct.
+static func _score_rich(me: Combatant, foe: Combatant, grid: Grid, my_seq: Array, foe_seq: Array) -> float:
+	var out := Resolver.resolve(grid, foe, me, foe_seq, my_seq, 0)
+	var foe_after: Combatant = out["a"]
+	var me_after: Combatant = out["b"]
+	var dealt := float(foe.hp - foe_after.hp)
+	var taken := float(me.hp - me_after.hp)   # negative if I healed (e.g. via rest)
+	var s := dealt * ChallengingAI.W_DEAL - taken * ChallengingAI.W_TAKE
+	match String(out["result"]):
+		"b_wins": s += ChallengingAI.W_WIN
+		"a_wins": s -= ChallengingAI.W_WIN
+	s += _eval_position(me_after, foe_after, grid)
+	return s
+
+# Value of a position from `me`'s side: resources (non-linear near the energy
+# lockout), flank geometry both ways, initiative, and pressure on a low-hp foe.
+static func _eval_position(me: Combatant, foe: Combatant, grid: Grid) -> float:
+	var v := 0.0
+	# Resource economy, both sides. Energy near 0 is far worse than linear (you
+	# lose attack/guard/move), so add a ramp below the lockout threshold.
+	v += W_ENERGY * float(me.energy - foe.energy)
+	v += W_MP * float(me.mp - foe.mp)
+	v -= W_LOCK * float(maxi(0, LOCK_THRESH - me.energy))    # I'm options-starved
+	v += W_LOCK * float(maxi(0, LOCK_THRESH - foe.energy))   # foe is -> press the attack
+	# Flank geometry: reward sitting on the foe's exposed side/back, penalise
+	# exposing my own. Weighted by proximity (only matters when reachable).
+	var prox := 1.0 / float(1 + Grid.dist(me.pos, foe.pos))
+	v += W_FLANK * (float(Config.FLANK_MULT[_flank_tier(foe, me.pos)]) - 1.0) * prox
+	v -= W_FLANK * (float(Config.FLANK_MULT[_flank_tier(me, foe.pos)]) - 1.0) * prox
+	# Initiative: acting first next turn is a real edge in a simultaneous game.
+	if me.speed_boost and not foe.speed_boost:
+		v += W_TEMPO
+	elif foe.speed_boost and not me.speed_boost:
+		v -= W_TEMPO
+	# Pressure: when the foe is low and wants to kite/rest, reward closing so it
+	# can't heal for free (the failure where it let you rest to full).
+	if foe.hp <= PRESS_HP:
+		v += W_PRESS * prox
+	return v
+
+# Which face of `defender` the tile `at` sits on, relative to its facing:
+# "front" / "side" / "back" (back = the ×2.0 flank).
+static func _flank_tier(defender: Combatant, at: Vector2i) -> String:
+	var o: Vector2i = at - defender.pos
+	if o == Vector2i.ZERO:
+		return "front"
+	var fv: Vector2i = Config.FACING_VEC[defender.facing]
+	var step := Vector2i(signi(o.x), 0) if absi(o.x) >= absi(o.y) else Vector2i(0, signi(o.y))
+	if step == fv:
+		return "front"
+	if step == -fv:
+		return "back"
+	return "side"
 
 static func _dump(dist: Array, pick: Array, ex: float) -> void:
 	print("[HardAI] modeled foe distribution (top %d):" % dist.size())
