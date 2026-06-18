@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://bupgcy0vjshxw"]
+
+[ext_resource type="Script" uid="uid://bj3vemsihp1v1" path="res://Scripts/Test/VisualHarness.gd" id="1_f2rqk"]
+
+[node name="VisualHarness" type="Node" unique_id=1270652988]
+script = ExtResource("1_f2rqk")
