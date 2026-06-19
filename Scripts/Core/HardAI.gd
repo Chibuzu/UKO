@@ -35,14 +35,22 @@ const DEBUG := false # print the foe distribution + chosen line (in-engine verif
 # value what damage alone can't see -- resources, geometry, tempo. [all tunable]
 const W_ENERGY := 0.08   # value of own energy minus foe's (replaces the near-zero W_RES)
 const W_MP     := 0.05   # value of own mp minus foe's (mp gates spells)
-const W_LOCK   := 0.6    # extra penalty per energy point below the lockout threshold
+const W_LOCK   := 0.25   # penalty per energy point below lockout (rescaled from 0.6: it was
+						 # dwarfing a whole attack and making the AI hoard energy / turtle)
 const LOCK_THRESH := 30  # below this you can't even guard (30) -- options-starved
 const W_FLANK  := 6.0    # value of flank geometry, scaled by (FLANK_MULT-1) and proximity
-const W_TEMPO  := 4.0    # initiative edge (acting first next turn via speed_boost)
+const W_TEMPO  := 1.0    # initiative edge. Cut from 4.0: WAIT/guard grant speed_boost, so a
+						 # big tempo bonus let the AI farm +score by doing nothing (passive).
 const W_PRESS  := 5.0    # reward for closing on a low-hp foe (deny kiting/free rest)
 const PRESS_HP := 40     # foe hp at/below which we actively press
+const W_MOBILITY := 1.2  # MAP awareness: free adjacent tiles (escape routes) mine minus foe's;
+						 # rewards keeping options open and cornering the foe against walls/edges
 
 static func choose_sequence(me: Combatant, foe: Combatant, grid: Grid, spells: Array) -> Array:
+	# Unconditional one-liner (NOT behind DEBUG): if this never prints in the editor's
+	# Output panel when you pick Hard, choose_sequence isn't being called -> the problem
+	# is routing/menu, not the eval.
+	print("[HardAI] running")
 	# My assumed move -- used (depth 1) to judge how good each foe move is FOR THE FOE.
 	var my_stub: Array = StubOpponent.choose_sequence(me, foe, grid, spells)
 
@@ -156,7 +164,21 @@ static func _eval_position(me: Combatant, foe: Combatant, grid: Grid) -> float:
 	# can't heal for free (the failure where it let you rest to full).
 	if foe.hp <= PRESS_HP:
 		v += W_PRESS * prox
+	# MAP awareness: escape routes. Free orthogonal tiles I can step to minus the
+	# foe's. Being cornered against walls/edges (few free tiles) is bad; pinning
+	# the foe against them is good.
+	v += W_MOBILITY * float(_mobility(me, foe, grid) - _mobility(foe, me, grid))
 	return v
+
+# Count of free orthogonal tiles `c` could step to: in bounds, not a wall, not
+# the other fighter. A read of how boxed-in this fighter is on the current map.
+static func _mobility(c: Combatant, other: Combatant, grid: Grid) -> int:
+	var n := 0
+	for d in [Vector2i(0, -1), Vector2i(0, 1), Vector2i(-1, 0), Vector2i(1, 0)]:
+		var p: Vector2i = c.pos + d
+		if grid.in_bounds(p) and not grid.is_blocked(p) and other.pos != p:
+			n += 1
+	return n
 
 # Which face of `defender` the tile `at` sits on, relative to its facing:
 # "front" / "side" / "back" (back = the ×2.0 flank).

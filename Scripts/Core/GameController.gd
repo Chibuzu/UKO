@@ -383,7 +383,10 @@ func _legal_moves() -> Array:
 	var out := []
 	for dv in DIRS:
 		var p: Vector2i = plan_c.pos + dv
-		if grid.in_bounds(p) and not grid.is_blocked(p) and b.pos != p:
+		# The foe's tile is now a legal target: if they vacate (or you both move
+		# into each other -> swap) you take it, else the move fizzles and is
+		# refunded. Walls and out-of-bounds stay illegal.
+		if grid.in_bounds(p) and not grid.is_blocked(p):
 			if plan_c.energy >= Config.effective_move_cost(plan_c.facing, plan_c.pos, p, plan_c.statuses):
 				out.append(p)
 	return out

@@ -76,11 +76,8 @@ static func resolve(grid: Grid, in_a: Combatant, in_b: Combatant,
 					actor.facing = s["facing"]
 					events.append(_ev("pivot", tick, actor.id, {"facing": s["facing"]}))
 				"move":
-					if _can_move(grid, actor, target, s["tile"]):
-						actor.pos = s["tile"]
-						events.append(_ev("move", tick, actor.id, {"to": s["tile"]}))
-					else:
-						events.append(_ev("move_blocked", tick, actor.id, {"to": s["tile"]}))
+					if not bool(s.get("_resolved", false)):
+						_do_move(s, actor, target, group, grid, dead_tick, tick, events)
 				"attack":
 					_attack(actor, target, s, tick, guarding, guard_blocked, damaged_tick, dead_tick, events)
 				"spell":
@@ -162,7 +159,7 @@ static func _age_cooldowns(c: Combatant) -> void:
 	for k in c.cooldowns.keys():
 		c.cooldowns[k] = maxi(0, int(c.cooldowns[k]) - 1)
 
-static func _pay(c: Combatant, action: Dictionary, vpos: Vector2i, vfacing: int, statuses: Dictionary) -> void:
+static func _pay(c: Combatant, action: Dictionary, vpos: Vector2i, vfacing: int, statuses: Dictionary) -> int:
 	var id: String = action["id"]
 	var d := Config.def(id)
 	var ecost := Config.effective_energy_cost(id, statuses)
@@ -170,6 +167,7 @@ static func _pay(c: Combatant, action: Dictionary, vpos: Vector2i, vfacing: int,
 		ecost = Config.effective_move_cost(vfacing, vpos, action["tile"], statuses)
 	c.energy = maxi(0, c.energy - ecost)
 	c.mp = maxi(0, c.mp - int(d.get("mp_cost", 0)))
+	return ecost
 
 # A "real" action counts toward the shared pulse (Wait and illegal/noop don't).
 static func _real_action(action: Dictionary) -> bool:
@@ -240,7 +238,7 @@ static func _plan(c: Combatant, seq: Array, events: Array) -> Dictionary:
 		# for slot 1, and prior-turn cooldowns expire as actions accrue.
 		_age_cooldowns(c)
 		var act := _legalize(c, raw, vpos, vfacing, events, pstat)
-		_pay(c, act, vpos, vfacing, pstat)
+		var paid := _pay(c, act, vpos, vfacing, pstat)
 		# A cast goes on cooldown immediately (after the age tick, so it never
 		# shortens its own cooldown), blocking a recast later in this sequence.
 		var aid: String = act.get("id", "")
@@ -249,6 +247,7 @@ static func _plan(c: Combatant, seq: Array, events: Array) -> Dictionary:
 			if cdv > 0:
 				c.cooldowns[aid] = cdv
 		var entry := _schedule(c, act, slot, vpos, vfacing)
+		entry["energy_cost"] = paid   # for refund if this move fizzles at resolution
 		cum += int(entry["tick"])     # this action's own duration
 		entry["tick"] = cum           # strike time = cumulative
 		entries.append(entry)
@@ -303,6 +302,54 @@ static func _can_move(grid: Grid, actor: Combatant, other: Combatant, tile: Vect
 	if other.pos == tile:
 		return false
 	return true
+
+# Resolve a move with the contested-tile rules. Moving into the foe's tile is
+# legal: if they both move into each other -> swap; if you move into their tile
+# and they move elsewhere this same tick -> they (the one moved INTO) resolve
+# first, then you take the vacated tile; if the tile is still occupied -> the
+# move fizzles and its energy is refunded. (It still counts toward the shared
+# pulse, which is tallied from the planned actions, not from success.)
+static func _do_move(s: Dictionary, actor: Combatant, target: Combatant,
+		group: Array, grid: Grid, dead_tick: Dictionary, tick: int, events: Array) -> void:
+	var T: Vector2i = s["tile"]
+	var foe_move = _move_in_group(group, target.id)
+	var foe_unresolved := foe_move != null and not bool(foe_move.get("_resolved", false))
+	# Mutual move into each other's tile -> swap, atomically.
+	if target.pos == T and foe_unresolved and Vector2i(foe_move["tile"]) == actor.pos:
+		var ap := actor.pos
+		actor.pos = target.pos
+		target.pos = ap
+		s["_resolved"] = true
+		foe_move["_resolved"] = true
+		events.append(_ev("move", tick, actor.id, {"to": actor.pos, "swap": true}))
+		events.append(_ev("move", tick, target.id, {"to": target.pos, "swap": true}))
+		return
+	# Foe sits on the destination and is moving elsewhere this tick: the one being
+	# moved into resolves first, then we take the vacated tile.
+	if target.pos == T and foe_unresolved and _alive_at(target, dead_tick, tick):
+		_simple_move(foe_move, target, actor, grid, tick, events)
+		foe_move["_resolved"] = true
+	_simple_move(s, actor, target, grid, tick, events)
+
+static func _move_in_group(group: Array, owner_id: String):
+	for e in group:
+		if e["owner"] == owner_id and e.get("category", "") == "move":
+			return e
+	return null
+
+static func _alive_at(c: Combatant, dead_tick: Dictionary, tick: int) -> bool:
+	return int(dead_tick[c.id]) == -1 or int(dead_tick[c.id]) >= tick
+
+# Move if the tile is reachable and free, else fizzle and refund the energy paid.
+static func _simple_move(s: Dictionary, mover: Combatant, other: Combatant,
+		grid: Grid, tick: int, events: Array) -> void:
+	if _can_move(grid, mover, other, Vector2i(s["tile"])):
+		mover.pos = s["tile"]
+		events.append(_ev("move", tick, mover.id, {"to": s["tile"]}))
+	else:
+		var refund := int(s.get("energy_cost", 0))
+		mover.energy = mini(Config.MAX_ENERGY, mover.energy + refund)
+		events.append(_ev("move_blocked", tick, mover.id, {"to": s["tile"], "refunded": refund}))
 
 static func _attack(attacker: Combatant, target: Combatant, s: Dictionary,
 		tick: int, guarding: Dictionary, guard_blocked: Dictionary,
