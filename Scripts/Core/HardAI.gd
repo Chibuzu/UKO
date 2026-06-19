@@ -208,14 +208,26 @@ static func _eval_position(me: Combatant, foe: Combatant, grid: Grid) -> float:
 	# lose attack/guard/move), so add a ramp below the lockout threshold.
 	v += W_ENERGY * float(me.energy - foe.energy)
 	v += W_MP * float(me.mp - foe.mp)
-	v -= W_LOCK * float(maxi(0, LOCK_THRESH - me.energy))    # I'm options-starved
-	v += W_LOCK * float(maxi(0, LOCK_THRESH - foe.energy))   # foe is -> press the attack
+	# Energy lockout, but DISCOUNT it when the shared regen pulse is about to fire
+	# (both fighters refill +ENERGY_REGEN): a lockout you'll escape in an action or
+	# two isn't as dire as a lasting one. action_count is the shared tally, mirrored
+	# on both, so the pulse timing is the same for me and the foe.
+	var to_pulse: int = Config.ENERGY_PULSE_ACTIONS - (me.action_count % Config.ENERGY_PULSE_ACTIONS)
+	var pulse_relief: float = 1.0
+	if to_pulse <= 1:
+		pulse_relief = 0.45
+	elif to_pulse <= 2:
+		pulse_relief = 0.7
+	v -= W_LOCK * float(maxi(0, LOCK_THRESH - me.energy)) * pulse_relief    # I'm options-starved
+	v += W_LOCK * float(maxi(0, LOCK_THRESH - foe.energy)) * pulse_relief   # foe is -> press the attack
 	# Flank geometry: reward sitting on the foe's exposed side/back, penalise
 	# exposing my own. Weighted by proximity (only matters when reachable).
 	var prox := 1.0 / float(1 + Grid.dist(me.pos, foe.pos))
 	v += W_FLANK * (float(Config.FLANK_MULT[_flank_tier(foe, me.pos)]) - 1.0) * prox
 	v -= W_FLANK * (float(Config.FLANK_MULT[_flank_tier(me, foe.pos)]) - 1.0) * prox
-	# Initiative: acting first next turn is a real edge in a simultaneous game.
+	# Initiative: a carried speed boost (now earned by a successful guard, since Wait
+	# was changed to speed the next action THIS turn) front-loads next turn's first
+	# action -- a real edge in a simultaneous game.
 	if me.speed_boost and not foe.speed_boost:
 		v += W_TEMPO
 	elif foe.speed_boost and not me.speed_boost:

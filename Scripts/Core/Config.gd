@@ -32,6 +32,7 @@ const MAX_ENERGY := 100
 const ENERGY_REGEN := 30
 const ENERGY_PULSE_ACTIONS := 6   # regen fires every 6 SHARED non-Wait actions (both fighters)
 const ENERGY_PULSE_TURNS := 3     # legacy, unused (kept so any old harness still compiles)
+const WAIT_ENERGY := 10           # small personal energy top-up WAIT now grants (tunable)
 
 # ── Energy costs (ruleset 4) ────────────────────────────────────────────
 # Movement cost is DIRECTIONAL (relative to facing): closing is cheap, retreat

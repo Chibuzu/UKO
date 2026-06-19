@@ -85,9 +85,10 @@ static func resolve(grid: Grid, in_a: Combatant, in_b: Combatant,
 				"rest":
 					events.append(_ev("rest", tick, actor.id))
 				"wait":
-					# Do nothing this turn; act at the front of your band next turn.
-					# Same flag a successful guard sets — front-of-band, never cross-band.
-					actor.speed_boost = true
+					# Regroup: top up a little energy now, and your NEXT action THIS
+					# turn starts at the front of its band (applied in _plan). No
+					# longer carries initiative into next turn.
+					actor.energy = mini(Config.MAX_ENERGY, actor.energy + Config.WAIT_ENERGY)
 					events.append(_ev("wait", tick, actor.id))
 				"noop":
 					pass
@@ -223,6 +224,7 @@ static func _plan(c: Combatant, seq: Array, events: Array) -> Dictionary:
 	var pstat: Dictionary = c.statuses.duplicate()
 	var seen_guard := false
 	var seen_no_guard_spell := false
+	var prev_was_wait := false   # a WAIT earlier in THIS sequence speeds the next action
 	for raw in seq:
 		var rid: String = raw.get("id", "")
 		var want_guard: bool = Config.def(rid).get("category", "") == "guard"
@@ -246,7 +248,8 @@ static func _plan(c: Combatant, seq: Array, events: Array) -> Dictionary:
 			var cdv := Config.cooldown_of(aid)
 			if cdv > 0:
 				c.cooldowns[aid] = cdv
-		var entry := _schedule(c, act, slot, vpos, vfacing)
+		var boost: bool = (c.speed_boost and slot == 0) or prev_was_wait
+		var entry := _schedule(c, act, slot, vpos, vfacing, boost)
 		entry["energy_cost"] = paid   # for refund if this move fizzles at resolution
 		cum += int(entry["tick"])     # this action's own duration
 		entry["tick"] = cum           # strike time = cumulative
@@ -254,6 +257,7 @@ static func _plan(c: Combatant, seq: Array, events: Array) -> Dictionary:
 		acts.append(act)
 		# Advance the projection so the next action is judged from here.
 		var cat: String = Config.def(act.get("id", "")).get("category", "")
+		prev_was_wait = (cat == "wait")
 		if cat == "move" and act.has("tile"):
 			vpos = act["tile"]
 		elif cat == "pivot" and act.has("facing"):
@@ -272,14 +276,14 @@ static func _plan(c: Combatant, seq: Array, events: Array) -> Dictionary:
 		slot += 1
 	return {"entries": entries, "actions": acts}
 
-static func _schedule(c: Combatant, action: Dictionary, slot: int, vpos: Vector2i, vfacing: int) -> Dictionary:
+static func _schedule(c: Combatant, action: Dictionary, slot: int, vpos: Vector2i, vfacing: int, boost: bool = false) -> Dictionary:
 	var d := Config.def(action["id"])
 	var within: int = int(d["base_tick"])
 	if d["category"] == "move" and action.has("tile"):
 		if action["tile"] == vpos - Vector2i(Config.FACING_VEC[vfacing]):
 			within += Config.BACK_MOVE_TAX
-	if c.speed_boost and slot == 0:
-		within = 0   # Wait/guard boost: the sequence's FIRST action starts early
+	if boost:
+		within = 0   # carried guard initiative (slot 0) or a WAIT earlier this turn: front of band
 	var facing := vfacing
 	if d["category"] == "pivot" and action.has("facing"):
 		facing = int(action["facing"])
