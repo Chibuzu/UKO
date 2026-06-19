@@ -83,6 +83,7 @@ func _ready() -> void:
 	_game_loop()
 
 func _game_loop() -> void:
+	var opp_model := OpponentModel.new()   # learns player A's habits across this match
 	while true:
 		turn_num += 1
 		_begin_turn()
@@ -91,8 +92,9 @@ func _game_loop() -> void:
 		menu.set_state(a, b, false, a.spell_ids(), [], false)
 		board.clear_highlights()
 
-		var seq_b: Array = AI.choose_sequence(difficulty, b, a, grid, b.spell_ids())
+		var seq_b: Array = AI.choose_sequence(difficulty, b, a, grid, b.spell_ids(), opp_model)
 		var out := Resolver.resolve(grid, a, b, seq_a, seq_b, turn_num)
+		opp_model.observe(seq_a)   # learn what A actually did, for next turn's prediction
 		await play.play(out["events"], out["a"], out["b"])
 		a = out["a"]
 		b = out["b"]

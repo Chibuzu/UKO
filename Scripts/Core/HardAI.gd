@@ -45,8 +45,11 @@ const W_PRESS  := 5.0    # reward for closing on a low-hp foe (deny kiting/free 
 const PRESS_HP := 40     # foe hp at/below which we actively press
 const W_MOBILITY := 1.2  # MAP awareness: free adjacent tiles (escape routes) mine minus foe's;
 						 # rewards keeping options open and cornering the foe against walls/edges
+const LOW_HP   := 35     # at/below this hp, value survival/disengagement
+const W_SURVIVE := 6.0   # when low, penalise being close to the foe (make space to heal)
+const ADAPT    := 0.5    # how much to trust observed foe behaviour vs the rational model [0..1]
 
-static func choose_sequence(me: Combatant, foe: Combatant, grid: Grid, spells: Array) -> Array:
+static func choose_sequence(me: Combatant, foe: Combatant, grid: Grid, spells: Array, opp_model = null) -> Array:
 	# Unconditional one-liner (NOT behind DEBUG): if this never prints in the editor's
 	# Output panel when you pick Hard, choose_sequence isn't being called -> the problem
 	# is routing/menu, not the eval.
@@ -74,6 +77,22 @@ static func choose_sequence(me: Combatant, foe: Combatant, grid: Grid, spells: A
 	for e in scored:
 		e["p"] = float(e["p"]) / z
 
+	# 3b: ADAPT. Blend in what the foe has ACTUALLY been doing recently, so we stop
+	# assuming the textbook-best move and notice e.g. that they switched to resting.
+	# Empirical weight per candidate = mean recent frequency of its actions'
+	# categories; mixed with the rational distribution. Both sum to 1, so does the mix.
+	if opp_model != null and opp_model.is_warm():
+		var emp: Array = []
+		var esum := 0.0
+		for e in scored:
+			var w := _emp_weight(e["seq"], opp_model)
+			emp.append(w)
+			esum += w
+		if esum > 0.0:
+			for i in scored.size():
+				var p_emp: float = float(emp[i]) / esum
+				scored[i]["p"] = (1.0 - ADAPT) * float(scored[i]["p"]) + ADAPT * p_emp
+
 	# 4: keep the top-K most-likely foe moves, renormalise.
 	scored.sort_custom(func(x, y): return float(x["p"]) > float(y["p"]))
 	if scored.size() > TOP_K:
@@ -98,6 +117,16 @@ static func choose_sequence(me: Combatant, foe: Combatant, grid: Grid, spells: A
 	if DEBUG:
 		_dump(scored, best, best_exp)
 	return best
+
+# Mean recent frequency of the action categories in a foe candidate sequence --
+# the empirical (observed-behaviour) weight used by the ADAPT blend.
+static func _emp_weight(seq: Array, opp_model) -> float:
+	if seq.is_empty():
+		return 0.0
+	var s := 0.0
+	for action in seq:
+		s += opp_model.freq(OpponentModel.category_of(action))
+	return s / float(seq.size())
 
 # Expected score of my_seq over the foe distribution, using the position-aware
 # scorer (transition + _eval_position), so the AI values where it ends up, not
@@ -164,6 +193,10 @@ static func _eval_position(me: Combatant, foe: Combatant, grid: Grid) -> float:
 	# can't heal for free (the failure where it let you rest to full).
 	if foe.hp <= PRESS_HP:
 		v += W_PRESS * prox
+	# Self-preservation: when I'm low, being close to the foe is dangerous --
+	# reward making space so I can disengage and rest instead of trading blows.
+	if me.hp <= LOW_HP:
+		v -= W_SURVIVE * prox
 	# MAP awareness: escape routes. Free orthogonal tiles I can step to minus the
 	# foe's. Being cornered against walls/edges (few free tiles) is bad; pinning
 	# the foe against them is good.
