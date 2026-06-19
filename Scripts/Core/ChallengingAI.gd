@@ -74,13 +74,16 @@ static func _slot_actions(c: Combatant, foe: Combatant, grid: Grid) -> Array:
 	var acts: Array = []
 	var dist := Grid.dist(c.pos, foe.pos)
 
-	var toward := StubOpponent._step_toward(c, foe, grid)
-	if toward != c.pos and c.energy >= Config.effective_move_cost(c.facing, c.pos, toward, c.statuses):
-		acts.append({"id": "move", "tile": toward})
-
-	var away := _step_away(c, foe, grid)
-	if away != c.pos and c.energy >= Config.effective_move_cost(c.facing, c.pos, away, c.statuses):
-		acts.append({"id": "move", "tile": away})
+	# Every legal, affordable orthogonal step -- toward, away, AND lateral -- so the
+	# scorer can pick the most efficient reposition instead of only "straight in" or
+	# "straight back". Previously only toward/away were offered, so a cheaper sidestep
+	# was literally impossible for the AI to choose.
+	for dv in DIRS:
+		var tile: Vector2i = c.pos + dv
+		if not grid.in_bounds(tile) or grid.is_blocked(tile) or tile == foe.pos:
+			continue
+		if c.energy >= Config.effective_move_cost(c.facing, c.pos, tile, c.statuses):
+			acts.append({"id": "move", "tile": tile})
 
 	if dist == 1 and Config.can_afford(c.energy, c.mp, c.statuses, "attack"):
 		acts.append({"id": "attack", "tile": foe.pos})

@@ -48,6 +48,8 @@ const W_MOBILITY := 1.2  # MAP awareness: free adjacent tiles (escape routes) mi
 const LOW_HP   := 35     # at/below this hp, value survival/disengagement
 const W_SURVIVE := 6.0   # when low, penalise being close to the foe (make space to heal)
 const ADAPT    := 0.5    # how much to trust observed foe behaviour vs the rational model [0..1]
+const MIX_MARGIN := 4.0  # only moves within this of the best may be sampled (keeps it strong)
+const MIX_TEMP   := 2.5   # softmax temp among near-best moves -> unpredictable without throwing games
 
 static func choose_sequence(me: Combatant, foe: Combatant, grid: Grid, spells: Array, opp_model = null) -> Array:
 	# Unconditional one-liner (NOT behind DEBUG): if this never prints in the editor's
@@ -103,20 +105,49 @@ static func choose_sequence(me: Combatant, foe: Combatant, grid: Grid, spells: A
 	for e in scored:
 		e["p"] = float(e["p"]) / zk
 
-	# 5: expected-score argmax over MY candidates. Challenging's pick is the floor.
-	var best: Array = ChallengingAI.choose_sequence(me, foe, grid, spells)
-	var best_exp := _expected(me, foe, grid, best, scored)
+	# 5: expected score over MY candidates, then MIX among the near-best so the AI
+	# isn't a deterministic puppet you can read and rest out. Challenging's pick is
+	# kept as a floor candidate.
+	var cands: Array = []
+	var floor_seq: Array = ChallengingAI.choose_sequence(me, foe, grid, spells)
+	cands.append({"seq": floor_seq, "ex": _expected(me, foe, grid, floor_seq, scored)})
 	for my_seq in ChallengingAI._candidates(me, foe, grid):
 		if my_seq.is_empty():
 			continue
-		var ex := _expected(me, foe, grid, my_seq, scored)
-		if ex > best_exp:
-			best_exp = ex
-			best = my_seq
+		cands.append({"seq": my_seq, "ex": _expected(me, foe, grid, my_seq, scored)})
 
+	var pick: Dictionary = _mix_pick(cands)
 	if DEBUG:
-		_dump(scored, best, best_exp)
-	return best
+		_dump(scored, pick["seq"], float(pick["ex"]))
+	return pick["seq"]
+
+# Pick among the near-best candidates by softmax-sampling, so closely-matched moves
+# vary turn to turn instead of always the same argmax (which you can read and rest
+# out). Moves more than MIX_MARGIN below the best are never chosen, so strength
+# holds; among the rest, better moves are likelier. Nondeterministic by design.
+static func _mix_pick(cands: Array) -> Dictionary:
+	if cands.is_empty():
+		return {"seq": [{"id": "rest"}], "ex": 0.0}
+	var bex := -INF
+	for c in cands:
+		bex = maxf(bex, float(c["ex"]))
+	var pool: Array = []
+	var z := 0.0
+	for c in cands:
+		if float(c["ex"]) >= bex - MIX_MARGIN:
+			var w: float = exp((float(c["ex"]) - bex) / MIX_TEMP)
+			c["w"] = w
+			z += w
+			pool.append(c)
+	if pool.is_empty() or z <= 0.0:
+		return cands[0]
+	var r := randf() * z
+	var acc := 0.0
+	for c in pool:
+		acc += float(c["w"])
+		if r <= acc:
+			return c
+	return pool[pool.size() - 1]
 
 # Mean recent frequency of the action categories in a foe candidate sequence --
 # the empirical (observed-behaviour) weight used by the ADAPT blend.

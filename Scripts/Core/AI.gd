@@ -22,16 +22,18 @@ enum Difficulty { EASY, CHALLENGING, HARD, EXTREME }
 static var selected_difficulty: int = Difficulty.CHALLENGING
 
 static func choose_sequence(difficulty: int, me: Combatant, foe: Combatant,
-		grid: Grid, spells: Array) -> Array:
+		grid: Grid, spells: Array, opp_model = null) -> Array:
 	match difficulty:
 		Difficulty.EASY:
 			return StubOpponent.choose_sequence(me, foe, grid, spells)
 		Difficulty.CHALLENGING:
 			return ChallengingAI.choose_sequence(me, foe, grid, spells)
 		Difficulty.HARD:
-			return HardAI.choose_sequence(me, foe, grid, spells)
+			return HardAI.choose_sequence(me, foe, grid, spells, opp_model)
 		Difficulty.EXTREME:
-			return HardAI.choose_sequence(me, foe, grid, spells)  # TODO: matrix/Nash solve; HardAI is strongest until then
+			return HardAI.choose_sequence(me, foe, grid, spells, opp_model)  # TODO: matrix/Nash solve; HardAI is strongest until then
+		_:
+			return StubOpponent.choose_sequence(me, foe, grid, spells)
 		_:
 			return StubOpponent.choose_sequence(me, foe, grid, spells)
 
