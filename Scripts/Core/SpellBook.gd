@@ -54,5 +54,5 @@ const SPELLS := {
 # Timed statuses (buffs/debuffs). duration = how many of the owner's turns it
 # lasts after the turn it is applied.
 const STATUSES := {
-	"energy_discount": { "duration": 5, "energy_cost_reduction": 5 },
+	"energy_discount": { "duration": 3, "energy_cost_reduction": 5 },   # lasts 3 full turns after cast (=6 actions @ 2/turn)
 }
