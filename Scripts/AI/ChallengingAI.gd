@@ -13,9 +13,6 @@
 class_name ChallengingAI
 extends RefCounted
 
-const W_DEAL := 1.0      # value of damage dealt to the foe
-const W_TAKE := 1.25     # cost of damage taken (slightly > dealt: prefer not trading down)
-const W_WIN := 1000.0    # winning / losing the duel dominates everything
 const W_RES := 0.02      # tiny reward for keeping energy/mp (don't bleed dry)
 const W_DIST := 0.4      # mild reward for staying close (keeps pressure on)
 
@@ -47,10 +44,10 @@ static func _score(me: Combatant, foe: Combatant, grid: Grid, my_seq: Array, foe
 	var me_after: Combatant = out["b"]
 	var dealt := float(foe.hp - foe_after.hp)
 	var taken := float(me.hp - me_after.hp)
-	var s := dealt * W_DEAL - taken * W_TAKE
+	var s := dealt * Eval.W_DEAL - taken * Eval.W_TAKE
 	match String(out["result"]):
-		"b_wins": s += W_WIN
-		"a_wins": s -= W_WIN
+		"b_wins": s += Eval.W_WIN
+		"a_wins": s -= Eval.W_WIN
 	s += float(me_after.energy + me_after.mp) * W_RES
 	s -= float(Grid.dist(me_after.pos, foe_after.pos)) * W_DIST
 	return s

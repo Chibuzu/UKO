@@ -38,7 +38,7 @@ static func choose_sequence(me: Combatant, foe: Combatant, grid: Grid, spells: A
 	for my_seq in my_cands:
 		var row: Array = []
 		for foe_seq in foe_cands:
-			row.append(HardAI._score_rich(me, foe, grid, my_seq, foe_seq))
+			row.append(Eval.score_rich(me, foe, grid, my_seq, foe_seq))
 		M.append(row)
 
 	# Solve for my unexploitable mixed strategy, then sample my move from it. The
