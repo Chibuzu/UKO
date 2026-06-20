@@ -19,7 +19,6 @@ const W_WIN := 1000.0    # winning / losing the duel dominates everything
 const W_RES := 0.02      # tiny reward for keeping energy/mp (don't bleed dry)
 const W_DIST := 0.4      # mild reward for staying close (keeps pressure on)
 
-const DIRS := [Vector2i(0, -1), Vector2i(0, 1), Vector2i(-1, 0), Vector2i(1, 0)]
 
 static func choose_sequence(me: Combatant, foe: Combatant, grid: Grid, spells: Array) -> Array:
 	# Assume the enemy plays the simple (Easy) move this turn, then optimize.
@@ -30,7 +29,7 @@ static func choose_sequence(me: Combatant, foe: Combatant, grid: Grid, spells: A
 	var best: Array = StubOpponent.choose_sequence(me, foe, grid, spells)
 	var best_score := _score(me, foe, grid, best, foe_seq)
 
-	for seq in _candidates(me, foe, grid):
+	for seq in AIToolkit.candidates(me, foe, grid):
 		if seq.is_empty():
 			continue
 		var sc := _score(me, foe, grid, seq, foe_seq)
@@ -55,76 +54,3 @@ static func _score(me: Combatant, foe: Combatant, grid: Grid, my_seq: Array, foe
 	s += float(me_after.energy + me_after.mp) * W_RES
 	s -= float(Grid.dist(me_after.pos, foe_after.pos)) * W_DIST
 	return s
-
-# Bounded set of candidate sequences: each sensible first action alone, paired
-# with each sensible second action (judged from the projected state), plus Rest.
-static func _candidates(me: Combatant, foe: Combatant, grid: Grid) -> Array:
-	var seqs: Array = [[{"id": "rest"}]]
-	for a1 in _slot_actions(me, foe, grid):
-		seqs.append([a1])
-		var proj := me.clone()
-		AIToolkit.apply_projection(proj, a1)
-		for a2 in _slot_actions(proj, foe, grid):
-			seqs.append([a1, a2])
-	return seqs
-
-# Sensible actions for one slot from a given state. Generic over spells (reads
-# shape/needs_tile), so it works for whatever gear is equipped.
-static func _slot_actions(c: Combatant, foe: Combatant, grid: Grid) -> Array:
-	var acts: Array = []
-	var dist := Grid.dist(c.pos, foe.pos)
-
-	# Every legal, affordable orthogonal step -- toward, away, AND lateral -- so the
-	# scorer can pick the most efficient reposition instead of only "straight in" or
-	# "straight back". Previously only toward/away were offered, so a cheaper sidestep
-	# was literally impossible for the AI to choose.
-	for dv in DIRS:
-		var tile: Vector2i = c.pos + dv
-		if not grid.in_bounds(tile) or grid.is_blocked(tile) or tile == foe.pos:
-			continue
-		if c.energy >= Config.effective_move_cost(c.facing, c.pos, tile, c.statuses):
-			acts.append({"id": "move", "tile": tile})
-
-	if dist == 1 and Config.can_afford(c.energy, c.mp, c.statuses, "attack"):
-		acts.append({"id": "attack", "tile": foe.pos})
-
-	var face := _facing_toward(c.pos, foe.pos)
-	if face != c.facing:
-		acts.append({"id": "pivot", "facing": face})
-
-	if Config.can_afford(c.energy, c.mp, c.statuses, "guard"):
-		acts.append({"id": "guard"})
-
-	for sid in c.spell_ids():
-		if not AIToolkit.can_use(c, sid):
-			continue
-		var d := Config.def(sid)
-		if d.get("needs_tile", false):
-			if AIToolkit.clear_line(c, foe, grid, int(d.get("range", 1))):
-				acts.append({"id": sid, "tile": foe.pos})
-		else:
-			acts.append({"id": sid})
-
-	acts.append({"id": "wait"})
-	return acts
-
-# A legal neighbour that increases distance from the foe (kiting step).
-static func _step_away(c: Combatant, foe: Combatant, grid: Grid) -> Vector2i:
-	var best := c.pos
-	var best_d := Grid.dist(c.pos, foe.pos)
-	for dv in DIRS:
-		var p: Vector2i = c.pos + dv
-		if not grid.in_bounds(p) or grid.is_blocked(p) or p == foe.pos:
-			continue
-		var nd := Grid.dist(p, foe.pos)
-		if nd > best_d:
-			best_d = nd
-			best = p
-	return best
-
-# Cardinal facing pointing at the foe (dominant axis; +y is south).
-static func _facing_toward(from: Vector2i, to: Vector2i) -> int:
-	var d := to - from
-	if absi(d.x) >= absi(d.y):
-		return Config.Facing.EAST if d.x >= 0 else Config.Facing.WEST
-	return Config.Facing.SOUTH if d.y >= 0 else Config.Facing.NORTH

@@ -50,9 +50,9 @@ static func choose_sequence(me: Combatant, foe: Combatant, grid: Grid, spells: A
 	if DEBUG:
 		print("[HardAI] running")
 	# 1-2: my candidate moves (Challenging's pick floored in) and the foe's replies.
-	var foe_cands: Array = ChallengingAI._candidates(foe, me, grid)
+	var foe_cands: Array = AIToolkit.candidates(foe, me, grid)
 	var my_cands: Array = [ChallengingAI.choose_sequence(me, foe, grid, spells)]
-	for s in ChallengingAI._candidates(me, foe, grid):
+	for s in AIToolkit.candidates(me, foe, grid):
 		if not s.is_empty():
 			my_cands.append(s)
 

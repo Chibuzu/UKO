@@ -18,11 +18,11 @@ static func choose_sequence(me: Combatant, foe: Combatant, grid: Grid, spells: A
 	# Rows = my candidate moves, columns = the foe's feasible replies (same
 	# generators HARD/Challenging use).
 	var my_cands: Array = []
-	for s in ChallengingAI._candidates(me, foe, grid):
+	for s in AIToolkit.candidates(me, foe, grid):
 		if not s.is_empty():
 			my_cands.append(s)
 	var foe_cands: Array = []
-	for s in ChallengingAI._candidates(foe, me, grid):
+	for s in AIToolkit.candidates(foe, me, grid):
 		if not s.is_empty():
 			foe_cands.append(s)
 	if my_cands.is_empty():

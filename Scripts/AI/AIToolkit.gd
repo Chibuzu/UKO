@@ -50,3 +50,66 @@ static func clear_line(me: Combatant, foe: Combatant, grid: Grid, rng: int) -> b
 		if grid.is_blocked(p):
 			return false
 	return true
+
+# ── Candidate generation ─────────────────────────────────────────────────
+const DIRS := [Vector2i(0, -1), Vector2i(0, 1), Vector2i(-1, 0), Vector2i(1, 0)]
+
+# Bounded set of candidate sequences: each sensible first action alone, paired
+# with each sensible second action (judged from the projected state), plus Rest.
+static func candidates(me: Combatant, foe: Combatant, grid: Grid) -> Array:
+	var seqs: Array = [[{"id": "rest"}]]
+	for a1 in slot_actions(me, foe, grid):
+		seqs.append([a1])
+		var proj := me.clone()
+		apply_projection(proj, a1)
+		for a2 in slot_actions(proj, foe, grid):
+			seqs.append([a1, a2])
+	return seqs
+
+# Sensible actions for one slot from a given state. Generic over spells (reads
+# shape/needs_tile), so it works for whatever gear is equipped.
+static func slot_actions(c: Combatant, foe: Combatant, grid: Grid) -> Array:
+	var acts: Array = []
+	var dist := Grid.dist(c.pos, foe.pos)
+
+	# Every legal, affordable orthogonal step -- toward, away, AND lateral -- so the
+	# scorer can pick the most efficient reposition instead of only "straight in" or
+	# "straight back". Previously only toward/away were offered, so a cheaper sidestep
+	# was literally impossible for the AI to choose.
+	for dv in DIRS:
+		var tile: Vector2i = c.pos + dv
+		if not grid.in_bounds(tile) or grid.is_blocked(tile) or tile == foe.pos:
+			continue
+		if c.energy >= Config.effective_move_cost(c.facing, c.pos, tile, c.statuses):
+			acts.append({"id": "move", "tile": tile})
+
+	if dist == 1 and Config.can_afford(c.energy, c.mp, c.statuses, "attack"):
+		acts.append({"id": "attack", "tile": foe.pos})
+
+	var face := facing_toward(c.pos, foe.pos)
+	if face != c.facing:
+		acts.append({"id": "pivot", "facing": face})
+
+	if Config.can_afford(c.energy, c.mp, c.statuses, "guard"):
+		acts.append({"id": "guard"})
+
+	for sid in c.spell_ids():
+		if not can_use(c, sid):
+			continue
+		var d := Config.def(sid)
+		if d.get("needs_tile", false):
+			if clear_line(c, foe, grid, int(d.get("range", 1))):
+				acts.append({"id": sid, "tile": foe.pos})
+		else:
+			acts.append({"id": sid})
+
+	acts.append({"id": "wait"})
+	return acts
+
+
+# Cardinal facing pointing at the foe (dominant axis; +y is south).
+static func facing_toward(from: Vector2i, to: Vector2i) -> int:
+	var d := to - from
+	if absi(d.x) >= absi(d.y):
+		return Config.Facing.EAST if d.x >= 0 else Config.Facing.WEST
+	return Config.Facing.SOUTH if d.y >= 0 else Config.Facing.NORTH
