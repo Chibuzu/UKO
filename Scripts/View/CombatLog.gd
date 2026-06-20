@@ -29,6 +29,11 @@ func add_turn(turn_num: int, events: Array) -> void:
 func _push(text: String, color: Color) -> void:
 	lines.append({"text": text, "color": color})
 
+# Wipe the log (used by the replay viewer to rebuild it through a chosen turn).
+func clear() -> void:
+	lines = []
+	queue_redraw()
+
 # ── Event -> readable line. Returns "" for events not worth showing. ────
 func _format(e: Dictionary) -> String:
 	var o: String = e.get("owner", "")
@@ -54,7 +59,7 @@ func _format(e: Dictionary) -> String:
 		"rest_interrupted":
 			return "%s rest interrupted" % o
 		"wait":
-			return "%s waits (acts first next turn)" % o
+			return "%s waits (+%d en, next action faster)" % [o, Config.WAIT_ENERGY]
 		"energy_pulse":
 			return "%s +%d energy" % [o, int(e.get("amount", 0))]
 		"spell_cast":

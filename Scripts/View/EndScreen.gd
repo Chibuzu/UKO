@@ -13,6 +13,7 @@ const GAP := 16
 var _result := ""
 var _color := Color.WHITE
 var _buttons := [
+	{"id": "replay", "label": "REPLAY"},
 	{"id": "rematch", "label": "REMATCH"},
 	{"id": "menu", "label": "MAIN MENU"},
 ]
