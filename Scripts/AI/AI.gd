@@ -31,7 +31,7 @@ static func choose_sequence(difficulty: int, me: Combatant, foe: Combatant,
 		Difficulty.HARD:
 			return HardAI.choose_sequence(me, foe, grid, spells, opp_model)
 		Difficulty.EXTREME:
-			return HardAI.choose_sequence(me, foe, grid, spells, opp_model)  # TODO: matrix/Nash solve; HardAI is strongest until then
+			return ExtremeAI.choose_sequence(me, foe, grid, spells, opp_model)  # game-theoretic equilibrium
 		_:
 			return StubOpponent.choose_sequence(me, foe, grid, spells)
 		_:

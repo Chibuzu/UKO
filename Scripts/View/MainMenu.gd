@@ -19,13 +19,14 @@ var _buttons := [
 	{"id": "gear", "label": "GEAR", "on": false},
 ]
 
-# Difficulty page. EASY + CHALLENGING are real; HARD/EXTREME currently fall back
-# to CHALLENGING, so they're shown but disabled until they're actually built.
+# Difficulty page. All four brains are built: EASY (Stub ladder), CHALLENGING
+# (shallow best-response), HARD (robust threat/resource strategist), EXTREME
+# (game-theoretic equilibrium).
 var _diff_buttons := [
 	{"diff": AI.Difficulty.EASY,        "label": "EASY",        "on": true},
 	{"diff": AI.Difficulty.CHALLENGING, "label": "CHALLENGING", "on": true},
 	{"diff": AI.Difficulty.HARD,        "label": "HARD",        "on": true},
-	{"diff": AI.Difficulty.EXTREME,     "label": "EXTREME",     "on": false},
+	{"diff": AI.Difficulty.EXTREME,     "label": "EXTREME",     "on": true},
 	{"diff": -1,                        "label": "BACK",        "on": true},
 ]
 
