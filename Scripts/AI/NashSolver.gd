@@ -16,6 +16,11 @@ const ITERS := 600   # regret-matching iterations; ~0.01 strategy error, a few m
 # M: rows x cols, the ROW player's payoff. Returns a probability distribution over
 # rows (length = M.size()) = the row player's equilibrium strategy.
 static func solve(M: Array) -> Array:
+	return solve_iters(M, ITERS)
+
+# Same regret-matching solve with an explicit iteration budget; the subgame nodes
+# in EXTREME's lookahead pass a smaller one to stay affordable.
+static func solve_iters(M: Array, iters: int) -> Array:
 	var n := M.size()
 	if n == 0:
 		return []
@@ -27,7 +32,7 @@ static func solve(M: Array) -> Array:
 	var reg_c := _zeros(m)   # column player's cumulative regret per move
 	var sum_r := _zeros(n)   # accumulated row strategy (its time-average is the answer)
 
-	for _t in range(ITERS):
+	for _t in range(iters):
 		var sr := _strategy(reg_r)          # current row mix from positive regrets
 		var sc := _strategy(reg_c)          # current column mix
 
@@ -61,6 +66,23 @@ static func solve(M: Array) -> Array:
 			sum_r[i] = float(sum_r[i]) + float(sr[i])
 
 	return _normalize(sum_r)
+
+# Row player's guaranteed (maximin) value when committing to `row_mix`: the column
+# player best-responds, so it is the worst column. Used to value a solved subgame.
+static func value_of(M: Array, row_mix: Array) -> float:
+	var n := M.size()
+	if n == 0:
+		return 0.0
+	var m: int = (M[0] as Array).size()
+	if m == 0:
+		return 0.0
+	var worst := INF
+	for j in m:
+		var cv := 0.0
+		for i in n:
+			cv += float(row_mix[i]) * float(M[i][j])
+		worst = minf(worst, cv)
+	return worst
 
 # Regret matching: play proportional to positive cumulative regret (uniform until
 # some regret is positive).

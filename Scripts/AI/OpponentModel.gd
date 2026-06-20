@@ -44,3 +44,21 @@ static func category_of(action: Dictionary) -> String:
 	if Config.is_spell(id):
 		return "spell"
 	return String(Config.def(id).get("category", ""))
+
+# Relative likelihood the foe plays a sequence with these categories, from the
+# recency-weighted tally. Averaged over the sequence's actions, with a small floor
+# so an unseen line still gets some mass. The caller normalizes across candidates.
+func weight_of(seq: Array) -> float:
+	if not is_warm():
+		return 1.0
+	var sum := 0.0
+	var n := 0
+	for action in seq:
+		var cat := category_of(action)
+		if cat == "":
+			continue
+		sum += freq(cat) + 0.05
+		n += 1
+	if n == 0:
+		return 0.05
+	return sum / float(n)

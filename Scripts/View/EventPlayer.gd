@@ -57,6 +57,12 @@ func _visualize(e: Dictionary) -> float:
 			if u:
 				u.set_facing(e["facing"])
 			return 0.15
+		"blink":
+			if u:
+				u.tween_to(e["to"])
+				if e.has("facing"):
+					u.set_facing(int(e["facing"]))
+			return ViewConfig.MOVE_DUR
 		"attack_hit":
 			if u:
 				u.play_anim("attack")
@@ -145,6 +151,8 @@ func _cast_visual(caster: UnitView, e: Dictionary) -> void:
 			if not fx.aoe_anim(caster.position):
 				board.flash_tiles(tiles, color)            # fallback if art missing
 			board.shake(ViewConfig.SHAKE_HIT * 0.7)
+		"blink":
+			fx.burst(caster.position, color, 10)
 		"self_buff":
 			fx.burst(caster.position, color, 10)
 		_:
@@ -157,6 +165,8 @@ func _style_color(style: String) -> Color:
 		"projectile":
 			return ViewConfig.COL_FX_BOLT
 		"self_buff":
+			return ViewConfig.COL_FX_BUFF
+		"blink":
 			return ViewConfig.COL_FX_BUFF
 		_:
 			return ViewConfig.COL_FX_AOE

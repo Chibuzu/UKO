@@ -40,6 +40,8 @@ func _format(e: Dictionary) -> String:
 	match e["type"]:
 		"move":
 			return "%s moves to %s" % [o, _t(e["to"])]
+		"blink":
+			return "%s blinks to %s" % [o, _t(e["to"])]
 		"move_blocked":
 			return "%s move blocked" % o
 		"pivot":
@@ -72,8 +74,10 @@ func _format(e: Dictionary) -> String:
 			return "   %s active" % _status(e["status"])
 		"game_over":
 			return "== %s ==" % _result(e["result"])
+		"guard_raised":
+			return "%s guards" % o
 		_:
-			return ""    # guard_raised, rest, dead_skip, illegal_action: hidden
+			return ""    # rest, dead_skip, illegal_action: hidden
 
 func _line_color(e: Dictionary) -> Color:
 	if e["type"] == "game_over":

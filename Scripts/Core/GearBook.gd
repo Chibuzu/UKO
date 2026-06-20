@@ -31,6 +31,11 @@ const GEAR := {
 		"block_color": Color("7a4fd0"),
 		"spell": "dark_bolt",
 	},
+	"blink_boots": {
+		"name": "Blink Boots",
+		"block_color": Color("3cc8e0"),
+		"spell": "blink_step",
+	},
 }
 
 static func gear_def(gear_id: String) -> Dictionary:

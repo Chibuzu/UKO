@@ -49,6 +49,16 @@ const SPELLS := {
 		"ai_role": "poke",
 		"vfx": { "style": "projectile", "cast_anim": "bolt", "projectile": "bolt_proj" },
 	},
+	"blink_step": {
+		"name": "BLINK", "category": "spell",
+		"band": Config.Band.PIVOT, "base_tick": 0,   # fast: resolves before the ATTACK band
+		"energy_cost": 0, "mp_cost": 40, "cooldown": 4,
+		"needs_tile": true,                          # player aims a direction
+		"shape": "blink", "range": 2,                # fixed 2-tile jump, phases through tile 1
+		"effect": { "type": "blink" },               # relocate the caster (+ free reface)
+		"ai_role": "blink",
+		"vfx": { "style": "blink", "cast_anim": "" },
+	},
 }
 
 # Timed statuses (buffs/debuffs). duration = how many of the owner's turns it

@@ -19,6 +19,12 @@ static func apply_projection(c: Combatant, action: Dictionary) -> void:
 		c.pos = action["tile"]
 	elif cat == "pivot" and action.has("facing"):
 		c.facing = int(action["facing"])
+	elif Config.is_blink(id) and action.has("tile"):
+		c.energy = maxi(0, c.energy - Config.effective_energy_cost(id, c.statuses))
+		c.mp = maxi(0, c.mp - int(d.get("mp_cost", 0)))
+		c.pos = action["tile"]
+		if action.has("facing"):
+			c.facing = int(action["facing"])
 	else:
 		c.energy = maxi(0, c.energy - Config.effective_energy_cost(id, c.statuses))
 		c.mp = maxi(0, c.mp - int(d.get("mp_cost", 0)))
@@ -56,13 +62,26 @@ static func clear_line(me: Combatant, foe: Combatant, grid: Grid, rng: int) -> b
 # Bounded set of candidate sequences: each sensible first action alone, paired
 # with each sensible second action (judged from the projected state), plus Rest.
 static func candidates(me: Combatant, foe: Combatant, grid: Grid) -> Array:
-	var seqs: Array = [[{"id": "rest"}]]
+	var seqs: Array = []
+	# REST only earns a slot if it can actually regen. At full HP and MP it heals
+	# nothing and grants no energy, so offering it just lets the mixer waste a turn.
+	if me.hp < Config.MAX_HP or me.mp < Config.MAX_MP:
+		seqs.append([{"id": "rest"}])
 	for a1 in slot_actions(me, foe, grid):
-		seqs.append([a1])
+		# A lone WAIT at full energy banks nothing and has no later action to speed:
+		# a pure pass. (A WAIT that PRECEDES another action is kept below, because it
+		# still front-loads that action.)
+		if not (a1.get("id") == "wait" and me.energy >= Config.MAX_ENERGY):
+			seqs.append([a1])
 		var proj := me.clone()
 		apply_projection(proj, a1)
 		for a2 in slot_actions(proj, foe, grid):
+			# A TRAILING WAIT that cannot bank energy (already capped) is a dead no-op.
+			if a2.get("id") == "wait" and proj.energy >= Config.MAX_ENERGY:
+				continue
 			seqs.append([a1, a2])
+	if seqs.is_empty():
+		seqs = [[{"id": "rest"}]]   # never hand back an empty candidate set
 	return seqs
 
 # Sensible actions for one slot from a given state. Generic over spells (reads
@@ -96,6 +115,15 @@ static func slot_actions(c: Combatant, foe: Combatant, grid: Grid) -> Array:
 		if not can_use(c, sid):
 			continue
 		var d := Config.def(sid)
+		if Config.is_blink(sid):
+			# Directional: one candidate per cardinal that has a valid landing, refaced
+			# toward the foe (best for a backstab follow-up and not exposing our back).
+			for dv in Grid.DIRS:
+				var bl := Config.blink_landing(grid, c.pos, dv, int(d.get("range", 1)), foe.pos)
+				if bl.is_empty():
+					continue
+				acts.append({"id": sid, "tile": bl["tile"], "facing": facing_toward(bl["tile"], foe.pos)})
+			continue
 		if d.get("needs_tile", false):
 			if clear_line(c, foe, grid, int(d.get("range", 1))):
 				acts.append({"id": sid, "tile": foe.pos})

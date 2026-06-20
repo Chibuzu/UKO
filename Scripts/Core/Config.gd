@@ -91,6 +91,19 @@ static func def(id: String) -> Dictionary:
 static func is_spell(id: String) -> bool:
 	return SpellBook.SPELLS.has(id)
 
+static func is_blink(id: String) -> bool:
+	return String(def(id).get("effect", {}).get("type", "")) == "blink"
+
+# Landing tile of a fixed-distance directional blink, or {} if it cannot land.
+# Travels `dist` tiles along cardinal `dir`, PHASING THROUGH whatever sits on the
+# intervening tiles (wall or fighter). Only the LANDING tile must be free: in
+# bounds, not a wall, not the foe. (Short range keeps the wall-hop from trivializing corners.)
+static func blink_landing(grid: Grid, from: Vector2i, dir: Vector2i, dist: int, foe_pos: Vector2i) -> Dictionary:
+	var land: Vector2i = from + dir * dist
+	if not grid.in_bounds(land) or grid.is_blocked(land) or land == foe_pos:
+		return {}
+	return {"tile": land}
+
 static func cooldown_of(id: String) -> int:
 	return int(def(id).get("cooldown", 0))
 

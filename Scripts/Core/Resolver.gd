@@ -262,6 +262,10 @@ static func _plan(c: Combatant, seq: Array, events: Array) -> Dictionary:
 			vpos = act["tile"]
 		elif cat == "pivot" and act.has("facing"):
 			vfacing = int(act["facing"])
+		elif Config.is_blink(aid) and act.has("tile"):
+			vpos = act["tile"]            # a blink relocates: plan the next action from the landing
+			if act.has("facing"):
+				vfacing = int(act["facing"])
 		# A self-buff that commits here discounts LATER actions' energy this same
 		# turn (shared helper, also used by the UI projection). Applied AFTER paying
 		# for the buff itself, and only to pstat -- never c.statuses (resolution
@@ -285,7 +289,7 @@ static func _schedule(c: Combatant, action: Dictionary, slot: int, vpos: Vector2
 	if boost:
 		within = 0   # carried guard initiative (slot 0) or a WAIT earlier this turn: front of band
 	var facing := vfacing
-	if d["category"] == "pivot" and action.has("facing"):
+	if action.has("facing") and (d["category"] == "pivot" or String(d.get("effect", {}).get("type", "")) == "blink"):
 		facing = int(action["facing"])
 	return {
 		"owner": c.id,
@@ -386,6 +390,15 @@ static func _cast_spell(grid: Grid, caster: Combatant, target: Combatant, s: Dic
 
 	var eff: Dictionary = d["effect"]
 	match eff["type"]:
+		"blink":
+			# Relocate the caster along the aimed cardinal, phasing through tile 1.
+			# Recomputed live: if the foe stepped onto the landing tile, the blink fizzles.
+			var bdir := _dir_from(caster.pos, s.get("tile", caster.pos))
+			var land := Config.blink_landing(grid, caster.pos, bdir, int(d.get("range", 1)), target.pos)
+			if not land.is_empty():
+				caster.pos = land["tile"]
+			caster.facing = int(s.get("facing", caster.facing))   # free reface rides on the action
+			events.append(_ev("blink", tick, caster.id, {"to": caster.pos, "facing": caster.facing}))
 		"apply_status":
 			var who: Combatant = caster if eff.get("to", "self") == "self" else target
 			var st: String = eff["status"]
@@ -406,6 +419,15 @@ static func _shape_tiles(grid: Grid, caster: Combatant, d: Dictionary, target_ti
 	match d.get("shape", "self"):
 		"self":
 			return [caster.pos]
+		"blink":
+			var bdir := _dir_from(caster.pos, target_tile)
+			var bt := []
+			var bp: Vector2i = caster.pos
+			for _i in range(int(d.get("range", 1))):
+				bp += bdir
+				if grid.in_bounds(bp):
+					bt.append(bp)
+			return bt
 		"around":
 			var out := []
 			for dy in [-1, 0, 1]:

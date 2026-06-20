@@ -33,6 +33,8 @@ static func melee_damage(att: Combatant, def: Combatant, grid: Grid) -> int:
 		elif Grid.dist(att.pos, t) == 1:
 			# step into t, then swing (2 slots). t is orthogonally next to att.
 			cost = Config.effective_move_cost(att.facing, att.pos, t, att.statuses) + Config.COST_ATTACK
+		elif _can_blink_to(att, t, def, grid):
+			cost = Config.COST_ATTACK             # blink relocates (mp); only the swing costs energy
 		else:
 			continue                              # can't both reach t and swing this turn
 		if att.energy < cost:
@@ -89,6 +91,22 @@ static func has_melee_threat(att: Combatant, def: Combatant, grid: Grid) -> bool
 # AI's threat read and the resolver's damage step share one definition.
 static func flank_of(def: Combatant, at: Vector2i) -> String:
 	return Config.flank_tier(def.facing, def.pos, at)
+
+# Can `att` blink onto strike tile `t` (a fixed directional jump that phases
+# through tile 1), with mp + cooldown ready? Lets the threat read see the
+# blink-behind backstab from a line away, not just from adjacency.
+static func _can_blink_to(att: Combatant, t: Vector2i, foe: Combatant, grid: Grid) -> bool:
+	for sid in att.spell_ids():
+		if not Config.is_blink(sid):
+			continue
+		if int(att.cooldowns.get(sid, 0)) > 0 or att.mp < int(Config.def(sid).get("mp_cost", 0)):
+			continue
+		var rng := int(Config.def(sid).get("range", 2))
+		for dv in Grid.DIRS:
+			var bl := Config.blink_landing(grid, att.pos, dv, rng, foe.pos)
+			if not bl.is_empty() and bl["tile"] == t:
+				return true
+	return false
 
 static func _cheb(a: Vector2i, b: Vector2i) -> int:
 	return maxi(absi(a.x - b.x), absi(a.y - b.y))
