@@ -16,7 +16,6 @@
 class_name ThreatModel
 extends RefCounted
 
-const DIRS := [Vector2i(0, -1), Vector2i(0, 1), Vector2i(-1, 0), Vector2i(1, 0)]
 
 # ── Melee ───────────────────────────────────────────────────────────────
 # Max basic-attack damage `att` can land on `def` this turn (0 if none). Honours
@@ -24,7 +23,7 @@ const DIRS := [Vector2i(0, -1), Vector2i(0, 1), Vector2i(-1, 0), Vector2i(1, 0)]
 # against def's current facing.
 static func melee_damage(att: Combatant, def: Combatant, grid: Grid) -> int:
 	var best := 0
-	for dv in DIRS:
+	for dv in Grid.DIRS:
 		var t: Vector2i = def.pos + dv          # an orthogonal strike tile beside def
 		if not grid.in_bounds(t) or grid.is_blocked(t):
 			continue
@@ -86,16 +85,10 @@ static func has_melee_threat(att: Combatant, def: Combatant, grid: Grid) -> bool
 	return melee_damage(att, def, grid) > 0
 
 # ── Geometry helpers (mirror the resolver exactly) ───────────────────────
-# Which face of `def` the tile `at` sits on, by def's facing: front / side / back.
+# Which face of `def` the tile `at` sits on -- defers to Config.flank_tier so the
+# AI's threat read and the resolver's damage step share one definition.
 static func flank_of(def: Combatant, at: Vector2i) -> String:
-	var to_at: Vector2i = at - def.pos
-	var f: Vector2i = Config.FACING_VEC[def.facing]
-	var dot := to_at.x * f.x + to_at.y * f.y
-	if dot > 0:
-		return "front"
-	elif dot < 0:
-		return "back"
-	return "side"
+	return Config.flank_tier(def.facing, def.pos, at)
 
 static func _cheb(a: Vector2i, b: Vector2i) -> int:
 	return maxi(absi(a.x - b.x), absi(a.y - b.y))
@@ -104,7 +97,7 @@ static func _cheb(a: Vector2i, b: Vector2i) -> int:
 static func _can_reach_adjacent(att: Combatant, def: Combatant, grid: Grid) -> bool:
 	if _cheb(att.pos, def.pos) <= 1:
 		return true
-	for dv in DIRS:
+	for dv in Grid.DIRS:
 		var t: Vector2i = att.pos + dv
 		if not grid.in_bounds(t) or grid.is_blocked(t) or t == def.pos:
 			continue
@@ -116,7 +109,7 @@ static func _can_reach_adjacent(att: Combatant, def: Combatant, grid: Grid) -> b
 static func _can_line(att: Combatant, def: Combatant, grid: Grid, rng: int) -> bool:
 	if _ray_hits(att.pos, def.pos, grid, rng):
 		return true
-	for dv in DIRS:
+	for dv in Grid.DIRS:
 		var t: Vector2i = att.pos + dv
 		if not grid.in_bounds(t) or grid.is_blocked(t) or t == def.pos:
 			continue

@@ -8,9 +8,10 @@
 #   EASY        - StubOpponent: a fixed reaction ladder, no look-ahead.
 #   CHALLENGING - ChallengingAI: scores its own candidate sequences by playing
 #                 them through the real resolver against one assumed enemy move.
-#   HARD        - (TODO) model a distribution of enemy moves and counter.
-#   EXTREME     - (TODO) solve the per-turn matrix near-optimally.
-# HARD/EXTREME fall back to CHALLENGING for now so the menu can offer all four.
+#   HARD        - HardAI: scores richer situations (via Eval) and makes a robust
+#                 maximin-with-light-mixing choice over its candidate sequences.
+#   EXTREME     - ExtremeAI: builds the move matrix, solves it for a
+#                 least-exploitable mixed strategy (NashSolver), then samples.
 class_name AI
 extends RefCounted
 

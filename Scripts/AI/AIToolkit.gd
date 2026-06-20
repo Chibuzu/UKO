@@ -52,7 +52,6 @@ static func clear_line(me: Combatant, foe: Combatant, grid: Grid, rng: int) -> b
 	return true
 
 # ── Candidate generation ─────────────────────────────────────────────────
-const DIRS := [Vector2i(0, -1), Vector2i(0, 1), Vector2i(-1, 0), Vector2i(1, 0)]
 
 # Bounded set of candidate sequences: each sensible first action alone, paired
 # with each sensible second action (judged from the projected state), plus Rest.
@@ -76,7 +75,7 @@ static func slot_actions(c: Combatant, foe: Combatant, grid: Grid) -> Array:
 	# scorer can pick the most efficient reposition instead of only "straight in" or
 	# "straight back". Previously only toward/away were offered, so a cheaper sidestep
 	# was literally impossible for the AI to choose.
-	for dv in DIRS:
+	for dv in Grid.DIRS:
 		var tile: Vector2i = c.pos + dv
 		if not grid.in_bounds(tile) or grid.is_blocked(tile) or tile == foe.pos:
 			continue

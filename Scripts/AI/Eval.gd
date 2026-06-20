@@ -103,7 +103,7 @@ static func _eval_situation(me: Combatant, foe: Combatant, grid: Grid) -> float:
 # fighter): a read of how boxed-in it is.
 static func _mobility(c: Combatant, other: Combatant, grid: Grid) -> int:
 	var n := 0
-	for d in [Vector2i(0, -1), Vector2i(0, 1), Vector2i(-1, 0), Vector2i(1, 0)]:
+	for d in Grid.DIRS:
 		var p: Vector2i = c.pos + d
 		if grid.in_bounds(p) and not grid.is_blocked(p) and other.pos != p:
 			n += 1

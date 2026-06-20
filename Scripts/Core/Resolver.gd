@@ -444,14 +444,8 @@ static func _apply_damage(target: Combatant, dmg: int, tick: int,
 		dead_tick[target.id] = tick
 
 static func _flank(defender: Combatant, attacker_pos: Vector2i) -> String:
-	var to_attacker: Vector2i = attacker_pos - defender.pos
-	var f: Vector2i = Config.FACING_VEC[defender.facing]
-	var dot := to_attacker.x * f.x + to_attacker.y * f.y
-	if dot > 0:
-		return "front"
-	elif dot < 0:
-		return "back"
-	return "side"
+	# THE flank rule lives once in Config; this is just the resolver-side adapter.
+	return Config.flank_tier(defender.facing, defender.pos, attacker_pos)
 
 static func _rest_regen(c: Combatant, sched: Array, own: Dictionary, events: Array) -> void:
 	var enemy_tick := 0

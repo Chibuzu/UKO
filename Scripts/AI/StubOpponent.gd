@@ -88,7 +88,7 @@ static func _aoe_hits(me: Combatant, foe: Combatant) -> bool:
 static func _step_toward(me: Combatant, foe: Combatant, grid: Grid) -> Vector2i:
 	var best := me.pos
 	var best_dist := Grid.dist(me.pos, foe.pos)
-	for dv in [Vector2i(0, -1), Vector2i(0, 1), Vector2i(-1, 0), Vector2i(1, 0)]:
+	for dv in Grid.DIRS:
 		var p: Vector2i = me.pos + dv
 		if not grid.in_bounds(p) or grid.is_blocked(p) or p == foe.pos:
 			continue

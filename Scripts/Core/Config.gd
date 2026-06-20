@@ -55,6 +55,20 @@ const FACING_VEC := {
 const FLANK_MULT := { "front": 1.0, "side": 1.5, "back": 2.0 }
 const ATTACK_DAMAGE := 15   # World B: melee no longer whiffs, so it hits for less
 
+# Which face of a defender (facing `facing`, standing at `def_pos`) the tile
+# `atk_pos` sits on: "front" / "side" / "back". THE flank rule -- the resolver's
+# damage step and the AI's threat read both defer here, so the geometry has a
+# single definition. Multiplier for each tier lives in FLANK_MULT above.
+static func flank_tier(facing: int, def_pos: Vector2i, atk_pos: Vector2i) -> String:
+	var to_atk: Vector2i = atk_pos - def_pos
+	var f: Vector2i = FACING_VEC[facing]
+	var dot := to_atk.x * f.x + to_atk.y * f.y
+	if dot > 0:
+		return "front"
+	elif dot < 0:
+		return "back"
+	return "side"
+
 # ── Basic actions ───────────────────────────────────────────────────────
 const ACTIONS := {
 	"move":  { "band": Band.MOVE,   "base_tick": 20, "energy_cost": COST_MOVE_FWD, "mp_cost": 0, "needs_tile": true,  "category": "move" },

@@ -8,7 +8,6 @@ extends Node
 
 signal player_sequence_ready(seq: Array)
 
-const DIRS := [Vector2i(0, -1), Vector2i(0, 1), Vector2i(-1, 0), Vector2i(1, 0)]
 
 # Loadouts are GEAR now, not spells. Each slot (1-4) holds a GearBook id
 # ("" = empty/white block); the spell it grants is derived from the gear, so
@@ -384,7 +383,7 @@ func _planned_labels() -> Array:
 #    earlier actions leave you) ────────────────────────────────────────────
 func _adjacent_tiles() -> Array:
 	var out := []
-	for dv in DIRS:
+	for dv in Grid.DIRS:
 		var p: Vector2i = plan_c.pos + dv
 		if grid.in_bounds(p):
 			out.append(p)
@@ -392,7 +391,7 @@ func _adjacent_tiles() -> Array:
 
 func _legal_moves() -> Array:
 	var out := []
-	for dv in DIRS:
+	for dv in Grid.DIRS:
 		var p: Vector2i = plan_c.pos + dv
 		# The foe's tile is now a legal target: if they vacate (or you both move
 		# into each other -> swap) you take it, else the move fizzles and is
@@ -406,7 +405,7 @@ func _legal_moves() -> Array:
 # stopping at the first blocker (matches the resolver's line trace).
 func _line_targets(rng: int) -> Array:
 	var out := []
-	for dv in DIRS:
+	for dv in Grid.DIRS:
 		var p: Vector2i = plan_c.pos
 		for _i in range(rng):
 			p += dv
