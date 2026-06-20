@@ -63,7 +63,7 @@ static func _candidates(me: Combatant, foe: Combatant, grid: Grid) -> Array:
 	for a1 in _slot_actions(me, foe, grid):
 		seqs.append([a1])
 		var proj := me.clone()
-		StubOpponent._apply_projection(proj, a1)
+		AIToolkit.apply_projection(proj, a1)
 		for a2 in _slot_actions(proj, foe, grid):
 			seqs.append([a1, a2])
 	return seqs
@@ -96,11 +96,11 @@ static func _slot_actions(c: Combatant, foe: Combatant, grid: Grid) -> Array:
 		acts.append({"id": "guard"})
 
 	for sid in c.spell_ids():
-		if not StubOpponent._can_use(c, sid):
+		if not AIToolkit.can_use(c, sid):
 			continue
 		var d := Config.def(sid)
 		if d.get("needs_tile", false):
-			if StubOpponent._clear_line(c, foe, grid, int(d.get("range", 1))):
+			if AIToolkit.clear_line(c, foe, grid, int(d.get("range", 1))):
 				acts.append({"id": sid, "tile": foe.pos})
 		else:
 			acts.append({"id": sid})

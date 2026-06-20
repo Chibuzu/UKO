@@ -16,27 +16,27 @@ static func choose(me: Combatant, foe: Combatant, grid: Grid, spells: Array) -> 
 	var buff := _role(spells, "buff")     # self buff
 
 	# 1. Ranged poke from range 2-3 on a clear line (save melee for adjacency).
-	if dist >= 2 and poke != "" and _can_use(me, poke):
+	if dist >= 2 and poke != "" and AIToolkit.can_use(me, poke):
 		var rng := int(Config.def(poke).get("range", 3))
-		if _clear_line(me, foe, grid, rng):
+		if AIToolkit.clear_line(me, foe, grid, rng):
 			return {"id": poke, "tile": foe.pos}
 
 	# 2. Adjacent (orthogonal): basic attack is best; AoE is the no-energy backup.
 	if dist == 1:
 		if Config.can_afford(me.energy, me.mp, me.statuses, "attack"):
 			return {"id": "attack", "tile": foe.pos}
-		if aoe != "" and _can_use(me, aoe):
+		if aoe != "" and AIToolkit.can_use(me, aoe):
 			return {"id": aoe}
 		if Config.can_afford(me.energy, me.mp, me.statuses, "guard"):
 			return {"id": "guard"}
 		return {"id": "rest"}
 
 	# 3. Diagonally adjacent: melee can't reach, but the 8-tile AoE can.
-	if _aoe_hits(me, foe) and aoe != "" and _can_use(me, aoe):
+	if _aoe_hits(me, foe) and aoe != "" and AIToolkit.can_use(me, aoe):
 		return {"id": aoe}
 
 	# 4. Out of range: buff during downtime, otherwise approach, otherwise rest.
-	if buff != "" and _can_use(me, buff) and not _buff_active(me, buff) and dist >= 3:
+	if buff != "" and AIToolkit.can_use(me, buff) and not _buff_active(me, buff) and dist >= 3:
 		return {"id": buff}
 	var step := _step_toward(me, foe, grid)
 	if step != me.pos and me.energy >= Config.effective_move_cost(me.facing, me.pos, step, me.statuses):
@@ -55,32 +55,12 @@ static func choose_sequence(me: Combatant, foe: Combatant, grid: Grid, spells: A
 	if Config.def(first.get("id", "")).get("category", "") == "rest":
 		return seq
 
-	_apply_projection(c, first)
+	AIToolkit.apply_projection(c, first)
 	var second := choose(c, foe, grid, spells)
 	if Config.def(second.get("id", "")).get("category", "") == "rest":
 		return seq          # don't rest as a 2nd action; just take the one
 	seq.append(second)
 	return seq
-
-# Mirror the resolver's upfront pay (+ position/facing/cooldown) so the second
-# pick is judged from where the first leaves us. Statuses are NOT applied: the
-# resolver pays upfront, before a same-turn buff would discount anything.
-static func _apply_projection(c: Combatant, action: Dictionary) -> void:
-	var id: String = action.get("id", "")
-	var d := Config.def(id)
-	var cat: String = d.get("category", "")
-	if cat == "move" and action.has("tile"):
-		c.energy = maxi(0, c.energy - Config.effective_move_cost(c.facing, c.pos, action["tile"], c.statuses))
-		c.pos = action["tile"]
-	elif cat == "pivot" and action.has("facing"):
-		c.facing = int(action["facing"])
-	else:
-		c.energy = maxi(0, c.energy - Config.effective_energy_cost(id, c.statuses))
-		c.mp = maxi(0, c.mp - int(d.get("mp_cost", 0)))
-	if Config.is_spell(id):
-		var cd := Config.cooldown_of(id)
-		if cd > 0:
-			c.cooldowns[id] = cd
 
 # ── Helpers ─────────────────────────────────────────────────────────────
 # First equipped spell whose ai_role matches the wanted role, or "" if none.
@@ -98,30 +78,6 @@ static func _buff_active(me: Combatant, buff_id: String) -> bool:
 	if String(eff.get("type", "")) == "apply_status":
 		return int(me.statuses.get(String(eff.get("status", "")), 0)) > 0
 	return false
-
-# Ready = off cooldown AND affordable.
-static func _can_use(me: Combatant, id: String) -> bool:
-	if int(me.cooldowns.get(id, 0)) > 0:
-		return false
-	return Config.can_afford(me.energy, me.mp, me.statuses, id)
-
-# True if the foe sits on a clear orthogonal line within range (matches the
-# resolver's bolt trace: any blocker between caster and foe stops it).
-static func _clear_line(me: Combatant, foe: Combatant, grid: Grid, rng: int) -> bool:
-	var dx := foe.pos.x - me.pos.x
-	var dy := foe.pos.y - me.pos.y
-	if dx != 0 and dy != 0:
-		return false
-	var dist := absi(dx) + absi(dy)
-	if dist < 1 or dist > rng:
-		return false
-	var step := Vector2i(signi(dx), signi(dy))
-	var p: Vector2i = me.pos
-	for _i in range(dist):
-		p += step
-		if grid.is_blocked(p):
-			return false
-	return true
 
 # True if the foe is one of the 8 tiles surrounding the caster (AoE footprint).
 static func _aoe_hits(me: Combatant, foe: Combatant) -> bool:
