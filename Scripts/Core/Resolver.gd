@@ -39,7 +39,7 @@ static func resolve(grid: Grid, in_a: Combatant, in_b: Combatant,
 	)
 
 	var guarding := {"A": false, "B": false}   # live shield: up while it protects
-	var guard_blocked := {"A": false, "B": false}
+	var guard_blocked := {"A": 0, "B": 0}   # per-fighter guard refund earned (0 = nothing blocked)
 	var guarded := {"A": false, "B": false}     # latch: did this fighter guard at all?
 	var damaged_tick := {"A": -1, "B": -1}
 	var dead_tick := {"A": -1, "B": -1}
@@ -85,9 +85,9 @@ static func resolve(grid: Grid, in_a: Combatant, in_b: Combatant,
 				"rest":
 					events.append(_ev("rest", tick, actor.id))
 				"wait":
-					# Regroup: top up a little energy now, and your NEXT action THIS
-					# turn starts at the front of its band (applied in _plan). No
-					# longer carries initiative into next turn.
+					# Strategic hold: WAIT resolves LATE, so queuing it before an action
+					# pushes that action to land after the foe has committed (e.g. wait,
+					# then strike where they moved). Still tops up a little energy.
 					actor.energy = mini(Config.MAX_ENERGY, actor.energy + Config.WAIT_ENERGY)
 					events.append(_ev("wait", tick, actor.id))
 				"noop":
@@ -98,7 +98,7 @@ static func resolve(grid: Grid, in_a: Combatant, in_b: Combatant,
 	for c in [a, b]:
 		if guarded[c.id]:
 			if guard_blocked[c.id]:
-				c.energy = mini(Config.MAX_ENERGY, c.energy + Config.GUARD_REFUND)
+				c.energy = mini(Config.MAX_ENERGY, c.energy + guard_blocked[c.id])   # tier refund
 				c.speed_boost = true
 				events.append(_ev("guard_success", -1, c.id))
 			else:
@@ -121,6 +121,11 @@ static func resolve(grid: Grid, in_a: Combatant, in_b: Combatant,
 	# Passive energy regen: a SHARED metronome. Every ENERGY_PULSE_ACTIONS
 	# non-Wait actions taken by EITHER fighter, both regain energy at once.
 	_tally_shared_energy(a, b, plan_a["actions"], plan_b["actions"], events)
+
+	# Rest gate: you may only REST after a full turn without taking damage. Set the
+	# flag from THIS turn's damage so it gates NEXT turn's rest availability.
+	a.rest_ready = (damaged_tick["A"] == -1)
+	b.rest_ready = (damaged_tick["B"] == -1)
 
 	var result := _result(a, b)
 	if result != "ongoing":
@@ -145,6 +150,9 @@ static func _legalize(c: Combatant, action: Dictionary, vpos: Vector2i, vfacing:
 		return {"id": "_noop"}
 	if Config.is_spell(id) and int(c.cooldowns.get(id, 0)) > 0:
 		events.append(_ev("illegal_action", -1, c.id, {"reason": "cooldown", "id": id}))
+		return {"id": "_noop"}
+	if d.get("category", "") == "rest" and not c.rest_ready:
+		events.append(_ev("illegal_action", -1, c.id, {"reason": "rest_locked", "id": id}))
 		return {"id": "_noop"}
 	if d.get("category", "") == "move" and action.has("tile"):
 		if c.energy < Config.effective_move_cost(vfacing, vpos, action["tile"], statuses):
@@ -224,7 +232,6 @@ static func _plan(c: Combatant, seq: Array, events: Array) -> Dictionary:
 	var pstat: Dictionary = c.statuses.duplicate()
 	var seen_guard := false
 	var seen_no_guard_spell := false
-	var prev_was_wait := false   # a WAIT earlier in THIS sequence speeds the next action
 	for raw in seq:
 		var rid: String = raw.get("id", "")
 		var want_guard: bool = Config.def(rid).get("category", "") == "guard"
@@ -248,7 +255,7 @@ static func _plan(c: Combatant, seq: Array, events: Array) -> Dictionary:
 			var cdv := Config.cooldown_of(aid)
 			if cdv > 0:
 				c.cooldowns[aid] = cdv
-		var boost: bool = (c.speed_boost and slot == 0) or prev_was_wait
+		var boost: bool = c.speed_boost and slot == 0
 		var entry := _schedule(c, act, slot, vpos, vfacing, boost)
 		entry["energy_cost"] = paid   # for refund if this move fizzles at resolution
 		cum += int(entry["tick"])     # this action's own duration
@@ -257,7 +264,6 @@ static func _plan(c: Combatant, seq: Array, events: Array) -> Dictionary:
 		acts.append(act)
 		# Advance the projection so the next action is judged from here.
 		var cat: String = Config.def(act.get("id", "")).get("category", "")
-		prev_was_wait = (cat == "wait")
 		if cat == "move" and act.has("tile"):
 			vpos = act["tile"]
 		elif cat == "pivot" and act.has("facing"):
@@ -369,12 +375,17 @@ static func _attack(attacker: Combatant, target: Combatant, s: Dictionary,
 	if target.pos != s["tile"]:
 		events.append(_ev("attack_whiff", tick, attacker.id, {"tile": s["tile"]}))
 		return
-	if guarding[target.id]:
-		guard_blocked[target.id] = true
-		events.append(_ev("attack_blocked", tick, attacker.id, {"target": target.id}))
-		return
 	var rel := _flank(target, attacker.pos)
 	var dmg := int(round(Config.ATTACK_DAMAGE * float(Config.FLANK_MULT[rel])))
+	if guarding[target.id]:
+		# Directional guard: front fully blocks, side halves, back slips past. The
+		# refund latches by tier (front 15 / side 10 / back 0) for the end-of-turn payout.
+		guard_blocked[target.id] = int(Config.GUARD_REFUND_TIER[rel])
+		var blocked: float = float(Config.GUARD_BLOCK[rel])
+		if blocked >= 1.0:
+			events.append(_ev("attack_blocked", tick, attacker.id, {"target": target.id}))
+			return
+		dmg = int(round(dmg * (1.0 - blocked)))   # side graze / back bypass leaks through
 	_apply_damage(target, dmg, tick, damaged_tick, dead_tick)
 	events.append(_ev("attack_hit", tick, attacker.id, {"target": target.id, "damage": dmg, "flank": rel}))
 

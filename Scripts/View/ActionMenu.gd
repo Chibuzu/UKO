@@ -90,6 +90,8 @@ func _usable(id: String) -> bool:
 		if int(player.cooldowns.get(sid, 0)) > 0:
 			return false
 		return Config.can_afford(player.energy, player.mp, player.statuses, sid)
+	if id == "rest" and not player.rest_ready:
+		return false                # locked until a full turn passes without damage
 	return Config.can_afford(player.energy, player.mp, player.statuses, id)
 
 func _label(id: String) -> String:

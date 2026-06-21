@@ -65,12 +65,12 @@ static func candidates(me: Combatant, foe: Combatant, grid: Grid) -> Array:
 	var seqs: Array = []
 	# REST only earns a slot if it can actually regen. At full HP and MP it heals
 	# nothing and grants no energy, so offering it just lets the mixer waste a turn.
-	if me.hp < Config.MAX_HP or me.mp < Config.MAX_MP:
+	if (me.hp < Config.MAX_HP or me.mp < Config.MAX_MP) and me.rest_ready:
 		seqs.append([{"id": "rest"}])
 	for a1 in slot_actions(me, foe, grid):
-		# A lone WAIT at full energy banks nothing and has no later action to speed:
-		# a pure pass. (A WAIT that PRECEDES another action is kept below, because it
-		# still front-loads that action.)
+		# A lone WAIT at full energy banks nothing and has no later action to delay:
+		# a pure pass. (A WAIT that PRECEDES another action is kept below -- it now
+		# delays that action, a strategic hold.)
 		if not (a1.get("id") == "wait" and me.energy >= Config.MAX_ENERGY):
 			seqs.append([a1])
 		var proj := me.clone()
@@ -81,7 +81,7 @@ static func candidates(me: Combatant, foe: Combatant, grid: Grid) -> Array:
 				continue
 			seqs.append([a1, a2])
 	if seqs.is_empty():
-		seqs = [[{"id": "rest"}]]   # never hand back an empty candidate set
+		seqs = [[{"id": "wait"}]]   # never hand back an empty candidate set (wait is always legal)
 	return seqs
 
 # Sensible actions for one slot from a given state. Generic over spells (reads
@@ -146,7 +146,10 @@ static func _around_whiffs(d: Dictionary, from: Vector2i, foe_pos: Vector2i) -> 
 		return false
 	if String(d.get("effect", {}).get("type", "")) != "damage":
 		return false
-	return Grid.cheb(from, foe_pos) > 1
+	# > 2, not > 1: the foe is within one step of the blast, so this hits either by
+	# closing in (move -> burst) or by the foe stepping into us. Only a truly
+	# unreachable burst (>=3 away) is pruned. Tighten to > 1 for hit-only-now.
+	return Grid.cheb(from, foe_pos) > 2
 
 
 # Cardinal facing pointing at the foe (dominant axis; +y is south).

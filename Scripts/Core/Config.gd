@@ -44,6 +44,12 @@ const COST_MOVE_BACK := 25   # away from facing: retreat bleeds the kiter
 const COST_ATTACK := 20
 const COST_GUARD := 30
 const GUARD_REFUND := 15
+# Directional guard: fraction of an incoming melee a raised guard absorbs, by the
+# attacker's flank tier vs the guarder -- front fully blocks, a side hit is halved,
+# a back hit slips past. Energy refund mirrors it (front 15 / side 10 / back 0);
+# a back hit refunds nothing, so the guard was simply wasted.
+const GUARD_BLOCK := { "front": 1.0, "side": 0.5, "back": 0.0 }
+const GUARD_REFUND_TIER := { "front": GUARD_REFUND, "side": 10, "back": 0 }
 const BACK_MOVE_TAX := 0     # within-band duration penalty on backstep (reserve lever)
 
 # ── Facing & flanking (ruleset 6) ───────────────────────────────────────
@@ -76,7 +82,10 @@ const ACTIONS := {
 	"attack":{ "band": Band.ATTACK, "base_tick": 50, "energy_cost": COST_ATTACK, "mp_cost": 0, "needs_tile": true, "category": "attack" },
 	"guard": { "band": Band.GUARD,  "base_tick": 0,  "energy_cost": COST_GUARD, "mp_cost": 0, "needs_tile": false, "category": "guard" },
 	"rest":  { "band": Band.REST,   "base_tick": 90, "energy_cost": 0, "mp_cost": 0, "needs_tile": false, "category": "rest" },
-	"wait":  { "band": Band.BUFF,   "base_tick": 0,  "energy_cost": 0, "mp_cost": 0, "needs_tile": false, "category": "wait" },
+	# WAIT is a strategic HOLD: it resolves LATE (tick 580 > move 520), so queuing it
+	# before an action makes that action land after the foe has moved. base_tick is
+	# the knob (0-99 within the MOVE band -> 500-599). Still grants WAIT_ENERGY.
+	"wait":  { "band": Band.MOVE,   "base_tick": 80, "energy_cost": 0, "mp_cost": 0, "needs_tile": false, "category": "wait" },
 	"_noop": { "band": Band.BUFF,   "base_tick": 0,  "energy_cost": 0, "mp_cost": 0, "needs_tile": false, "category": "noop" },
 }
 

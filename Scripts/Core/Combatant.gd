@@ -15,6 +15,7 @@ var facing: int         # Config.Facing
 # turn). The resolver reads it for tick ordering, then consumes it, and may
 # set it again if a guard succeeds this turn (granting it for the next one).
 var speed_boost: bool = false
+var rest_ready: bool = true     # may REST only after a full turn taking no damage
 
 # Active timed statuses: id -> turns remaining. e.g. {"energy_discount": 5}
 var statuses: Dictionary = {}
@@ -67,6 +68,7 @@ func clone() -> Combatant:
 	c.mp = mp
 	c.energy = energy
 	c.speed_boost = speed_boost
+	c.rest_ready = rest_ready
 	c.statuses = statuses.duplicate()
 	c.cooldowns = cooldowns.duplicate()
 	c.action_count = action_count
