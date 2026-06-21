@@ -372,24 +372,11 @@ func _rebuild_plan() -> void:
 		_simulate(plan_c, action)
 
 func _simulate(c: Combatant, action: Dictionary) -> void:
-	var id: String = action.get("id", "")
-	var d := Config.def(id)
-	var cat: String = d.get("category", "")
-	if cat == "move" and action.has("tile"):
-		c.energy = maxi(0, c.energy - Config.effective_move_cost(c.facing, c.pos, action["tile"], c.statuses))
-		c.pos = action["tile"]
-	elif cat == "pivot" and action.has("facing"):
-		c.facing = int(action["facing"])
-	else:
-		c.energy = maxi(0, c.energy - Config.effective_energy_cost(id, c.statuses))
-		c.mp = maxi(0, c.mp - int(d.get("mp_cost", 0)))
-		if Config.is_spell(id):
-			var cd := Config.cooldown_of(id)
-			if cd > 0:
-				c.cooldowns[id] = cd
-	# A self-buff queued earlier discounts later actions THIS turn -- same shared
-	# helper the resolver uses, so the menu's affordability matches resolution.
-	Config.apply_planned_self_buff(c.statuses, id)
+	# Same projection the AI uses -- handles move / pivot / BLINK-relocate / spell
+	# cost + cooldown -- so targeting plans the next action from the real (post-blink)
+	# tile. One source of truth; then the self-buff discount so menu affordability matches.
+	AIToolkit.apply_projection(c, action)
+	Config.apply_planned_self_buff(c.statuses, action.get("id", ""))
 
 func _refresh_menu() -> void:
 	# Show the PROJECTED self (energy/mp/cooldowns after the actions chosen so

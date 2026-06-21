@@ -18,7 +18,8 @@
 class_name ExtremeAI
 extends RefCounted
 
-const ROOT_ROWS      := 4     # how many of MY near-best moves get the deep (2-turn) look
+const ROOT_ROWS      := 3     # how many of MY near-best moves get the deep (2-turn) look
+const ROOT_COLS      := 6     # ...each deepened only vs the foe's most threatening replies
 const EXPLOIT_LAMBDA := 0.4   # 0 = pure equilibrium (unexploitable); 1 = pure best-response
 							  #   to the read. Bounded, so a sharp human can't re-exploit the tilt.
 const EXPLOIT_TEMP   := 3.0   # softmax temp over my EV vs the predicted foe (lower = greedier)
@@ -44,7 +45,7 @@ static func choose_sequence(me: Combatant, foe: Combatant, grid: Grid, spells: A
 	# rows with the full two-turn lookahead.
 	if Eval.LOOKAHEAD_DEPTH >= 2:
 		for i in _top_rows(M, ROOT_ROWS):
-			for j in foe_cands.size():
+			for j in _worst_cols(M[i], ROOT_COLS):
 				M[i][j] = Eval.score_deep(me, foe, grid, my_cands[i], foe_cands[j], Eval.LOOKAHEAD_DEPTH - 1)
 
 	# Unexploitable equilibrium mix over my moves -- the floor.
@@ -86,6 +87,18 @@ static func _top_rows(M: Array, k: int) -> Array:
 	var out: Array = []
 	for n in range(mini(k, rows.size())):
 		out.append(int(rows[n]["i"]))
+	return out
+
+# The k columns where the foe hurts me most in a row -- the replies worth a deep
+# look (the foe's best answers to that move), so we don't deepen against all of them.
+static func _worst_cols(row: Array, k: int) -> Array:
+	var cols: Array = []
+	for j in row.size():
+		cols.append({"j": j, "v": float(row[j])})
+	cols.sort_custom(func(x, y): return float(x["v"]) < float(y["v"]))
+	var out: Array = []
+	for n in range(mini(k, cols.size())):
+		out.append(int(cols[n]["j"]))
 	return out
 
 # Predicted foe-reply distribution from observed tendencies (normalized weights).

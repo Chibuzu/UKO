@@ -23,6 +23,7 @@ extends RefCounted
 # against def's current facing.
 static func melee_damage(att: Combatant, def: Combatant, grid: Grid) -> int:
 	var best := 0
+	var blink_tiles := _blink_reach(att, def, grid)   # tiles att could blink onto (computed once)
 	for dv in Grid.DIRS:
 		var t: Vector2i = def.pos + dv          # an orthogonal strike tile beside def
 		if not grid.in_bounds(t) or grid.is_blocked(t):
@@ -33,7 +34,7 @@ static func melee_damage(att: Combatant, def: Combatant, grid: Grid) -> int:
 		elif Grid.dist(att.pos, t) == 1:
 			# step into t, then swing (2 slots). t is orthogonally next to att.
 			cost = Config.effective_move_cost(att.facing, att.pos, t, att.statuses) + Config.COST_ATTACK
-		elif _can_blink_to(att, t, def, grid):
+		elif t in blink_tiles:
 			cost = Config.COST_ATTACK             # blink relocates (mp); only the swing costs energy
 		else:
 			continue                              # can't both reach t and swing this turn
@@ -92,10 +93,11 @@ static func has_melee_threat(att: Combatant, def: Combatant, grid: Grid) -> bool
 static func flank_of(def: Combatant, at: Vector2i) -> String:
 	return Config.flank_tier(def.facing, def.pos, at)
 
-# Can `att` blink onto strike tile `t` (a fixed directional jump that phases
-# through tile 1), with mp + cooldown ready? Lets the threat read see the
-# blink-behind backstab from a line away, not just from adjacency.
-static func _can_blink_to(att: Combatant, t: Vector2i, foe: Combatant, grid: Grid) -> bool:
+# Tiles `att` could blink onto this turn (ready blink only), computed ONCE per
+# melee read. Lets the threat model see the blink-behind backstab from a line
+# away, not just from adjacency, without re-deriving it per strike tile.
+static func _blink_reach(att: Combatant, foe: Combatant, grid: Grid) -> Array:
+	var out: Array = []
 	for sid in att.spell_ids():
 		if not Config.is_blink(sid):
 			continue
@@ -104,9 +106,9 @@ static func _can_blink_to(att: Combatant, t: Vector2i, foe: Combatant, grid: Gri
 		var rng := int(Config.def(sid).get("range", 2))
 		for dv in Grid.DIRS:
 			var bl := Config.blink_landing(grid, att.pos, dv, rng, foe.pos)
-			if not bl.is_empty() and bl["tile"] == t:
-				return true
-	return false
+			if not bl.is_empty():
+				out.append(bl["tile"])
+	return out
 
 static func _cheb(a: Vector2i, b: Vector2i) -> int:
 	return maxi(absi(a.x - b.x), absi(a.y - b.y))
