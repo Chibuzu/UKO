@@ -13,8 +13,8 @@ signal player_sequence_ready(seq: Array)
 # ("" = empty/white block); the spell it grants is derived from the gear, so
 # swapping a slot swaps that block's spell. Slots map 1:1 to the four blocks
 # and to number keys 1-4. Slot 4 is empty until there's a fourth gear piece.
-const PLAYER_GEAR := ["discount_charm", "burst_node", "dark_focus", ""]
-const AI_GEAR := ["discount_charm", "burst_node", "dark_focus", ""]
+const PLAYER_GEAR := ["discount_charm", "burst_node", "dark_focus", "blink_boots"]
+const AI_GEAR := ["discount_charm", "burst_node", "dark_focus", "blink_boots"]
 
 const MENU_SCENE := "res://MainMenu.tscn"   # adjust if your menu scene lives elsewhere
 
@@ -34,8 +34,9 @@ var a: Combatant
 var b: Combatant
 
 var turn_num := 0
-var phase := "idle"          # "choosing" | "targeting" | "confirm" | "idle"
+var phase := "idle"          # "choosing" | "targeting" | "blink_face" | "confirm" | "idle"
 var pending: String = ""     # id being targeted
+var blink_land := Vector2i.ZERO   # blink: landing chosen, awaiting the reface pick
 var seq: Array = []          # the 1-2 actions chosen this turn
 var plan_c: Combatant        # A projected through the chosen actions (for targeting)
 var preview: Dictionary = {} # keyboard: action aimed but not yet confirmed
@@ -133,7 +134,11 @@ func _on_action_chosen(id: String) -> void:
 		return
 	if Config.is_spell(id):
 		var d := Config.def(id)
-		if d.get("needs_tile", false):
+		if Config.is_blink(id):
+			pending = id
+			phase = "targeting"
+			board.set_highlights(_blink_targets(), ViewConfig.COL_HL_MOVE)
+		elif d.get("needs_tile", false):
 			pending = id
 			phase = "targeting"
 			board.set_highlights(_line_targets(int(d.get("range", 1))), ViewConfig.COL_HL_ATTACK)
@@ -160,10 +165,22 @@ func _on_action_chosen(id: String) -> void:
 			board.set_highlights(_adjacent_tiles(), ViewConfig.COL_HL_PIVOT)
 
 func _on_tile_clicked(pos: Vector2i) -> void:
+	# Blink step 2: a landing is chosen; this click picks the post-blink facing.
+	if phase == "blink_face":
+		if pos in _blink_face_tiles(blink_land):
+			_add_action({"id": pending, "tile": blink_land, "facing": _facing_from(blink_land, pos)})
+		return
 	if phase != "targeting":
 		return
 	if Config.is_spell(pending):
 		var d := Config.def(pending)
+		if Config.is_blink(pending):
+			# Blink step 1: pick a landing, then move to the reface sub-phase.
+			if pos in _blink_targets():
+				blink_land = pos
+				phase = "blink_face"
+				board.set_highlights(_blink_face_tiles(pos), ViewConfig.COL_HL_PIVOT)
+			return
 		if d.get("shape") == "line" and pos in _line_targets(int(d.get("range", 1))):
 			_add_action({"id": pending, "tile": pos})
 		return
@@ -180,6 +197,10 @@ func _on_tile_clicked(pos: Vector2i) -> void:
 
 # Right-click: cancel a pending target, otherwise undo the last chosen action.
 func _on_cancel() -> void:
+	if phase == "blink_face":
+		phase = "targeting"                       # back to picking a landing
+		board.set_highlights(_blink_targets(), ViewConfig.COL_HL_MOVE)
+		return
 	if phase == "targeting":
 		pending = ""
 		phase = "choosing"
@@ -295,7 +316,11 @@ func _key_spell(id: String) -> void:
 		return
 	if not Config.can_afford(plan_c.energy, plan_c.mp, plan_c.statuses, id):
 		return
-	if Config.def(id).get("needs_tile", false):
+	if Config.is_blink(id):
+		pending = id                              # mouse finishes the direction + reface
+		phase = "targeting"
+		board.set_highlights(_blink_targets(), ViewConfig.COL_HL_MOVE)
+	elif Config.def(id).get("needs_tile", false):
 		# Line spell: auto-aim at the enemy if they're on a clear line in range.
 		var rng: int = int(Config.def(id).get("range", 1))
 		if b.pos in _line_targets(rng):
@@ -416,6 +441,36 @@ func _line_targets(rng: int) -> Array:
 
 func _facing_to(pos: Vector2i) -> int:
 	var dv: Vector2i = pos - plan_c.pos
+	if dv == Vector2i(0, -1): return Config.Facing.NORTH
+	if dv == Vector2i(1, 0): return Config.Facing.EAST
+	if dv == Vector2i(0, 1): return Config.Facing.SOUTH
+	return Config.Facing.WEST
+
+# Valid blink landing tiles (one per cardinal with a clear landing) from the
+# projection -- the first targeting step. Reuses the one Config blink rule.
+func _blink_targets() -> Array:
+	var out := []
+	if not Config.is_blink(pending):
+		return out
+	var rng := int(Config.def(pending).get("range", 2))
+	for dv in Grid.DIRS:
+		var bl := Config.blink_landing(grid, plan_c.pos, dv, rng, b.pos)
+		if not bl.is_empty():
+			out.append(bl["tile"])
+	return out
+
+# In-bounds orthogonal neighbours of the landing -- click one to face that way.
+func _blink_face_tiles(land: Vector2i) -> Array:
+	var out := []
+	for dv in Grid.DIRS:
+		var p: Vector2i = land + dv
+		if grid.in_bounds(p):
+			out.append(p)
+	return out
+
+# Facing from `origin` toward an adjacent tile `pos`.
+func _facing_from(origin: Vector2i, pos: Vector2i) -> int:
+	var dv: Vector2i = pos - origin
 	if dv == Vector2i(0, -1): return Config.Facing.NORTH
 	if dv == Vector2i(1, 0): return Config.Facing.EAST
 	if dv == Vector2i(0, 1): return Config.Facing.SOUTH

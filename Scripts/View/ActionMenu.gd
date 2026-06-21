@@ -28,6 +28,7 @@ const SPELL_SLOTS := [
 	{ "role": "buff", "label": "Buff" },
 	{ "role": "aoe",  "label": "AoE" },
 	{ "role": "poke", "label": "Sp. Atk." },
+	{ "role": "blink", "label": "Mobility" },
 ]
 
 var player: Combatant = null
