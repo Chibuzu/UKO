@@ -108,7 +108,10 @@ static func slot_actions(c: Combatant, foe: Combatant, grid: Grid) -> Array:
 	if face != c.facing:
 		acts.append({"id": "pivot", "facing": face})
 
-	if Config.can_afford(c.energy, c.mp, c.statuses, "guard"):
+	# GUARD only earns a slot when the foe actually has a blockable melee this turn.
+	# Its energy refund + speed boost require a SUCCESSFUL block, so guarding with
+	# nothing to block is a pure waste -- don't offer it (same hygiene as rest/wait).
+	if Config.can_afford(c.energy, c.mp, c.statuses, "guard") and ThreatModel.has_melee_threat(foe, c, grid):
 		acts.append({"id": "guard"})
 
 	for sid in c.spell_ids():
@@ -128,10 +131,22 @@ static func slot_actions(c: Combatant, foe: Combatant, grid: Grid) -> Array:
 			if clear_line(c, foe, grid, int(d.get("range", 1))):
 				acts.append({"id": sid, "tile": foe.pos})
 		else:
-			acts.append({"id": sid})
+			# An "around" (BURST) damage spell only makes sense when the foe sits in
+			# its 3x3 blast (Chebyshev 1); offering it otherwise just whiffs the mp.
+			if not _around_whiffs(d, c.pos, foe.pos):
+				acts.append({"id": sid})
 
 	acts.append({"id": "wait"})
 	return acts
+
+# True if `d` is an "around" damage spell whose blast wouldn't reach the foe from
+# `from` -- i.e. casting it would whiff. Used to prune it from the candidate list.
+static func _around_whiffs(d: Dictionary, from: Vector2i, foe_pos: Vector2i) -> bool:
+	if d.get("shape", "") != "around":
+		return false
+	if String(d.get("effect", {}).get("type", "")) != "damage":
+		return false
+	return Grid.cheb(from, foe_pos) > 1
 
 
 # Cardinal facing pointing at the foe (dominant axis; +y is south).

@@ -95,11 +95,16 @@ func _game_loop() -> void:
 		_begin_turn()
 		var seq_a: Array = await player_sequence_ready
 		phase = "idle"
-		menu.set_state(a, b, false, a.spell_ids(), [], false)
+		menu.set_state(a, b, false, a.spell_ids(), [], false, true)   # confirmed -> waiting for opponent
 		board.clear_highlights()
 
 		var pre_a := a.clone()   # snapshot the turn's START state for the replay
 		var pre_b := b.clone()
+		# Yield two frames so the menu actually PAINTS "Waiting for opponent..." before
+		# the synchronous AI search hogs the main thread -- otherwise the queued redraw
+		# never reaches the screen until the search is already finished.
+		await get_tree().process_frame
+		await get_tree().process_frame
 		var seq_b: Array = AI.choose_sequence(difficulty, b, a, grid, b.spell_ids(), opp_model)
 		var out := Resolver.resolve(grid, a, b, seq_a, seq_b, turn_num)
 		opp_model.observe(seq_a)   # learn what A actually did, for next turn's prediction

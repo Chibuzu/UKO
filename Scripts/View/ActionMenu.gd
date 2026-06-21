@@ -37,19 +37,21 @@ var enabled := false
 var spells: Array = []          # spell ids available to the player
 var planned: Array = []         # short labels of actions chosen so far
 var confirming := false         # both actions chosen; awaiting confirm
+var waiting := false            # confirmed; the opponent is taking its turn
 var hover := ""
 
 func _ready() -> void:
 	position = ViewConfig.MENU_ORIGIN
 
 func set_state(p: Combatant, e: Combatant, is_enabled: bool, spell_ids: Array,
-		p_planned: Array = [], p_confirming: bool = false) -> void:
+		p_planned: Array = [], p_confirming: bool = false, p_waiting: bool = false) -> void:
 	player = p
 	enemy = e
 	enabled = is_enabled
 	spells = spell_ids
 	planned = p_planned
 	confirming = p_confirming
+	waiting = p_waiting
 	queue_redraw()
 
 func _entries() -> Array:
@@ -116,7 +118,8 @@ func _draw() -> void:
 			HORIZONTAL_ALIGNMENT_LEFT, -1, 14, ViewConfig.COL_WIN_A)
 		draw_string(font, Vector2(0, 38), "B  hp %d  mp %d  en %d" % [enemy.hp, enemy.mp, enemy.energy],
 			HORIZONTAL_ALIGNMENT_LEFT, -1, 14, ViewConfig.COL_WIN_B)
-		draw_string(font, Vector2(0, 66), "Your move" if enabled else "...",
+		var status := "Your move" if enabled else ("Waiting for opponent..." if waiting else "...")
+		draw_string(font, Vector2(0, 66), status,
 			HORIZONTAL_ALIGNMENT_LEFT, -1, 13, ViewConfig.COL_TEXT)
 
 	var entries := _entries()

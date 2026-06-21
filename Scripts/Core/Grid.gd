@@ -5,6 +5,7 @@ class_name Grid
 extends RefCounted
 
 const SIZE := 12
+const DIRS := [Vector2i(0, -1), Vector2i(0, 1), Vector2i(-1, 0), Vector2i(1, 0)]
 
 # blocked[y][x] == true means a blocker sits there (breaks LoS and movement).
 var blocked: Array = []
@@ -45,6 +46,10 @@ func has_los(a: Vector2i, b: Vector2i) -> bool:
 static func dist(a: Vector2i, b: Vector2i) -> int:
 	return absi(a.x - b.x) + absi(a.y - b.y)
 
+# Chebyshev (king-move) distance -- the radius an "around" (3x3) blast reaches.
+static func cheb(a: Vector2i, b: Vector2i) -> int:
+	return maxi(absi(a.x - b.x), absi(a.y - b.y))
+
 # ── Generation (ruleset 1: 8-10% blockers, spawns must stay connected) ──
 func generate(rng: RandomNumberGenerator) -> void:
 	var attempts := 0
@@ -75,7 +80,7 @@ func _connected(start: Vector2i, goal: Vector2i) -> bool:
 		var cur: Vector2i = queue.pop_front()
 		if cur == goal:
 			return true
-		for d in [Vector2i(0, -1), Vector2i(0, 1), Vector2i(-1, 0), Vector2i(1, 0)]:
+		for d in DIRS:
 			var n: Vector2i = cur + d
 			if in_bounds(n) and not is_blocked(n) and not seen.has(n):
 				seen[n] = true
