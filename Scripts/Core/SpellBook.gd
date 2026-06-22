@@ -56,6 +56,7 @@ const SPELLS := {
 		"energy_cost": 0, "mp_cost": 40, "cooldown": 4,
 		"needs_tile": true,                          # player aims a direction
 		"shape": "blink", "range": 2,                # fixed 2-tile jump, phases through tile 1
+		"tick_per_tile": 300,                        # teleport travel/tile: arrives depart + range*this
 		"effect": { "type": "blink" },               # relocate the caster (+ free reface)
 		"ai_role": "blink",
 		"vfx": { "style": "blink", "cast_anim": "" },

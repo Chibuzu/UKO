@@ -9,6 +9,10 @@
 class_name Resolver
 extends RefCounted
 
+# While teleporting, a fighter sits on NO tile (untargetable) between its blink's
+# DEPART and ARRIVE ticks. This off-board sentinel is its position during transit.
+const IN_TRANSIT := Vector2i(-9999, -9999)
+
 static func resolve(grid: Grid, in_a: Combatant, in_b: Combatant,
 		seq_a: Array, seq_b: Array, _turn: int) -> Dictionary:
 	var a := in_a.clone()
@@ -84,8 +88,14 @@ static func resolve(grid: Grid, in_a: Combatant, in_b: Combatant,
 					_cast_spell(grid, actor, target, s, tick, damaged_tick, dead_tick, fresh, events)
 					if Config.is_projectile(s["id"]):
 						_launch_projectile(grid, s, actor, sched, i, events)
+					elif Config.is_blink(s["id"]):
+						_launch_blink(grid, s, actor, target, sched, i, tick, events)
 				"projectile":
 					_projectile_step(s, actor, target, tick, proj_consumed, grid, damaged_tick, dead_tick, events)
+				"blink_arrive":
+					actor.pos = s["dest"]                  # teleport completes: re-enter the board
+					actor.facing = int(s["facing"])
+					events.append(_ev("blink", tick, actor.id, {"to": actor.pos, "facing": actor.facing}))
 				"rest":
 					events.append(_ev("rest", tick, actor.id))
 				"wait":
@@ -263,7 +273,9 @@ static func _plan(c: Combatant, seq: Array, events: Array) -> Dictionary:
 		var entry := _schedule(c, act, slot, vpos, vfacing, boost)
 		entry["energy_cost"] = paid   # for refund if this move fizzles at resolution
 		cum += int(entry["tick"])     # this action's own duration
-		entry["tick"] = cum           # strike time = cumulative
+		entry["tick"] = cum           # strike time = cumulative (= a blink's DEPART tick)
+		if Config.is_blink(aid):
+			cum += Config.blink_travel(aid)   # the next action waits for the teleport to ARRIVE
 		entries.append(entry)
 		acts.append(act)
 		# Advance the projection so the next action is judged from here.
@@ -406,14 +418,7 @@ static func _cast_spell(grid: Grid, caster: Combatant, target: Combatant, s: Dic
 	var eff: Dictionary = d["effect"]
 	match eff["type"]:
 		"blink":
-			# Relocate the caster along the aimed cardinal, phasing through tile 1.
-			# Recomputed live: if the foe stepped onto the landing tile, the blink fizzles.
-			var bdir := _dir_from(caster.pos, s.get("tile", caster.pos))
-			var land := Config.blink_landing(grid, caster.pos, bdir, int(d.get("range", 1)), target.pos)
-			if not land.is_empty():
-				caster.pos = land["tile"]
-			caster.facing = int(s.get("facing", caster.facing))   # free reface rides on the action
-			events.append(_ev("blink", tick, caster.id, {"to": caster.pos, "facing": caster.facing}))
+			pass   # DEPART/ARRIVE handled live in the loop by _launch_blink (teleport takes travel time)
 		"apply_status":
 			var who: Combatant = caster if eff.get("to", "self") == "self" else target
 			var st: String = eff["status"]
@@ -484,6 +489,36 @@ static func _apply_damage(target: Combatant, dmg: int, tick: int,
 
 # Schedule ordering: earliest tick first; ties broken by band priority. Shared by the
 # initial sort and the live tail re-sort after a projectile injects its steps.
+# After events are appended to `sched`, re-sort only the unprocessed tail [i, end)
+# so freshly injected future events (projectile steps, blink arrivals) resolve in order.
+static func _resort_tail(sched: Array, i: int) -> void:
+	var tail := sched.slice(i)
+	tail.sort_custom(_sched_less)
+	for k in range(tail.size()):
+		sched[i + k] = tail[k]
+
+# Launch a teleport at DEPART (its scheduled tick) from the caster's LIVE tile: the
+# caster vacates to IN_TRANSIT (untargetable) and an ARRIVE event is injected at
+# depart + blink_travel carrying the destination. Generic for any spell flagged blink.
+static func _launch_blink(grid: Grid, s: Dictionary, caster: Combatant, target: Combatant,
+		sched: Array, i: int, tick: int, events: Array) -> void:
+	var d := Config.def(s["id"])
+	var bdir := _dir_from(caster.pos, s.get("tile", caster.pos))
+	var land := Config.blink_landing(grid, caster.pos, bdir, int(d.get("range", 1)), target.pos)
+	if land.is_empty():
+		events.append(_ev("blink_fizzle", tick, caster.id, {}))
+		return
+	var dest: Vector2i = land["tile"]
+	var face := int(s.get("facing", caster.facing))
+	events.append(_ev("blink_depart", tick, caster.id, {"from": caster.pos, "to": dest}))
+	caster.pos = IN_TRANSIT                       # off the board until arrival -- untargetable
+	sched.append({
+		"owner": caster.id, "id": s["id"], "category": "blink_arrive",
+		"tick": tick + Config.blink_travel(s["id"]), "band_priority": 1,
+		"dest": dest, "facing": face,
+	})
+	_resort_tail(sched, i)
+
 static func _sched_less(x: Dictionary, y: Dictionary) -> bool:
 	if x["tick"] != y["tick"]:
 		return x["tick"] < y["tick"]
@@ -510,11 +545,7 @@ static func _launch_projectile(grid: Grid, s: Dictionary, caster: Combatant, sch
 			"pierce": bool(pd.get("pierce", false)),
 			"damage": int(pd.get("effect", {}).get("amount", 0)),
 		})
-	# Re-sort only the unprocessed tail; everything before i is already resolved/grouped.
-	var tail := sched.slice(i)
-	tail.sort_custom(_sched_less)
-	for k in range(tail.size()):
-		sched[i + k] = tail[k]
+	_resort_tail(sched, i)   # injected steps now resolve in tick order with the rest of the tail
 
 # One tile of a projectile's flight: if the foe stands here right now (live position,
 # after any earlier move/blink this tick resolved) it takes the hit. A non-piercing

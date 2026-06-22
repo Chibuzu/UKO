@@ -103,6 +103,11 @@ static func is_spell(id: String) -> bool:
 static func is_blink(id: String) -> bool:
 	return String(def(id).get("effect", {}).get("type", "")) == "blink"
 
+# Total flight time of a teleport: range tiles, each `tick_per_tile` apart. A blink
+# ARRIVES this many ticks after it DEPARTS (and the caster's next action waits for it).
+static func blink_travel(id: String) -> int:
+	return int(def(id).get("range", 1)) * int(def(id).get("tick_per_tile", 0))
+
 # Landing tile of a fixed-distance directional blink, or {} if it cannot land.
 # Travels `dist` tiles along cardinal `dir`, PHASING THROUGH whatever sits on the
 # intervening tiles (wall or fighter). Only the LANDING tile must be free: in
