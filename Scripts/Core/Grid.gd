@@ -6,6 +6,9 @@ extends RefCounted
 
 const SIZE := 12
 const DIRS := [Vector2i(0, -1), Vector2i(0, 1), Vector2i(-1, 0), Vector2i(1, 0)]
+const ROT_STEPS := 4           # quadrant cycle has 4 orientations; 4 shifts return to start
+const GEN_ATTEMPTS := 200      # max arena re-rolls to find a connected layout
+const GEN_PLACE_GUARD := 1000  # safety cap on blocker-placement tries per arena
 
 # blocked[y][x] == true means a blocker sits there (breaks LoS and movement).
 var blocked: Array = []
@@ -60,15 +63,15 @@ static func cheb(a: Vector2i, b: Vector2i) -> int:
 # ── Generation (ruleset 1: 8-10% blockers, spawns must stay connected) ──
 func generate(rng: RandomNumberGenerator) -> void:
 	var attempts := 0
-	while attempts < 200:
+	while attempts < GEN_ATTEMPTS:
 		attempts += 1
 		_clear()
-		spawn_a = Vector2i(1, SIZE / 2)
-		spawn_b = Vector2i(SIZE - 2, SIZE / 2)
-		var target := int(round(SIZE * SIZE * rng.randf_range(0.08, 0.10)))
+		spawn_a = Vector2i(Config.SPAWN_INSET, SIZE / 2)
+		spawn_b = Vector2i(SIZE - 1 - Config.SPAWN_INSET, SIZE / 2)
+		var target := int(round(SIZE * SIZE * rng.randf_range(Config.BLOCKER_DENSITY_MIN, Config.BLOCKER_DENSITY_MAX)))
 		var placed := 0
 		var guard := 0
-		while placed < target and guard < 1000:
+		while placed < target and guard < GEN_PLACE_GUARD:
 			guard += 1
 			var p := Vector2i(rng.randi() % SIZE, rng.randi() % SIZE)
 			if blocked[p.y][p.x] or p == spawn_a or p == spawn_b:
@@ -103,7 +106,7 @@ func _connected(start: Vector2i, goal: Vector2i) -> bool:
 # corridor rotates with the walls while the fighters stay put, so they can be
 # stranded; we re-verify a path between them and carve one if rotation severed it.
 func rotate_blockers(occupants: Array) -> Array:
-	rot_step = (rot_step + 1) % 4
+	rot_step = (rot_step + 1) % ROT_STEPS
 	blocked = _cycled(base_blocked, rot_step)
 	var crushed: Array = []
 	for p in occupants:
@@ -117,7 +120,7 @@ func rotate_blockers(occupants: Array) -> Array:
 # Tiles that are open NOW but become blockers at the next quadrant shift -- the
 # telegraph's "incoming walls", so a fighter can step clear before it lands.
 func incoming_walls() -> Array:
-	var next_layout := _cycled(base_blocked, (rot_step + 1) % 4)
+	var next_layout := _cycled(base_blocked, (rot_step + 1) % ROT_STEPS)
 	var out: Array = []
 	for y in range(SIZE):
 		for x in range(SIZE):

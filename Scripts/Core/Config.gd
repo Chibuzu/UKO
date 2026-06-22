@@ -24,10 +24,19 @@ const BAND_PRIORITY := {
 	Band.BUFF: 0, Band.PIVOT: 1, Band.GUARD: 2, Band.ATTACK: 3,
 	Band.AOE: 4, Band.MOVE: 5, Band.SPECIAL: 6, Band.REST: 7,
 }
+# Out-of-band priorities for entries injected mid-loop (blink arrival, projectile
+# steps). They sort ALONGSIDE BAND_PRIORITY (0-7) when ticks tie: a teleport ARRIVES
+# in the pivot slot (lands before the ATTACK band can act on it); a projectile STEP
+# resolves above every band, so a same-tick dodge settles first and can clear the tile.
+const PRIORITY_BLINK_ARRIVE := 1   # ties resolve in the pivot slot
+const PRIORITY_PROJECTILE := 9     # above all bands (0-7)
 
 # ── Resources [PH] ──────────────────────────────────────────────────────
 const MAP_ROTATE_EVERY := 5    # shift the arena quadrants one step clockwise every this many turns
 const MAP_CRUSH_DAMAGE := 20   # if a rotating wall would land on you, it is suppressed and you take this
+const BLOCKER_DENSITY_MIN := 0.08   # fraction of tiles that become walls (rolled per arena)
+const BLOCKER_DENSITY_MAX := 0.10
+const SPAWN_INSET := 1   # fighters spawn this many tiles in from the left/right edge, mid-row
 const MAX_HP := 100
 const MAX_MP := 100
 const MAX_ENERGY := 100
@@ -62,6 +71,9 @@ const FACING_VEC := {
 }
 const FLANK_MULT := { "front": 1.0, "side": 1.5, "back": 2.0 }
 const ATTACK_DAMAGE := 15   # World B: melee no longer whiffs, so it hits for less
+# Default Chebyshev radius of an "around" blast (3x3 = 1). A spell may override with
+# its own "radius"; both the shape expansion and the AI reachability gate read this.
+const AROUND_RADIUS := 1
 
 # Which face of a defender (facing `facing`, standing at `def_pos`) the tile
 # `atk_pos` sits on: "front" / "side" / "back". THE flank rule -- the resolver's

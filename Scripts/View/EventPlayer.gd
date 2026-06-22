@@ -35,7 +35,12 @@ func play(events: Array, final_a: Combatant, final_b: Combatant) -> void:
 			await get_tree().create_timer(dur).timeout
 		if had_hit:
 			await get_tree().create_timer(ViewConfig.HITSTOP).timeout   # weighty pause
-		await get_tree().create_timer(ViewConfig.GROUP_GAP).timeout
+		# Pause until the next tick group, proportional to the gap in sim ticks: a
+		# traveling bolt or an in-transit blink now waits in real time. GAP_MIN at the end.
+		var gap := ViewConfig.GAP_MIN
+		if i < events.size():
+			gap = clampf((float(events[i]["tick"]) - float(tick)) * ViewConfig.SEC_PER_TICK, ViewConfig.GAP_MIN, ViewConfig.GAP_MAX)
+		await get_tree().create_timer(gap).timeout
 
 	units["A"].set_state(final_a)
 	units["B"].set_state(final_b)
@@ -56,13 +61,17 @@ func _visualize(e: Dictionary) -> float:
 		"pivot":
 			if u:
 				u.set_facing(e["facing"])
-			return 0.15
+			return ViewConfig.PIVOT_DUR
 		"blink":
+			# Teleport ARRIVES: pop in at the destination (not a slide), reface, fade back.
 			if u:
-				u.tween_to(e["to"])
+				u.position = ViewConfig.tile_center(e["to"])
 				if e.has("facing"):
 					u.set_facing(int(e["facing"]))
-			return ViewConfig.MOVE_DUR
+				fx.burst(u.position, ViewConfig.COL_FX_BUFF, 10)
+				var tw := create_tween()
+				tw.tween_property(u, "modulate:a", 1.0, ViewConfig.FLASH_DUR)
+			return ViewConfig.FLASH_DUR
 		"attack_hit":
 			if u:
 				u.play_anim("attack")
@@ -116,6 +125,22 @@ func _visualize(e: Dictionary) -> float:
 			return ViewConfig.FLASH_DUR
 		"spell_miss":
 			return ViewConfig.FX_DUR
+		"blink_depart":
+			# Teleport DEPARTS: vanish from the origin. The proportional gap until the
+			# blink ARRIVES (blink_travel ticks) is the real time spent in transit.
+			if u:
+				fx.burst(u.position, ViewConfig.COL_FX_BUFF, 10)
+				var tw := create_tween()
+				tw.tween_property(u, "modulate:a", 0.0, ViewConfig.FLASH_DUR)
+			return ViewConfig.FLASH_DUR
+		"projectile_step":
+			# The bolt flies one tile; the hop takes its per-tile tick budget, so the
+			# bolt speed matches the sim. Inter-group spacing is the proportional gap.
+			var pspell: String = e.get("spell", "")
+			var tpt := int(Config.def(pspell).get("tick_per_tile", 0))
+			var hop := clampf(float(tpt) * ViewConfig.SEC_PER_TICK, ViewConfig.GAP_MIN, ViewConfig.GAP_MAX)
+			fx.bolt_projectile(ViewConfig.tile_center(e.get("from", e["tile"])), ViewConfig.tile_center(e["tile"]), hop)
+			return 0.0   # async; the inter-group gap paces it
 		_:
 			return 0.0
 
@@ -144,15 +169,13 @@ func _cast_visual(caster: UnitView, e: Dictionary) -> void:
 		caster.play_anim(cast_anim)
 	match style:
 		"projectile":
-			if not tiles.is_empty():
-				fx.bolt_projectile(caster.position, ViewConfig.tile_center(tiles[-1]))
-			board.shake(ViewConfig.SHAKE_HIT * 0.5)
+			board.shake(ViewConfig.SHAKE_HIT * 0.5)   # muzzle kick; the bolt travels via projectile_step
 		"aoe":
 			if not fx.aoe_anim(caster.position):
 				board.flash_tiles(tiles, color)            # fallback if art missing
 			board.shake(ViewConfig.SHAKE_HIT * 0.7)
 		"blink":
-			fx.burst(caster.position, color, 10)
+			pass   # depart/arrive visuals are driven by the blink_depart / blink events
 		"self_buff":
 			fx.burst(caster.position, color, 10)
 		_:

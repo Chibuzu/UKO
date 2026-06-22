@@ -458,8 +458,9 @@ static func _shape_tiles(grid: Grid, caster: Combatant, d: Dictionary, target_ti
 			return bt
 		"around":
 			var out := []
-			for dy in [-1, 0, 1]:
-				for dx in [-1, 0, 1]:
+			var r := int(d.get("radius", Config.AROUND_RADIUS))
+			for dy in range(-r, r + 1):
+				for dx in range(-r, r + 1):
 					if dx == 0 and dy == 0:
 						continue
 					var p: Vector2i = caster.pos + Vector2i(dx, dy)
@@ -520,7 +521,7 @@ static func _launch_blink(grid: Grid, s: Dictionary, caster: Combatant, target: 
 	caster.pos = IN_TRANSIT                       # off the board until arrival -- untargetable
 	sched.append({
 		"owner": caster.id, "id": s["id"], "category": "blink_arrive",
-		"tick": tick + Config.blink_travel(s["id"]), "band_priority": 1,
+		"tick": tick + Config.blink_travel(s["id"]), "band_priority": Config.PRIORITY_BLINK_ARRIVE,
 		"dest": dest, "facing": face,
 	})
 	_resort_tail(sched, i)
@@ -543,15 +544,17 @@ static func _launch_projectile(grid: Grid, s: Dictionary, caster: Combatant, sch
 	if path.is_empty():
 		return
 	var pid := "%s:%d" % [caster.id, int(s["tick"])]
+	var prev: Vector2i = caster.pos
 	for st in path:
 		sched.append({
 			"owner": caster.id, "id": s["id"], "category": "projectile",
-			"tick": int(st["tick"]), "band_priority": 9,   # resolve AFTER same-tick dodges
-			"tile": st["tile"], "step": int(st["step"]), "pid": pid,
+			"tick": int(st["tick"]), "band_priority": Config.PRIORITY_PROJECTILE,   # resolve AFTER same-tick dodges
+			"tile": st["tile"], "from": prev, "step": int(st["step"]), "pid": pid,
 			"dwell": int(pd.get("tick_per_tile", 0)),   # tile stays "hot" this long: a move onto it in-window is clipped
 			"pierce": bool(pd.get("pierce", false)),
 			"damage": int(pd.get("effect", {}).get("amount", 0)),
 		})
+		prev = st["tile"]
 	_resort_tail(sched, i)   # injected steps now resolve in tick order with the rest of the tail
 
 # A MOVE is continuous travel, so stepping onto a tile a foe's projectile is currently
@@ -584,7 +587,7 @@ static func _projectile_step(s: Dictionary, actor: Combatant, target: Combatant,
 	if consumed.get(pid, false):
 		return
 	var tile: Vector2i = s["tile"]
-	events.append(_ev("projectile_step", tick, actor.id, {"tile": tile, "step": int(s["step"]), "spell": s["id"]}))
+	events.append(_ev("projectile_step", tick, actor.id, {"tile": tile, "from": s.get("from", tile), "step": int(s["step"]), "spell": s["id"]}))
 	if target.pos == tile and dead_tick[target.id] == -1:
 		var dmg := int(s["damage"])
 		_apply_damage(target, dmg, tick, damaged_tick, dead_tick)

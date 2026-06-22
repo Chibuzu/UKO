@@ -74,10 +74,17 @@ const COL_LOG_DIM := Color(0.58, 0.60, 0.64)
 
 # ── Animation timings (seconds) ─────────────────────────────
 const MOVE_DUR := 0.30      # how long a move slide takes
+const PIVOT_DUR := 0.15     # how long a pivot (reface) beat holds
 const FLASH_DUR := 0.25     # how long a flash fades back
 const HIT_DUR := 0.40       # beat held on a landed hit
 const LABEL_DUR := 0.80     # floating number lifetime
-const GROUP_GAP := 0.35     # pause between tick groups (the WEGO heartbeat)
+const GROUP_GAP := 0.35     # legacy fixed gap; superseded by the tick-proportional pause below
+# The pause between tick groups is proportional to the gap in SIM TICKS, so the
+# animation timeline mirrors the resolver clock: a bolt crossing tiles 200 ticks
+# apart, or a blink in transit for 600, waits in kind. Clamped at both ends.
+const SEC_PER_TICK := 0.0015  # animation seconds per simulation tick
+const GAP_MIN := 0.10         # floor on the inter-group pause
+const GAP_MAX := 1.00         # ceiling, so a far-future event never stalls the match
 
 # ── Juice ───────────────────────────────────────────────────
 const HP_DRAIN_DUR := 0.35  # HP bar slides to its new value over this long

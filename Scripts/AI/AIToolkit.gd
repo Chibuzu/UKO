@@ -146,10 +146,10 @@ static func _around_whiffs(d: Dictionary, from: Vector2i, foe_pos: Vector2i) -> 
 		return false
 	if String(d.get("effect", {}).get("type", "")) != "damage":
 		return false
-	# > 2, not > 1: the foe is within one step of the blast, so this hits either by
-	# closing in (move -> burst) or by the foe stepping into us. Only a truly
-	# unreachable burst (>=3 away) is pruned. Tighten to > 1 for hit-only-now.
-	return Grid.cheb(from, foe_pos) > 2
+	# radius+1, not radius: the foe is within one step of the blast, so it still hits
+	# by closing in (move -> burst) or by the foe stepping into us. Only a truly
+	# unreachable burst (radius+2 away) is pruned.
+	return Grid.cheb(from, foe_pos) > int(d.get("radius", Config.AROUND_RADIUS)) + 1
 
 
 # Cardinal facing pointing at the foe (dominant axis; +y is south).

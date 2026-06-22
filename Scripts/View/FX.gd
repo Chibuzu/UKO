@@ -48,7 +48,7 @@ func beam(from_local: Vector2, to_local: Vector2, color: Color) -> void:
 
 # Hand-drawn bolt projectile: flies from the caster to the impact tile, rotated
 # to its travel direction (the art is drawn pointing right). False if no art.
-func bolt_projectile(from_local: Vector2, to_local: Vector2) -> bool:
+func bolt_projectile(from_local: Vector2, to_local: Vector2, travel_dur: float = -1.0) -> bool:
 	var path := "res://assets/sprites/bolt_proj.png"
 	if not ResourceLoader.exists(path):
 		return false
@@ -58,7 +58,9 @@ func bolt_projectile(from_local: Vector2, to_local: Vector2) -> bool:
 	s.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	s.position = from_local
 	s.rotation = (to_local - from_local).angle()
-	var dur: float = clampf((to_local - from_local).length() / 600.0, 0.08, 0.4)
+	# Caller may pass a tick-derived duration so the bolt speed matches the sim;
+	# otherwise fall back to a fixed pixel speed.
+	var dur: float = travel_dur if travel_dur >= 0.0 else clampf((to_local - from_local).length() / 600.0, 0.08, 0.4)
 	var t := create_tween()
 	t.tween_property(s, "position", to_local, dur)
 	t.finished.connect(s.queue_free)
