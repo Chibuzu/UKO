@@ -11,6 +11,8 @@ const DIRS := [Vector2i(0, -1), Vector2i(0, 1), Vector2i(-1, 0), Vector2i(1, 0)]
 var blocked: Array = []
 var spawn_a: Vector2i
 var spawn_b: Vector2i
+var base_blocked: Array = []   # canonical layout; rotations derive from this so walls return
+var rot_step := 0              # 0-3: how many 90 clockwise turns from the canonical layout
 
 func _init() -> void:
 	_clear()
@@ -46,10 +48,6 @@ func has_los(a: Vector2i, b: Vector2i) -> bool:
 static func dist(a: Vector2i, b: Vector2i) -> int:
 	return absi(a.x - b.x) + absi(a.y - b.y)
 
-# Chebyshev (king-move) distance -- the radius an "around" (3x3) blast reaches.
-static func cheb(a: Vector2i, b: Vector2i) -> int:
-	return maxi(absi(a.x - b.x), absi(a.y - b.y))
-
 # ── Generation (ruleset 1: 8-10% blockers, spawns must stay connected) ──
 func generate(rng: RandomNumberGenerator) -> void:
 	var attempts := 0
@@ -69,9 +67,11 @@ func generate(rng: RandomNumberGenerator) -> void:
 			blocked[p.y][p.x] = true
 			placed += 1
 		if _connected(spawn_a, spawn_b):
+			base_blocked = _copy(blocked)
 			return
 	push_warning("Grid.generate: fell back to empty arena after 200 attempts")
 	_clear()
+	base_blocked = _copy(blocked)
 
 func _connected(start: Vector2i, goal: Vector2i) -> bool:
 	var seen := {start: true}
@@ -86,6 +86,61 @@ func _connected(start: Vector2i, goal: Vector2i) -> bool:
 				seen[n] = true
 				queue.append(n)
 	return false
+
+# Rotate the arena 90 clockwise from the CANONICAL layout (so walls return over a
+# 4-step cycle, not erode). Fighters do NOT move, so a wall may land on an occupant
+# -- those tiles are suppressed (cleared) and returned as "crushed". The connecting
+# corridor rotates with the walls while the fighters stay put, so they can be
+# stranded; we re-verify a path between them and carve one if rotation severed it.
+func rotate_blockers(occupants: Array) -> Array:
+	rot_step = (rot_step + 1) % 4
+	blocked = _rotated(base_blocked, rot_step)
+	var crushed: Array = []
+	for p in occupants:
+		if in_bounds(p) and blocked[p.y][p.x]:
+			blocked[p.y][p.x] = false   # suppress: never drop a wall onto a fighter
+			crushed.append(p)
+	if occupants.size() == 2 and not _connected(occupants[0], occupants[1]):
+		_carve(occupants[0], occupants[1])
+	return crushed
+
+func _copy(src: Array) -> Array:
+	var out: Array = []
+	for row in src:
+		out.append(row.duplicate())
+	return out
+
+func _rotated(base: Array, step: int) -> Array:
+	var out: Array = _copy(base)
+	for _i in range(step):
+		out = _rot90(out)
+	return out
+
+# 90 clockwise: the new tile (SIZE-1-y, x) takes the value at (x, y).
+func _rot90(src: Array) -> Array:
+	var dst: Array = []
+	for y in range(SIZE):
+		var row: Array = []
+		for x in range(SIZE):
+			row.append(false)
+		dst.append(row)
+	for y in range(SIZE):
+		for x in range(SIZE):
+			dst[x][SIZE - 1 - y] = src[y][x]
+	return dst
+
+# Clear walls along an L-path a->b so the two are reachable again. Operates on the
+# derived layout only (canonical is untouched), so it is transient -- the next
+# rotation re-derives from base. Only fires when a rotation strands the fighters.
+func _carve(a: Vector2i, b: Vector2i) -> void:
+	var x := a.x
+	var y := a.y
+	while x != b.x:
+		x += signi(b.x - x)
+		blocked[y][x] = false
+	while y != b.y:
+		y += signi(b.y - y)
+		blocked[y][x] = false
 
 func _line(a: Vector2i, b: Vector2i) -> Array:
 	var points := []

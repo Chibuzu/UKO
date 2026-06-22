@@ -81,7 +81,13 @@ static func resolve(grid: Grid, in_a: Combatant, in_b: Combatant,
 					events.append(_ev("pivot", tick, actor.id, {"facing": s["facing"]}))
 				"move":
 					if not bool(s.get("_resolved", false)):
+						var a_was: Vector2i = actor.pos
+						var t_was: Vector2i = target.pos
 						_do_move(s, actor, target, group, grid, dead_tick, tick, events)
+						if actor.pos != a_was:
+							_move_into_projectile(actor, sched, tick, proj_consumed, damaged_tick, dead_tick, events)
+						if target.pos != t_was:
+							_move_into_projectile(target, sched, tick, proj_consumed, damaged_tick, dead_tick, events)
 				"attack":
 					_attack(actor, target, s, tick, guarding, guard_blocked, damaged_tick, dead_tick, events)
 				"spell":
@@ -542,10 +548,31 @@ static func _launch_projectile(grid: Grid, s: Dictionary, caster: Combatant, sch
 			"owner": caster.id, "id": s["id"], "category": "projectile",
 			"tick": int(st["tick"]), "band_priority": 9,   # resolve AFTER same-tick dodges
 			"tile": st["tile"], "step": int(st["step"]), "pid": pid,
+			"dwell": int(pd.get("tick_per_tile", 0)),   # tile stays "hot" this long: a move onto it in-window is clipped
 			"pierce": bool(pd.get("pierce", false)),
 			"damage": int(pd.get("effect", {}).get("amount", 0)),
 		})
 	_resort_tail(sched, i)   # injected steps now resolve in tick order with the rest of the tail
+
+# A MOVE is continuous travel, so stepping onto a tile a foe's projectile is currently
+# traversing (its dwell window contains this tick) gets you clipped -- unlike a blink,
+# which teleports and never sweeps the space. The move-side mirror of the standing check.
+static func _move_into_projectile(mover: Combatant, sched: Array, tick: int,
+		consumed: Dictionary, damaged_tick: Dictionary, dead_tick: Dictionary, events: Array) -> void:
+	if dead_tick[mover.id] != -1:
+		return
+	for e in sched:
+		if e.get("category", "") != "projectile" or e["owner"] == mover.id:
+			continue
+		if consumed.get(e["pid"], false) or e["tile"] != mover.pos:
+			continue
+		if tick >= int(e["tick"]) and tick < int(e["tick"]) + int(e["dwell"]):
+			var dmg := int(e["damage"])
+			_apply_damage(mover, dmg, tick, damaged_tick, dead_tick)
+			events.append(_ev("spell_hit", tick, mover.id, {"target": mover.id, "damage": dmg, "spell": e["id"]}))
+			if not bool(e["pierce"]):
+				consumed[e["pid"]] = true
+			return
 
 # One tile of a projectile's flight: if the foe stands here right now (live position,
 # after any earlier move/blink this tick resolved) it takes the hit. A non-piercing

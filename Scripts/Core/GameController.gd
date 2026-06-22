@@ -82,6 +82,8 @@ func _game_loop() -> void:
 	var opp_model := OpponentModel.new()   # learns player A's habits across this match
 	while true:
 		turn_num += 1
+		if turn_num > 1 and (turn_num - 1) % Config.MAP_ROTATE_EVERY == 0:
+			_rotate_map()
 		_begin_turn()
 		var seq_a: Array = await selection.player_sequence_ready
 		menu.set_state(a, b, false, a.spell_ids(), [], false, true)   # confirmed -> waiting for opponent
@@ -110,6 +112,20 @@ func _game_loop() -> void:
 
 func _begin_turn() -> void:
 	selection.begin_turn(a, b)
+
+# Every MAP_ROTATE_EVERY turns the arena spins 90: walls reposition around the
+# (stationary) fighters. A wall that would land on a fighter is suppressed and that
+# fighter takes crush damage instead; the grid then repairs connectivity if the
+# rotation stranded them. Naive to the AI (it plans each turn's board, not ahead).
+func _rotate_map() -> void:
+	var crushed := grid.rotate_blockers([a.pos, b.pos])
+	for p in crushed:
+		var who: Combatant = a if p == a.pos else b
+		who.hp = maxi(1, who.hp - Config.MAP_CRUSH_DAMAGE)   # avoidable + telegraphed -> non-lethal cap
+		who.rest_ready = false                                # took damage -> no REST next turn
+		combat_log._push("%s crushed by a shifting wall (-%d)" % [who.id, Config.MAP_CRUSH_DAMAGE], ViewConfig.COL_WIN_B)
+	combat_log._push("-- MAP ROTATES 90 --", ViewConfig.COL_TEXT)
+	board.queue_redraw()   # walls moved; repaint the arena
 
 # ── End screen ────────────────────────────
 func _show_result(result: String) -> void:
