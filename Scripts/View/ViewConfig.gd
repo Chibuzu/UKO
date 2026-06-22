@@ -46,6 +46,10 @@ const COL_FX_BOLT := Color(0.65, 0.35, 0.90, 0.60)
 const COL_FX_BUFF := Color(0.95, 0.82, 0.30, 0.55)
 const FLASH_SPELL := Color(0.85, 0.7, 1.0)
 
+# Telegraph: tiles that will become walls at the next quadrant shift.
+const COL_GHOST_WALL := Color(0.95, 0.55, 0.20, 0.35)   # incoming-wall fill
+const COL_GHOST_EDGE := Color(0.95, 0.62, 0.28, 0.90)   # incoming-wall border
+
 # Action menu.
 const MENU_ORIGIN := Vector2(16, 60)
 const COL_BTN := Color(0.22, 0.25, 0.30)

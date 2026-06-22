@@ -84,6 +84,7 @@ func _game_loop() -> void:
 		turn_num += 1
 		if turn_num > 1 and (turn_num - 1) % Config.MAP_ROTATE_EVERY == 0:
 			_rotate_map()
+		_update_shift_telegraph()
 		_begin_turn()
 		var seq_a: Array = await selection.player_sequence_ready
 		menu.set_state(a, b, false, a.spell_ids(), [], false, true)   # confirmed -> waiting for opponent
@@ -113,7 +114,8 @@ func _game_loop() -> void:
 func _begin_turn() -> void:
 	selection.begin_turn(a, b)
 
-# Every MAP_ROTATE_EVERY turns the arena spins 90: walls reposition around the
+# Every MAP_ROTATE_EVERY turns the arena's four quadrants shift one step clockwise:
+# walls reposition around the
 # (stationary) fighters. A wall that would land on a fighter is suppressed and that
 # fighter takes crush damage instead; the grid then repairs connectivity if the
 # rotation stranded them. Naive to the AI (it plans each turn's board, not ahead).
@@ -124,8 +126,18 @@ func _rotate_map() -> void:
 		who.hp = maxi(1, who.hp - Config.MAP_CRUSH_DAMAGE)   # avoidable + telegraphed -> non-lethal cap
 		who.rest_ready = false                                # took damage -> no REST next turn
 		combat_log._push("%s crushed by a shifting wall (-%d)" % [who.id, Config.MAP_CRUSH_DAMAGE], ViewConfig.COL_WIN_B)
-	combat_log._push("-- MAP ROTATES 90 --", ViewConfig.COL_TEXT)
+	combat_log._push("-- QUADRANTS SHIFT --", ViewConfig.COL_TEXT)
 	board.queue_redraw()   # walls moved; repaint the arena
+
+# Telegraph: on the turn BEFORE a shift, ghost the tiles that will become walls so
+# the player can step clear (keeps the crush damage avoidable, not RNG). The next
+# turn shifts when turn_num is a multiple of MAP_ROTATE_EVERY.
+func _update_shift_telegraph() -> void:
+	if turn_num % Config.MAP_ROTATE_EVERY == 0:
+		board.set_ghost(grid.incoming_walls())
+		combat_log._push("Quadrants shift next turn -- amber tiles become walls", ViewConfig.COL_DRAW)
+	else:
+		board.clear_ghost()
 
 # ── End screen ────────────────────────────
 func _show_result(result: String) -> void:

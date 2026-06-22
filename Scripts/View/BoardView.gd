@@ -13,6 +13,7 @@ var highlights: Array = []                      # Array[Vector2i]
 var highlight_color: Color = ViewConfig.COL_HL_MOVE
 var fx_tiles: Array = []                         # transient spell-effect overlay
 var fx_color: Color = ViewConfig.COL_FX_AOE
+var ghost_tiles: Array = []                     # tiles becoming walls at the next quadrant shift
 var _base_pos: Vector2 = ViewConfig.BOARD_ORIGIN # rest position (shake offsets from here)
 var _shake := 0.0                                # current shake magnitude
 
@@ -50,6 +51,11 @@ func _draw() -> void:
 	for pos in fx_tiles:
 		var fr := Rect2(pos.x * ViewConfig.TILE, pos.y * ViewConfig.TILE, ViewConfig.TILE, ViewConfig.TILE)
 		draw_rect(fr, fx_color)
+	# Telegraph overlay: tiles about to become walls at the next quadrant shift.
+	for pos in ghost_tiles:
+		var gr := Rect2(pos.x * ViewConfig.TILE, pos.y * ViewConfig.TILE, ViewConfig.TILE, ViewConfig.TILE)
+		draw_rect(gr, ViewConfig.COL_GHOST_WALL)
+		draw_rect(gr, ViewConfig.COL_GHOST_EDGE, false, 2.0)
 	var total := Grid.SIZE * ViewConfig.TILE
 	draw_rect(Rect2(0, 0, total, total), ViewConfig.COL_BOARD_EDGE, false, 2.0)
 
@@ -71,6 +77,14 @@ func set_highlights(tiles: Array, color: Color) -> void:
 
 func clear_highlights() -> void:
 	highlights = []
+	queue_redraw()
+
+func set_ghost(tiles: Array) -> void:
+	ghost_tiles = tiles
+	queue_redraw()
+
+func clear_ghost() -> void:
+	ghost_tiles = []
 	queue_redraw()
 
 # Translate a click into a grid tile and emit it. Right-click cancels. Clicks

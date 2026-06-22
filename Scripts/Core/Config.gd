@@ -26,7 +26,7 @@ const BAND_PRIORITY := {
 }
 
 # ── Resources [PH] ──────────────────────────────────────────────────────
-const MAP_ROTATE_EVERY := 5    # rotate the arena 90 clockwise every this many turns
+const MAP_ROTATE_EVERY := 5    # shift the arena quadrants one step clockwise every this many turns
 const MAP_CRUSH_DAMAGE := 20   # if a rotating wall would land on you, it is suppressed and you take this
 const MAX_HP := 100
 const MAX_MP := 100

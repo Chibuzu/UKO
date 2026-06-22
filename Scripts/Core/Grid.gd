@@ -12,18 +12,23 @@ var blocked: Array = []
 var spawn_a: Vector2i
 var spawn_b: Vector2i
 var base_blocked: Array = []   # canonical layout; rotations derive from this so walls return
-var rot_step := 0              # 0-3: how many 90 clockwise turns from the canonical layout
+var rot_step := 0              # 0-3: how many clockwise quadrant shifts from the canonical layout
 
 func _init() -> void:
 	_clear()
 
-func _clear() -> void:
-	blocked = []
+# A fresh SIZE x SIZE grid with no blockers.
+func _blank() -> Array:
+	var g: Array = []
 	for y in range(SIZE):
-		var row := []
+		var row: Array = []
 		for x in range(SIZE):
 			row.append(false)
-		blocked.append(row)
+		g.append(row)
+	return g
+
+func _clear() -> void:
+	blocked = _blank()
 
 func in_bounds(p: Vector2i) -> bool:
 	return p.x >= 0 and p.x < SIZE and p.y >= 0 and p.y < SIZE
@@ -47,6 +52,10 @@ func has_los(a: Vector2i, b: Vector2i) -> bool:
 
 static func dist(a: Vector2i, b: Vector2i) -> int:
 	return absi(a.x - b.x) + absi(a.y - b.y)
+
+# Chebyshev (king-move) distance -- the radius an "around" (3x3) blast reaches.
+static func cheb(a: Vector2i, b: Vector2i) -> int:
+	return maxi(absi(a.x - b.x), absi(a.y - b.y))
 
 # ── Generation (ruleset 1: 8-10% blockers, spawns must stay connected) ──
 func generate(rng: RandomNumberGenerator) -> void:
@@ -87,14 +96,15 @@ func _connected(start: Vector2i, goal: Vector2i) -> bool:
 				queue.append(n)
 	return false
 
-# Rotate the arena 90 clockwise from the CANONICAL layout (so walls return over a
-# 4-step cycle, not erode). Fighters do NOT move, so a wall may land on an occupant
+# Shift the arena's four quadrants one step clockwise from the CANONICAL layout (so
+# walls return over a 4-step cycle, not erode). Fighters do NOT move, so a wall may
+# land on an occupant
 # -- those tiles are suppressed (cleared) and returned as "crushed". The connecting
 # corridor rotates with the walls while the fighters stay put, so they can be
 # stranded; we re-verify a path between them and carve one if rotation severed it.
 func rotate_blockers(occupants: Array) -> Array:
 	rot_step = (rot_step + 1) % 4
-	blocked = _rotated(base_blocked, rot_step)
+	blocked = _cycled(base_blocked, rot_step)
 	var crushed: Array = []
 	for p in occupants:
 		if in_bounds(p) and blocked[p.y][p.x]:
@@ -104,29 +114,47 @@ func rotate_blockers(occupants: Array) -> Array:
 		_carve(occupants[0], occupants[1])
 	return crushed
 
+# Tiles that are open NOW but become blockers at the next quadrant shift -- the
+# telegraph's "incoming walls", so a fighter can step clear before it lands.
+func incoming_walls() -> Array:
+	var next_layout := _cycled(base_blocked, (rot_step + 1) % 4)
+	var out: Array = []
+	for y in range(SIZE):
+		for x in range(SIZE):
+			if next_layout[y][x] and not blocked[y][x]:
+				out.append(Vector2i(x, y))
+	return out
+
 func _copy(src: Array) -> Array:
 	var out: Array = []
 	for row in src:
 		out.append(row.duplicate())
 	return out
 
-func _rotated(base: Array, step: int) -> Array:
+func _cycled(base: Array, step: int) -> Array:
 	var out: Array = _copy(base)
 	for _i in range(step):
-		out = _rot90(out)
+		out = _cycle_quadrants_cw(out)
 	return out
 
-# 90 clockwise: the new tile (SIZE-1-y, x) takes the value at (x, y).
-func _rot90(src: Array) -> Array:
-	var dst: Array = []
+# One clockwise QUADRANT shift. The board splits into four (SIZE/2 x SIZE/2)
+# quadrants; each quadrant's contents move as a block to the next quadrant clockwise
+# (top-left -> top-right -> bottom-right -> bottom-left -> top-left). The contents are
+# TRANSLATED, not rotated: a tile keeps its position WITHIN its quadrant, so wall
+# shapes keep their orientation -- only which quadrant they sit in changes. (A true
+# 90 rotation would also turn each shape; this deliberately does not.)
+func _cycle_quadrants_cw(src: Array) -> Array:
+	var dst := _blank()
+	var H := SIZE / 2
 	for y in range(SIZE):
-		var row: Array = []
 		for x in range(SIZE):
-			row.append(false)
-		dst.append(row)
-	for y in range(SIZE):
-		for x in range(SIZE):
-			dst[x][SIZE - 1 - y] = src[y][x]
+			var qx := 0 if x < H else 1     # which quadrant column this tile is in
+			var qy := 0 if y < H else 1     # which quadrant row
+			var rx := x - qx * H            # position WITHIN the quadrant (preserved)
+			var ry := y - qy * H
+			var nqx := 1 - qy               # clockwise quadrant move: new quadrant-col
+			var nqy := qx                   #                          new quadrant-row
+			dst[nqy * H + ry][nqx * H + rx] = src[y][x]
 	return dst
 
 # Clear walls along an L-path a->b so the two are reachable again. Operates on the
