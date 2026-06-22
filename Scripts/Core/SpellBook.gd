@@ -40,10 +40,11 @@ const SPELLS := {
 	},
 	"dark_bolt": {
 		"name": "DARK BOLT", "category": "spell",
-		"band": Config.Band.SPECIAL, "base_tick": 50,  # after Move: step off the line to dodge it
+		"band": Config.Band.ATTACK, "base_tick": 50,   # LAUNCH tick (~350, point-blank); travels out from there
 		"energy_cost": 0, "mp_cost": 40, "cooldown": 4,
 		"needs_tile": true,
 		"shape": "line", "range": 3,
+		"projectile": true, "tick_per_tile": 200, "pierce": false,  # flies tile-by-tile; dodge by leaving the line
 		"effect": { "type": "damage", "amount": 25 },   # [PH] see balance note
 		"no_guard_combo": true,                          # cannot share a turn with Guard
 		"ai_role": "poke",

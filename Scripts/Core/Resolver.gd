@@ -32,17 +32,17 @@ static func resolve(grid: Grid, in_a: Combatant, in_b: Combatant,
 	sched.append_array(plan_a["entries"])
 	sched.append_array(plan_b["entries"])
 
-	sched.sort_custom(func(x, y):
-		if x["tick"] != y["tick"]:
-			return x["tick"] < y["tick"]
-		return x["band_priority"] < y["band_priority"]
-	)
+	# Projectile flights are expanded LIVE at cast resolution (see _launch_projectile),
+	# from the caster's real tile -- so a blocked preceding move fires the bolt from
+	# where the caster actually sits. The schedule starts with just the planned actions.
+	sched.sort_custom(_sched_less)
 
 	var guarding := {"A": false, "B": false}   # live shield: up while it protects
 	var guard_blocked := {"A": 0, "B": 0}   # per-fighter guard refund earned (0 = nothing blocked)
 	var guarded := {"A": false, "B": false}     # latch: did this fighter guard at all?
 	var damaged_tick := {"A": -1, "B": -1}
 	var dead_tick := {"A": -1, "B": -1}
+	var proj_consumed := {}   # projectile id -> true once it has hit (and stopped) or been absorbed
 
 	var i := 0
 	while i < sched.size():
@@ -82,6 +82,10 @@ static func resolve(grid: Grid, in_a: Combatant, in_b: Combatant,
 					_attack(actor, target, s, tick, guarding, guard_blocked, damaged_tick, dead_tick, events)
 				"spell":
 					_cast_spell(grid, actor, target, s, tick, damaged_tick, dead_tick, fresh, events)
+					if Config.is_projectile(s["id"]):
+						_launch_projectile(grid, s, actor, sched, i, events)
+				"projectile":
+					_projectile_step(s, actor, target, tick, proj_consumed, grid, damaged_tick, dead_tick, events)
 				"rest":
 					events.append(_ev("rest", tick, actor.id))
 				"wait":
@@ -418,7 +422,9 @@ static func _cast_spell(grid: Grid, caster: Combatant, target: Combatant, s: Dic
 			events.append(_ev("buff_applied", tick, who.id, {"status": st}))
 		"damage":
 			# Spell damage is flat (no flank multiplier) by design.
-			if target.pos in tiles:
+			if Config.is_projectile(id):
+				pass   # a projectile resolves its hits through its flight steps, not here
+			elif target.pos in tiles:
 				var dmg := int(eff["amount"])
 				_apply_damage(target, dmg, tick, damaged_tick, dead_tick)
 				events.append(_ev("spell_hit", tick, caster.id, {"target": target.id, "damage": dmg, "spell": id}))
@@ -475,6 +481,58 @@ static func _apply_damage(target: Combatant, dmg: int, tick: int,
 		damaged_tick[target.id] = tick
 	if target.hp <= 0 and dead_tick[target.id] == -1:
 		dead_tick[target.id] = tick
+
+# Schedule ordering: earliest tick first; ties broken by band priority. Shared by the
+# initial sort and the live tail re-sort after a projectile injects its steps.
+static func _sched_less(x: Dictionary, y: Dictionary) -> bool:
+	if x["tick"] != y["tick"]:
+		return x["tick"] < y["tick"]
+	return x["band_priority"] < y["band_priority"]
+
+# Launch a projectile at CAST RESOLUTION, from the caster's LIVE tile -- so if a
+# preceding move was blocked, the bolt fires from where the caster actually is.
+# Generates the per-tile flight steps and splices them into the still-unprocessed
+# tail of the schedule [i, end), re-sorting that tail so they resolve in tick order.
+# Fully generic: any spell flagged `projectile` flies this way, nothing bolt-specific.
+static func _launch_projectile(grid: Grid, s: Dictionary, caster: Combatant, sched: Array, i: int, events: Array) -> void:
+	var pd := Config.def(s["id"])
+	var pdir := _dir_from(caster.pos, s["tile"])
+	var path := Config.projectile_path(grid, caster.pos, pdir,
+			int(pd.get("range", 1)), int(pd.get("tick_per_tile", 0)), int(s["tick"]))
+	if path.is_empty():
+		return
+	var pid := "%s:%d" % [caster.id, int(s["tick"])]
+	for st in path:
+		sched.append({
+			"owner": caster.id, "id": s["id"], "category": "projectile",
+			"tick": int(st["tick"]), "band_priority": 9,   # resolve AFTER same-tick dodges
+			"tile": st["tile"], "step": int(st["step"]), "pid": pid,
+			"pierce": bool(pd.get("pierce", false)),
+			"damage": int(pd.get("effect", {}).get("amount", 0)),
+		})
+	# Re-sort only the unprocessed tail; everything before i is already resolved/grouped.
+	var tail := sched.slice(i)
+	tail.sort_custom(_sched_less)
+	for k in range(tail.size()):
+		sched[i + k] = tail[k]
+
+# One tile of a projectile's flight: if the foe stands here right now (live position,
+# after any earlier move/blink this tick resolved) it takes the hit. A non-piercing
+# bolt is then spent and its remaining steps are skipped.
+static func _projectile_step(s: Dictionary, actor: Combatant, target: Combatant,
+		tick: int, consumed: Dictionary, grid: Grid,
+		damaged_tick: Dictionary, dead_tick: Dictionary, events: Array) -> void:
+	var pid: String = s["pid"]
+	if consumed.get(pid, false):
+		return
+	var tile: Vector2i = s["tile"]
+	events.append(_ev("projectile_step", tick, actor.id, {"tile": tile, "step": int(s["step"]), "spell": s["id"]}))
+	if target.pos == tile and dead_tick[target.id] == -1:
+		var dmg := int(s["damage"])
+		_apply_damage(target, dmg, tick, damaged_tick, dead_tick)
+		events.append(_ev("spell_hit", tick, actor.id, {"target": target.id, "damage": dmg, "spell": s["id"]}))
+		if not bool(s["pierce"]):
+			consumed[pid] = true
 
 static func _flank(defender: Combatant, attacker_pos: Vector2i) -> String:
 	# THE flank rule lives once in Config; this is just the resolver-side adapter.

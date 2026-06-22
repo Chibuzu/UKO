@@ -113,6 +113,24 @@ static func blink_landing(grid: Grid, from: Vector2i, dir: Vector2i, dist: int, 
 		return {}
 	return {"tile": land}
 
+# True if this spell flies as a projectile (expands into per-tile flight steps)
+# instead of striking its whole shape at one instant.
+static func is_projectile(id: String) -> bool:
+	return bool(def(id).get("projectile", false))
+
+# A projectile's flight path from `from` along cardinal `dir`: one entry per tile,
+# each `tax` ticks after the previous, the first at `launch_tick`. Stops at a wall
+# or the grid edge (the bolt is absorbed). Returns [{tile, tick, step}, ...].
+static func projectile_path(grid: Grid, from: Vector2i, dir: Vector2i, rng: int, tax: int, launch_tick: int) -> Array:
+	var path: Array = []
+	var p: Vector2i = from
+	for k in range(1, rng + 1):
+		p += dir
+		if not grid.in_bounds(p) or grid.is_blocked(p):
+			break
+		path.append({"tile": p, "tick": launch_tick + (k - 1) * tax, "step": k})
+	return path
+
 static func cooldown_of(id: String) -> int:
 	return int(def(id).get("cooldown", 0))
 
