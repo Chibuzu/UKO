@@ -10,15 +10,17 @@ extends Node2D
 
 const SPRITE_DIR := "res://assets/sprites/"
 const PIVOT_DUR := 0.18    # how long the facing bar takes to swing to a new side
+const SPRITE_OFFSET_Y := -6.0   # nudge the sprite so the feet sit on the tile (tune in-engine)
 
 # Animation table: name -> {prefix, count, fps, loop}. Frames are
 # "<prefix>_1.png".."<prefix>_<count>.png" (missing numbers are skipped),
 # or a single "<prefix>.png" when count == 0. Adding an animation is one row
 # here + dropping the PNGs in; trigger it with play_anim("name").
 const ANIMS := {
-	"standing": {"prefix": "standing",  "count": 0, "fps": 6.0,  "loop": true},
+	"idle":     {"prefix": "idle",      "count": 4, "fps": 3.0,  "loop": true},
+	"move":     {"prefix": "move",      "count": 6, "fps": 6.0,  "loop": false},
+	"rest":     {"prefix": "rest",      "count": 5, "fps": 3.0,  "loop": false},
 	"buff":     {"prefix": "buff",      "count": 9, "fps": 14.0, "loop": false},
-	"rest":     {"prefix": "rest",      "count": 9, "fps": 12.0, "loop": false},
 	"attack":   {"prefix": "melee",     "count": 9, "fps": 18.0, "loop": false},
 	"bolt":     {"prefix": "dark_bolt", "count": 9, "fps": 16.0, "loop": false},
 	"hurt":     {"prefix": "hurt",      "count": 9, "fps": 16.0, "loop": false},
@@ -38,17 +40,18 @@ var overlay: AnimatedSprite2D = null  # one-shot effects drawn ON TOP (e.g. pivo
 func init_state(c: Combatant) -> void:
 	unit_id = c.id
 	base_color = ViewConfig.COL_A if c.id == "A" else ViewConfig.COL_B
-	if body == null and ResourceLoader.exists(SPRITE_DIR + "standing.png"):
+	if body == null and ResourceLoader.exists(SPRITE_DIR + "idle_1.png"):
 		body = AnimatedSprite2D.new()
 		body.sprite_frames = _build_frames()
 		body.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST   # crisp pixels
 		body.centered = true
+		body.offset = Vector2(0, SPRITE_OFFSET_Y)
 		body.show_behind_parent = true                           # behind HP bar, but ON TOP of board tiles
 		# No modulate tint: the sprite keeps its true colors, since block color
 		# will carry spell meaning later. Sides are told apart by the A/B label.
 		add_child(body)
 		body.animation_finished.connect(_on_anim_finished)
-		body.play("standing")
+		body.play("idle")
 		# Overlay: shares the body's frames, sits on top, hidden until used.
 		overlay = AnimatedSprite2D.new()
 		overlay.sprite_frames = body.sprite_frames
@@ -69,11 +72,20 @@ func set_state(c: Combatant) -> void:
 	position = ViewConfig.tile_center(c.pos)
 	scale = Vector2.ONE
 	_apply_facing()
+	if body:
+		body.rotation = 0.0
 	queue_redraw()
 
 func tween_to(pos: Vector2i) -> void:
+	var target := ViewConfig.tile_center(pos)
+	var delta := target - position
+	if body and delta.length() > 0.5:
+		play_anim("move")
+		body.flip_h = false
+		# move art points UP; rotate the whole sprite to face the travel direction.
+		body.rotation = delta.angle() + PI / 2.0
 	var t := create_tween()
-	t.tween_property(self, "position", ViewConfig.tile_center(pos), ViewConfig.MOVE_DUR) \
+	t.tween_property(self, "position", target, ViewConfig.MOVE_DUR) \
 		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
 
 func set_facing(f: int) -> void:
@@ -122,7 +134,8 @@ func pop() -> void:
 
 # ── Frame-animation playback ────────────────────────────────────────────
 func play_anim(name: String) -> void:
-	if body and body.sprite_frames.has_animation(name):
+	if body and body.sprite_frames.has_animation(name) \
+			and body.sprite_frames.get_frame_count(name) > 0:
 		body.play(name)
 
 func play_overlay(name: String) -> void:
@@ -141,7 +154,9 @@ func play_rest() -> void: play_anim("rest")
 
 func _on_anim_finished() -> void:
 	if body:
-		body.play("standing")        # one-shot anims return to idle
+		body.rotation = 0.0          # clear any move-direction rotation
+		_apply_facing()              # restore idle facing (flip for west)
+		body.play("idle")            # one-shot anims return to idle
 
 func _build_frames() -> SpriteFrames:
 	var sf := SpriteFrames.new()

@@ -134,6 +134,16 @@ func _copy(src: Array) -> Array:
 		out.append(row.duplicate())
 	return out
 
+# A deep copy of the current wall layout, so the replay can record each turn.
+func snapshot() -> Array:
+	return _copy(blocked)
+
+# Restore a recorded wall layout, so a replayed turn shows the arena as it was
+# then (quadrant shifts included), not the final layout.
+func restore(layout: Array) -> void:
+	if not layout.is_empty():
+		blocked = _copy(layout)
+
 func _cycled(base: Array, step: int) -> Array:
 	var out: Array = _copy(base)
 	for _i in range(step):

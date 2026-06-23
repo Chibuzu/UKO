@@ -31,8 +31,17 @@ func setup(p_board: BoardView, p_play: EventPlayer, p_log: CombatLog,
 
 # Log a resolved turn for later playback.
 func record(turn: int, pre_a: Combatant, pre_b: Combatant,
-		post_a: Combatant, post_b: Combatant, events: Array) -> void:
-	match_record.add(turn, pre_a, pre_b, post_a, post_b, events)
+		post_a: Combatant, post_b: Combatant, events: Array,
+		layout: Array = [], notes: Array = []) -> void:
+	match_record.add(turn, pre_a, pre_b, post_a, post_b, events, layout, notes)
+
+# Restore the wall layout recorded for a turn (and clear the live telegraph), so a
+# replayed turn shows its own arena, not the match's final layout.
+func _restore_layout(t: Dictionary) -> void:
+	if board.grid and not t.get("layout", []).is_empty():
+		board.grid.restore(t["layout"])
+	board.clear_ghost()
+	board.queue_redraw()
 
 # Begin replay (called from the end screen, which is borrowed to hide/restore).
 func enter(p_end_screen: EndScreen) -> void:
@@ -71,6 +80,7 @@ func _on_replay_action(which: String) -> void:
 func _replay_show(idx: int) -> void:
 	replay_idx = clampi(idx, 0, match_record.size() - 1)
 	var t := match_record.get_turn(replay_idx)
+	_restore_layout(t)
 	board.clear_highlights()
 	ua.set_state(t["post_a"])
 	ub.set_state(t["post_b"])
@@ -80,6 +90,7 @@ func _replay_show(idx: int) -> void:
 # Re-animate the current turn from its START state, so you watch the actual plays.
 func _replay_play_current() -> void:
 	var t := match_record.get_turn(replay_idx)
+	_restore_layout(t)
 	replay_bar.set_enabled(false)
 	board.clear_highlights()
 	ua.set_state(t["pre_a"])
@@ -92,6 +103,7 @@ func _exit_replay() -> void:
 		replay_bar.queue_free()
 		replay_bar = null
 	var last := match_record.get_turn(match_record.size() - 1)
+	_restore_layout(last)
 	ua.set_state(last["post_a"])
 	ub.set_state(last["post_b"])
 	_rebuild_log_through(match_record.size() - 1)
@@ -103,4 +115,6 @@ func _rebuild_log_through(idx: int) -> void:
 	combat_log.clear()
 	for i in range(idx + 1):
 		var t := match_record.get_turn(i)
+		for note in t.get("notes", []):
+			combat_log._push(note["text"], note["color"])   # shift/crush lines precede the turn
 		combat_log.add_turn(t["turn"], t["events"])

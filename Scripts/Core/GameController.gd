@@ -23,6 +23,7 @@ var combat_log: CombatLog
 var a: Combatant
 var b: Combatant
 var turn_num := 0
+var _shift_notes: Array = []   # this turn's rotation/crush log lines, recorded for replay
 
 var selection: SelectionController   # player input / targeting system
 var replay: ReplayController         # record + replay system
@@ -82,6 +83,7 @@ func _game_loop() -> void:
 	var opp_model := OpponentModel.new()   # learns player A's habits across this match
 	while true:
 		turn_num += 1
+		_shift_notes.clear()
 		if turn_num > 1 and (turn_num - 1) % Config.MAP_ROTATE_EVERY == 0:
 			_rotate_map()
 		_update_shift_telegraph()
@@ -100,7 +102,7 @@ func _game_loop() -> void:
 		var seq_b: Array = AI.choose_sequence(difficulty, b, a, grid, b.spell_ids(), opp_model)
 		var out := Resolver.resolve(grid, a, b, seq_a, seq_b, turn_num)
 		opp_model.observe(seq_a)   # learn what A actually did, for next turn's prediction
-		replay.record(turn_num, pre_a, pre_b, out["a"], out["b"], out["events"])
+		replay.record(turn_num, pre_a, pre_b, out["a"], out["b"], out["events"], grid.snapshot(), _shift_notes.duplicate(true))
 		await play.play(out["events"], out["a"], out["b"])
 		a = out["a"]
 		b = out["b"]
@@ -125,9 +127,15 @@ func _rotate_map() -> void:
 		var who: Combatant = a if p == a.pos else b
 		who.hp = maxi(1, who.hp - Config.MAP_CRUSH_DAMAGE)   # avoidable + telegraphed -> non-lethal cap
 		who.rest_ready = false                                # took damage -> no REST next turn
-		combat_log._push("%s crushed by a shifting wall (-%d)" % [who.id, Config.MAP_CRUSH_DAMAGE], ViewConfig.COL_WIN_B)
-	combat_log._push("-- QUADRANTS SHIFT --", ViewConfig.COL_TEXT)
+		_log_shift("%s crushed by a shifting wall (-%d)" % [who.id, Config.MAP_CRUSH_DAMAGE], ViewConfig.COL_WIN_B)
+	_log_shift("-- QUADRANTS SHIFT --", ViewConfig.COL_TEXT)
 	board.queue_redraw()   # walls moved; repaint the arena
+
+# Push a shift/crush line to the live log AND remember it for this turn, so the
+# replay reproduces it (these lines live outside the turn's resolved events).
+func _log_shift(text: String, color: Color) -> void:
+	combat_log._push(text, color)
+	_shift_notes.append({"text": text, "color": color})
 
 # Telegraph: on the turn BEFORE a shift, ghost the tiles that will become walls so
 # the player can step clear (keeps the crush damage avoidable, not RNG). The next

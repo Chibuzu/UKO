@@ -6,16 +6,19 @@
 class_name MatchRecord
 extends RefCounted
 
-# Each entry: { turn:int, pre_a, pre_b, post_a, post_b: Combatant, events: Array }
+# Each entry: { turn:int, pre_a, pre_b, post_a, post_b: Combatant, events: Array,
+#              layout: Array (wall snapshot), notes: Array of {text,color} (shift log) }
 var turns: Array = []
 
 func add(turn_num: int, pre_a: Combatant, pre_b: Combatant,
-		post_a: Combatant, post_b: Combatant, events: Array) -> void:
+		post_a: Combatant, post_b: Combatant, events: Array,
+		layout: Array = [], notes: Array = []) -> void:
 	turns.append({
 		"turn": turn_num,
 		"pre_a": pre_a.clone(), "pre_b": pre_b.clone(),
 		"post_a": post_a.clone(), "post_b": post_b.clone(),
 		"events": events.duplicate(true),
+		"layout": layout, "notes": notes,
 	})
 
 func size() -> int:
