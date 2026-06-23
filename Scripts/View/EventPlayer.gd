@@ -63,27 +63,35 @@ func _visualize(e: Dictionary) -> float:
 				u.set_facing(e["facing"])
 			return ViewConfig.PIVOT_DUR
 		"blink":
-			# Teleport ARRIVES: pop in at the destination (not a slide), reface, fade back.
+			# Teleport ARRIVES: pop in at the destination, reface, and play the
+			# rematerialize half (frames 5→9). Snap alpha back to full first so the
+			# reappear frames are visible; the frame content carries the fade-in.
+			# Falls back to the old alpha tween when the art is missing.
 			if u:
 				u.position = ViewConfig.tile_center(e["to"])
 				if e.has("facing"):
 					u.set_facing(int(e["facing"]))
 				fx.burst(u.position, ViewConfig.COL_FX_BUFF, 10)
+				var din := u.anim_duration("teleport_in")
+				if din > 0.0:
+					u.modulate.a = 1.0
+					u.play_anim("teleport_in")
+					return maxf(ViewConfig.FLASH_DUR, din)
 				var tw := create_tween()
 				tw.tween_property(u, "modulate:a", 1.0, ViewConfig.FLASH_DUR)
 			return ViewConfig.FLASH_DUR
 		"attack_hit":
 			if u:
-				u.play_anim("attack")
+				u.play_anim("attack", Vector2(Config.FACING_VEC[u.facing]))
 			_impact(units.get(e["target"], null), int(e["damage"]), ViewConfig.FLASH_HIT, ViewConfig.SHAKE_HIT)
 			return ViewConfig.HIT_DUR
 		"attack_whiff":
 			if u:
-				u.play_anim("attack")
+				u.play_anim("attack", Vector2(Config.FACING_VEC[u.facing]))
 			return ViewConfig.FLASH_DUR
 		"attack_blocked":
 			if u:
-				u.play_anim("attack")
+				u.play_anim("attack", Vector2(Config.FACING_VEC[u.facing]))
 			board.shake(ViewConfig.SHAKE_HIT * 0.5)
 			return ViewConfig.HIT_DUR
 		"guard_raised":
@@ -126,12 +134,17 @@ func _visualize(e: Dictionary) -> float:
 		"spell_miss":
 			return ViewConfig.FX_DUR
 		"blink_depart":
-			# Teleport DEPARTS: vanish from the origin. The proportional gap until the
-			# blink ARRIVES (blink_travel ticks) is the real time spent in transit.
+			# Teleport DEPARTS: vanish at the origin. Play the dissolve half
+			# (frames 1→5) and fade alpha out over the same span, so the unit
+			# stays hidden once it returns to idle — the proportional gap until
+			# "blink" (blink_travel ticks) is the real time spent in transit.
 			if u:
 				fx.burst(u.position, ViewConfig.COL_FX_BUFF, 10)
+				var dout := maxf(ViewConfig.FLASH_DUR, u.anim_duration("teleport_out"))
+				u.play_anim("teleport_out")
 				var tw := create_tween()
-				tw.tween_property(u, "modulate:a", 0.0, ViewConfig.FLASH_DUR)
+				tw.tween_property(u, "modulate:a", 0.0, dout)
+				return dout
 			return ViewConfig.FLASH_DUR
 		"projectile_step":
 			# The bolt flies one tile; the hop takes its per-tile tick budget, so the

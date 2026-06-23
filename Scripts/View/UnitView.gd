@@ -10,22 +10,30 @@ extends Node2D
 
 const SPRITE_DIR := "res://assets/sprites/"
 const PIVOT_DUR := 0.18    # how long the facing bar takes to swing to a new side
-const SPRITE_OFFSET_Y := -6.0   # nudge the sprite so the feet sit on the tile (tune in-engine)
+const SPRITE_OFFSET_Y := -6.0   # nudge the sprite so the feet seat on the tile (tune in-engine)
 
 # Animation table: name -> {prefix, count, fps, loop}. Frames are
 # "<prefix>_1.png".."<prefix>_<count>.png" (missing numbers are skipped),
-# or a single "<prefix>.png" when count == 0. Adding an animation is one row
-# here + dropping the PNGs in; trigger it with play_anim("name").
+# or a single "<prefix>.png" when count == 0. A row may instead carry an
+# explicit "frames" list to use a subset / re-ordering of one prefix's PNGs
+# (e.g. the teleport strip split into a vanish half and a reappear half).
+# Adding an animation is one row here + dropping the PNGs in; trigger it
+# with play_anim("name").
 const ANIMS := {
-	"idle":     {"prefix": "idle",      "count": 4, "fps": 3.0,  "loop": true},
-	"move":     {"prefix": "move",      "count": 6, "fps": 6.0,  "loop": false},
-	"rest":     {"prefix": "rest",      "count": 5, "fps": 3.0,  "loop": false},
-	"buff":     {"prefix": "buff",      "count": 9, "fps": 14.0, "loop": false},
-	"attack":   {"prefix": "melee",     "count": 9, "fps": 18.0, "loop": false},
-	"bolt":     {"prefix": "dark_bolt", "count": 9, "fps": 16.0, "loop": false},
-	"hurt":     {"prefix": "hurt",      "count": 9, "fps": 16.0, "loop": false},
-	"guard":    {"prefix": "guard",     "count": 9, "fps": 14.0, "loop": false},
-	"pivot":    {"prefix": "pivot",     "count": 7, "fps": 18.0, "loop": false},
+	"idle":     {"prefix": "idle",      "count": 4,  "fps": 3.0, "loop": true},
+	"move":     {"prefix": "move",      "count": 6,  "fps": 6.0, "loop": false},
+	"rest":     {"prefix": "rest",      "count": 5,  "fps": 3.0, "loop": false},
+	"buff":     {"prefix": "buff",      "count": 5,  "fps": 3.0, "loop": false},
+	"attack":   {"prefix": "melee",     "count": 8,  "fps": 6.0, "loop": false},
+	"bolt":     {"prefix": "dark_bolt", "count": 9,  "fps": 9.0, "loop": false},
+	"hurt":     {"prefix": "hurt",      "count": 9,  "fps": 16.0, "loop": false},  # not in the FPS table — left as-is
+	"guard":    {"prefix": "guard",     "count": 11, "fps": 9.0, "loop": false},
+	"pivot":    {"prefix": "pivot",     "count": 7,  "fps": 18.0, "loop": false},  # not in the FPS table — left as-is
+	# Teleport is ONE 9-frame strip: figure -> portal -> nothing -> portal ->
+	# figure. Split so the vanish plays at the origin (blink_depart) and the
+	# reappear plays at the destination (blink). Frame 5 (fully gone) is shared.
+	"teleport_out": {"prefix": "teleport", "frames": [1, 2, 3, 4, 5], "fps": 6.0, "loop": false},
+	"teleport_in":  {"prefix": "teleport", "frames": [5, 6, 7, 8, 9], "fps": 6.0, "loop": false},
 }
 
 var unit_id: String = ""
@@ -80,10 +88,8 @@ func tween_to(pos: Vector2i) -> void:
 	var target := ViewConfig.tile_center(pos)
 	var delta := target - position
 	if body and delta.length() > 0.5:
-		play_anim("move")
-		body.flip_h = false
-		# move art points UP; rotate the whole sprite to face the travel direction.
-		body.rotation = delta.angle() + PI / 2.0
+		# move art points UP; play_anim rotates the walk to the travel direction.
+		play_anim("move", delta)
 	var t := create_tween()
 	t.tween_property(self, "position", target, ViewConfig.MOVE_DUR) \
 		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
@@ -133,10 +139,27 @@ func pop() -> void:
 	t.tween_property(self, "scale", Vector2.ONE, 0.22).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 # ── Frame-animation playback ────────────────────────────────────────────
-func play_anim(name: String) -> void:
+func play_anim(name: String, dir: Vector2 = Vector2.ZERO) -> void:
 	if body and body.sprite_frames.has_animation(name) \
 			and body.sprite_frames.get_frame_count(name) > 0:
+		if dir != Vector2.ZERO:
+			# Directional one-shot (move walk, melee swing): the art is drawn
+			# pointing UP, so add a quarter turn to aim it down the heading.
+			body.flip_h = false
+			body.rotation = dir.angle() + PI / 2.0
+		else:
+			body.rotation = 0.0    # everything else plays upright
 		body.play(name)
+
+# Real-time length of a one-shot animation (frames / fps), or 0 when the art
+# is missing. Lets the EventPlayer hold a tick group exactly as long as the
+# animation needs, instead of a fixed guess.
+func anim_duration(name: String) -> float:
+	if body and body.sprite_frames.has_animation(name):
+		var fps := body.sprite_frames.get_animation_speed(name)
+		if fps > 0.0:
+			return float(body.sprite_frames.get_frame_count(name)) / fps
+	return 0.0
 
 func play_overlay(name: String) -> void:
 	if overlay and overlay.sprite_frames.has_animation(name) \
@@ -163,7 +186,10 @@ func _build_frames() -> SpriteFrames:
 	for name in ANIMS:
 		var a: Dictionary = ANIMS[name]
 		var files: Array = []
-		if int(a["count"]) <= 0:
+		if a.has("frames"):                    # explicit subset / re-order of one prefix
+			for n in a["frames"]:
+				files.append("%s_%d.png" % [a["prefix"], int(n)])
+		elif int(a["count"]) <= 0:
 			files.append("%s.png" % a["prefix"])
 		else:
 			for i in range(1, int(a["count"]) + 1):

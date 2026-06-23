@@ -67,8 +67,8 @@ func bolt_projectile(from_local: Vector2, to_local: Vector2, travel_dur: float =
 	return true
 
 # Hand-drawn 3x3 AoE animation, centered on the caster's tile. Each source
-# frame is 96x96 (the 3x3 footprint), so it overlays the eight neighbours +
-# centre at 1:1. Returns false if the art isn't present (caller can fall back).
+# frame is the 3x3 footprint, so it overlays the eight neighbours + centre at
+# 1:1. Returns false if the art isn't present (caller can fall back).
 var _aoe_frames: SpriteFrames = null
 var _aoe_checked := false
 
@@ -78,10 +78,12 @@ func _aoe_sf() -> SpriteFrames:
 	_aoe_checked = true
 	var sf := SpriteFrames.new()
 	sf.add_animation("aoe")
-	sf.set_animation_speed("aoe", 24.0)
+	sf.set_animation_speed("aoe", 9.0)   # per the FPS table (Dark Bolt, Guard, AoE = 9)
 	sf.set_animation_loop("aoe", false)
 	var any := false
-	for i in range(1, 13):
+	# Source frame 1 is the caster's pose, not the burst — the real caster is
+	# already drawn by its own UnitView, so the Fx burst starts at frame 2.
+	for i in range(2, 13):
 		var path := "res://assets/sprites/aoe_%d.png" % i
 		if ResourceLoader.exists(path):
 			sf.add_frame("aoe", load(path)); any = true
