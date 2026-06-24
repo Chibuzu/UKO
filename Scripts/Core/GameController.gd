@@ -6,7 +6,9 @@
 # get their own script and are instantiated + wired here.
 extends Node
 
-const PLAYER_GEAR := ["discount_charm", "burst_node", "dark_focus", "blink_boots"]
+# The player's loadout is whatever they've bought and equipped in the shop
+# (PlayerProfile.loadout()); an ungeared player is white with no spells. The AI
+# always fights fully kitted.
 const AI_GEAR := ["discount_charm", "burst_node", "dark_focus", "blink_boots"]
 const MENU_SCENE := "res://MainMenu.tscn"   # adjust if your menu scene lives elsewhere
 
@@ -42,7 +44,7 @@ func _ready() -> void:
 
 	a = Combatant.new("A", grid.spawn_a, Config.Facing.EAST)
 	b = Combatant.new("B", grid.spawn_b, Config.Facing.WEST)
-	a.equip(PLAYER_GEAR)
+	a.equip(PlayerProfile.loadout())
 	b.equip(AI_GEAR)
 
 	ua = UnitView.new()

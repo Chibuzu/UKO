@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://c0e2g3y5g7luq"
-path="res://.godot/imported/pivot_1.png-7909a64fa4c224a706e170a34791ba92.ctex"
+uid="uid://cppert6sanfqr"
+path="res://.godot/imported/hat_4.png-00f9a1dd091de7589dc38012db292573.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://Assets/Sprites/pivot_1.png"
-dest_files=["res://.godot/imported/pivot_1.png-7909a64fa4c224a706e170a34791ba92.ctex"]
+source_file="res://Assets/Sprites/hat_4.png"
+dest_files=["res://.godot/imported/hat_4.png-00f9a1dd091de7589dc38012db292573.ctex"]
 
 [params]
 

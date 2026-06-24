@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://b6anqdbjwa30s"
-path="res://.godot/imported/pivot_6.png-a2f4b8e991e62339cb2fab68a3da9e11.ctex"
+uid="uid://dj6ul6ear6632"
+path="res://.godot/imported/chest_4.png-a8958faf8fd01ef8ebbfdce6aca51985.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://Assets/Sprites/pivot_6.png"
-dest_files=["res://.godot/imported/pivot_6.png-a2f4b8e991e62339cb2fab68a3da9e11.ctex"]
+source_file="res://Assets/Sprites/chest_4.png"
+dest_files=["res://.godot/imported/chest_4.png-a8958faf8fd01ef8ebbfdce6aca51985.ctex"]
 
 [params]
 

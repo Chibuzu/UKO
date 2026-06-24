@@ -98,12 +98,16 @@ func _visualize(e: Dictionary) -> float:
 			return ViewConfig.HIT_DUR
 		"guard_raised":
 			if u:
-				# Rotate the shield so its OPEN side sits behind the fighter: the
-				# guard art is closed on the RIGHT, so aligning that closed side
-				# with the facing vector (0 offset) leaves the open mouth at the back.
-				u.play_anim("guard", Vector2(Config.FACING_VEC[u.facing]), 0.0)
+				# Rotate the shield so its OPEN side sits behind the fighter (closed
+				# side toward the facing), and HOLD the cube up for the rest of the
+				# turn — it drops on guard_dropped or when the turn ends (set_state).
+				u.hold_anim("guard_up", Vector2(Config.FACING_VEC[u.facing]), 0.0)
 				u.flash(ViewConfig.FLASH_GUARD)
 			return ViewConfig.FLASH_DUR
+		"guard_dropped":
+			if u:
+				u.clear_hold()   # an offensive action this turn drops the shield
+			return 0.0
 		"guard_success":
 			if u:
 				u.flash(ViewConfig.FLASH_GUARD_OK)

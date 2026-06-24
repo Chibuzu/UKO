@@ -18,6 +18,8 @@ var _base_pos: Vector2 = ViewConfig.BOARD_ORIGIN # rest position (shake offsets 
 var _shake := 0.0                                # current shake magnitude
 const BG_PATH := "res://assets/sprites/map_bg.png"
 var bg_tex: Texture2D = null                     # decorative floor; live blockers draw on top
+const BLOCKER_PATH := "res://assets/sprites/blocker.png"
+var blocker_tex: Texture2D = null                # wall tile art; rotated per-tile for variety
 
 func setup(g: Grid) -> void:
 	grid = g
@@ -26,6 +28,9 @@ func setup(g: Grid) -> void:
 	if bg_tex == null and ResourceLoader.exists(BG_PATH):
 		bg_tex = load(BG_PATH)
 		texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST   # crisp pixel floor
+	if blocker_tex == null and ResourceLoader.exists(BLOCKER_PATH):
+		blocker_tex = load(BLOCKER_PATH)
+		texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST   # crisp pixel walls
 	queue_redraw()
 
 # Kick the board for a quick screen shake (decays in _process).
@@ -49,11 +54,20 @@ func _draw() -> void:
 		for x in range(Grid.SIZE):
 			var rect := Rect2(x * ViewConfig.TILE, y * ViewConfig.TILE, ViewConfig.TILE, ViewConfig.TILE)
 			if grid.blocked[y][x]:
-				draw_rect(rect, ViewConfig.COL_BLOCKED)              # live wall, on top of the floor
+				if blocker_tex:
+					# Wall art, rotated 0/90/180/270 by a stable per-tile hash so the
+					# weave varies across the arena (square tile stays aligned).
+					var c := rect.position + rect.size * 0.5
+					var rot := float((x * 3 + y * 5) % 4) * (PI / 2.0)
+					draw_set_transform(c, rot, Vector2.ONE)
+					draw_texture_rect(blocker_tex,
+						Rect2(-ViewConfig.TILE * 0.5, -ViewConfig.TILE * 0.5, ViewConfig.TILE, ViewConfig.TILE), false)
+					draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)   # reset for later draws
+				else:
+					draw_rect(rect, ViewConfig.COL_BLOCKED)              # fallback wall when art missing
 			elif bg_tex == null:
 				draw_rect(rect, ViewConfig.COL_OPEN)                 # fallback floor when art missing
-			if bg_tex == null:
-				draw_rect(rect, ViewConfig.COL_GRID_LINE, false, 1.0)   # map art carries its own grid
+			draw_rect(rect, ViewConfig.COL_GRID_LINE, false, 1.0)   # visible grid overlay, on top of the floor
 	# Highlight overlays for tiles the player can target this step.
 	for pos in highlights:
 		var hr := Rect2(pos.x * ViewConfig.TILE, pos.y * ViewConfig.TILE, ViewConfig.TILE, ViewConfig.TILE)

@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://b2ymc3wgpt505"
-path="res://.godot/imported/pivot_4.png-dd1ec54d0386bae21638096f4534f2bd.ctex"
+uid="uid://dwk0fx8p55p7d"
+path="res://.godot/imported/legs_2.png-f095c0ccb888da8257dba37d9080e432.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://Assets/Sprites/pivot_4.png"
-dest_files=["res://.godot/imported/pivot_4.png-dd1ec54d0386bae21638096f4534f2bd.ctex"]
+source_file="res://Assets/Sprites/legs_2.png"
+dest_files=["res://.godot/imported/legs_2.png-f095c0ccb888da8257dba37d9080e432.ctex"]
 
 [params]
 

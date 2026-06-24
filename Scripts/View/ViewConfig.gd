@@ -12,7 +12,7 @@ const BOARD_ORIGIN := Vector2(210, 40)    # board sits to the right of the menu
 # ── Colors ──────────────────────────────────────────────────
 const COL_OPEN := Color(0.20, 0.22, 0.26)
 const COL_BLOCKED := Color(0.10, 0.10, 0.12)
-const COL_GRID_LINE := Color(0.08, 0.08, 0.10)
+const COL_GRID_LINE := Color(0.30, 0.62, 0.74, 0.40)   # dusky cyan grid — visible but still cold/cyber
 const COL_BOARD_EDGE := Color(0.35, 0.40, 0.45)
 
 const COL_A := Color(0.30, 0.55, 0.95)    # player A piece

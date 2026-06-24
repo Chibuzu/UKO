@@ -54,19 +54,54 @@ func beam(from_local: Vector2, to_local: Vector2, color: Color) -> void:
 func projectile_flight(points: Array, seg_durs: Array, color: Color = ViewConfig.COL_FX_BOLT, delay: float = 0.0) -> void:
 	if points.size() < 2:
 		return
-	var s := Sprite2D.new()
-	add_child(s)
-	s.texture = _bolt_texture(color)
-	s.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	s.position = points[0]
-	s.rotation = (points[1] - points[0]).angle()   # art drawn pointing right; bolt flies straight
+	var node := _projectile_node(color)
+	add_child(node)
+	node.position = points[0]
+	node.rotation = (points[1] - points[0]).angle()   # bolt art points right; aim it down the path
 	var t := create_tween()
 	if delay > 0.0:
 		t.tween_interval(delay)   # sit at the muzzle while the cast group holds, then launch in sync
 	for k in range(1, points.size()):
 		var d: float = float(seg_durs[k - 1]) if (k - 1) < seg_durs.size() else 0.12
-		t.tween_property(s, "position", points[k], maxf(0.01, d))
-	t.finished.connect(s.queue_free)
+		t.tween_property(node, "position", points[k], maxf(0.01, d))
+	t.finished.connect(node.queue_free)
+
+# The traveling bolt's visual: the looping dark_bolt flight frames if present,
+# otherwise bolt_proj.png, otherwise a generated glow dot — always visible.
+func _projectile_node(color: Color) -> Node2D:
+	var sf := _bolt_sf()
+	if sf != null:
+		var a := AnimatedSprite2D.new()
+		a.sprite_frames = sf
+		a.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		a.centered = true
+		a.play("bolt")
+		return a
+	var s := Sprite2D.new()
+	s.texture = _bolt_texture(color)
+	s.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	return s
+
+# Looping flight animation from the dark_bolt frames. Frames 3-7 are the bolt
+# mid-flight; 1/8 are charge marks and 2/9 the caster, so only the travelling
+# frames are used. Built once and cached. null if the art isn't present.
+var _bolt_frames: SpriteFrames = null
+var _bolt_checked := false
+func _bolt_sf() -> SpriteFrames:
+	if _bolt_checked:
+		return _bolt_frames
+	_bolt_checked = true
+	var sf := SpriteFrames.new()
+	sf.add_animation("bolt")
+	sf.set_animation_speed("bolt", 9.0)   # per the FPS table (Dark Bolt = 9)
+	sf.set_animation_loop("bolt", true)
+	var any := false
+	for i in range(3, 8):
+		var path := "res://assets/sprites/dark_bolt_%d.png" % i
+		if ResourceLoader.exists(path):
+			sf.add_frame("bolt", load(path)); any = true
+	_bolt_frames = sf if any else null
+	return _bolt_frames
 
 # bolt_proj.png if present, else a small soft glow dot built once and cached, so
 # a projectile is never invisible just because the art has not been added yet.

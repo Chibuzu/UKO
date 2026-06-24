@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://ci5h1xd78n6k0"
-path="res://.godot/imported/pivot_3.png-a8dca36ba8fdf13de31a679e82018bdd.ctex"
+uid="uid://bfu15ycgchay"
+path="res://.godot/imported/jewelry_4.png-21256efa8bd6cdf5914c2ad42240b0a7.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://Assets/Sprites/pivot_3.png"
-dest_files=["res://.godot/imported/pivot_3.png-a8dca36ba8fdf13de31a679e82018bdd.ctex"]
+source_file="res://Assets/Sprites/jewelry_4.png"
+dest_files=["res://.godot/imported/jewelry_4.png-21256efa8bd6cdf5914c2ad42240b0a7.ctex"]
 
 [params]
 

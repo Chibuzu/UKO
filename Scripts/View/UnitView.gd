@@ -10,7 +10,10 @@ extends Node2D
 
 const SPRITE_DIR := "res://assets/sprites/"
 const PIVOT_DUR := 0.18    # how long the facing bar takes to swing to a new side
-const SPRITE_OFFSET_Y := -6.0   # nudge the sprite so the feet seat on the tile (tune in-engine)
+const SPRITE_OFFSET_Y := -6.0   # nudge the FIGURE up so its feet seat on the tile (tune in-engine)
+# These animations are tile-CENTRED effects (the guard cube, the buff aura), not
+# feet-seated figures, so they skip the figure's vertical nudge and sit on the tile.
+const CENTERED_ANIMS := ["guard", "guard_up", "buff"]
 
 # Animation table: name -> {prefix, count, fps, loop}. Frames are
 # "<prefix>_1.png".."<prefix>_<count>.png" (missing numbers are skipped),
@@ -28,6 +31,10 @@ const ANIMS := {
 	"bolt":     {"prefix": "dark_bolt", "count": 9,  "fps": 9.0, "loop": false},
 	"hurt":     {"prefix": "hurt",      "count": 9,  "fps": 16.0, "loop": false},  # not in the FPS table — left as-is
 	"guard":    {"prefix": "guard",     "count": 11, "fps": 9.0, "loop": false},
+	# Guard raise that ENDS on the shield cube (frames 1-9) and is held there for
+	# the whole duration the guard is up (see hold_anim / EventPlayer guard_raised);
+	# frames 10-11 (the lower) play on release via the normal idle return.
+	"guard_up": {"prefix": "guard", "frames": [1, 2, 3, 4, 5, 6, 7, 8, 9], "fps": 9.0, "loop": false},
 	"pivot":    {"prefix": "pivot",     "count": 7,  "fps": 18.0, "loop": false},  # not in the FPS table — left as-is
 	# Teleport is ONE 9-frame strip: figure -> portal -> nothing -> portal ->
 	# figure. Split so the vanish plays at the origin (blink_depart) and the
@@ -44,6 +51,8 @@ var shown_hp: float = Config.MAX_HP
 var base_color: Color = Color.WHITE
 var body: AnimatedSprite2D = null     # null = no art found, draw the disc instead
 var overlay: AnimatedSprite2D = null  # one-shot effects drawn ON TOP (e.g. pivot)
+var _held: String = ""                # an animation frozen on its last frame until released (the raised guard)
+var _gear_layers: Array = []          # AnimatedSprite2D overlays for equipped gear (idle-only for now)
 
 func init_state(c: Combatant) -> void:
 	unit_id = c.id
@@ -69,7 +78,60 @@ func init_state(c: Combatant) -> void:
 		overlay.visible = false
 		add_child(overlay)
 		overlay.animation_finished.connect(_on_overlay_finished)
+	_build_gear_layers(c)
 	set_state(c)
+
+# Equipped-gear overlays. Each equipped slot adds a sprite layer that plays its
+# idle-overlay frames on top of the white body; an empty slot shows nothing, so
+# an ungeared fighter is plain white. Idle-only for now: the layers show while
+# the body idles and hide during other animations (synced in _process).
+func _build_gear_layers(c: Combatant) -> void:
+	for lyr in _gear_layers:
+		lyr.queue_free()
+	_gear_layers.clear()
+	if body == null:
+		return
+	for gid in c.gear:
+		var prefix := GearBook.overlay_of(String(gid))
+		if prefix == "":
+			continue
+		var frames := _overlay_frames(prefix)
+		if frames == null:
+			continue
+		var lyr := AnimatedSprite2D.new()
+		lyr.sprite_frames = frames
+		lyr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		lyr.centered = true
+		lyr.offset = Vector2(0, SPRITE_OFFSET_Y)   # seat with the body
+		lyr.show_behind_parent = true              # above body, below the HP bar
+		add_child(lyr)
+		lyr.play("idle")
+		_gear_layers.append(lyr)
+
+# Build a 4-frame idle SpriteFrames from "<prefix>_1..4.png", or null if absent.
+func _overlay_frames(prefix: String) -> SpriteFrames:
+	var sf := SpriteFrames.new()
+	sf.add_animation("idle")
+	sf.set_animation_speed("idle", 3.0)   # match the body idle fps so they stay in lockstep
+	sf.set_animation_loop("idle", true)
+	var any := false
+	for i in range(1, 5):
+		var path := SPRITE_DIR + "%s_%d.png" % [prefix, i]
+		if ResourceLoader.exists(path):
+			sf.add_frame("idle", load(path)); any = true
+	return sf if any else null
+
+# Keep the gear overlays locked to the body's idle frame; hide them during any
+# other animation (no per-action overlays yet) so the figure shows white there.
+func _process(_dt: float) -> void:
+	if body == null or _gear_layers.is_empty():
+		return
+	var show_gear := (body.animation == "idle")
+	for lyr in _gear_layers:
+		lyr.visible = show_gear
+		if show_gear:
+			lyr.frame = body.frame
+			lyr.flip_h = body.flip_h
 
 # Snap instantly to a combatant's state (start, and re-sync at turn end).
 func set_state(c: Combatant) -> void:
@@ -80,8 +142,11 @@ func set_state(c: Combatant) -> void:
 	position = ViewConfig.tile_center(c.pos)
 	scale = Vector2.ONE
 	_apply_facing()
+	_held = ""                       # turn ended: drop any held guard cube
 	if body:
 		body.rotation = 0.0
+		body.offset.y = SPRITE_OFFSET_Y
+		body.play("idle")
 	queue_redraw()
 
 func tween_to(pos: Vector2i) -> void:
@@ -142,6 +207,9 @@ func pop() -> void:
 func play_anim(name: String, dir: Vector2 = Vector2.ZERO, rot_offset: float = PI / 2.0) -> void:
 	if body and body.sprite_frames.has_animation(name) \
 			and body.sprite_frames.get_frame_count(name) > 0:
+		# Centred effects (guard cube, buff aura) sit ON the tile; figures get the
+		# feet-seating nudge. Set every play so we never inherit the wrong offset.
+		body.offset.y = 0.0 if name in CENTERED_ANIMS else SPRITE_OFFSET_Y
 		if dir != Vector2.ZERO:
 			# Directional one-shot. `rot_offset` accounts for where the art's
 			# reference points by default: the move/attack figure points UP
@@ -152,6 +220,17 @@ func play_anim(name: String, dir: Vector2 = Vector2.ZERO, rot_offset: float = PI
 		else:
 			body.rotation = 0.0    # everything else plays upright
 		body.play(name)
+
+# Play an animation and FREEZE on its last frame (no return to idle) until
+# clear_hold/set_state releases it — used to keep the raised guard cube up for
+# the whole duration the guard is valid.
+func hold_anim(name: String, dir: Vector2 = Vector2.ZERO, rot_offset: float = PI / 2.0) -> void:
+	play_anim(name, dir, rot_offset)
+	_held = name
+
+# Release a held animation; the next finished/idle cycle returns to idle.
+func clear_hold() -> void:
+	_held = ""
 
 # Real-time length of a one-shot animation (frames / fps), or 0 when the art
 # is missing. Lets the EventPlayer hold a tick group exactly as long as the
@@ -178,10 +257,14 @@ func play_buff() -> void: play_anim("buff")
 func play_rest() -> void: play_anim("rest")
 
 func _on_anim_finished() -> void:
-	if body:
-		body.rotation = 0.0          # clear any move-direction rotation
-		_apply_facing()              # restore idle facing (flip for west)
-		body.play("idle")            # one-shot anims return to idle
+	if body == null:
+		return
+	if _held != "" and body.animation == _held:
+		return                       # freeze on the last frame (held guard cube) until released
+	body.rotation = 0.0          # clear any move-direction rotation
+	body.offset.y = SPRITE_OFFSET_Y   # back to a seated figure
+	_apply_facing()              # restore idle facing (flip for west)
+	body.play("idle")            # one-shot anims return to idle
 
 func _build_frames() -> SpriteFrames:
 	var sf := SpriteFrames.new()
