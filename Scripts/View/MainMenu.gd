@@ -52,6 +52,8 @@ func _draw() -> void:
 	var font := ThemeDB.fallback_font
 	draw_string(font, Vector2(0, vp.y * 0.20), "UKO DUEL",
 		HORIZONTAL_ALIGNMENT_CENTER, vp.x, 64, ViewConfig.COL_TEXT)
+	draw_string(font, Vector2(vp.x - 220, 38), "GOLD  %d" % PlayerProfile.gold(),
+		HORIZONTAL_ALIGNMENT_RIGHT, 200, 24, ViewConfig.COL_GOLD)
 	if _mode == "difficulty":
 		draw_string(font, Vector2(0, vp.y * 0.27), "SELECT DIFFICULTY",
 			HORIZONTAL_ALIGNMENT_CENTER, vp.x, 22, ViewConfig.COL_TEXT_OFF)
@@ -70,6 +72,8 @@ func _draw() -> void:
 		draw_rect(r, col)
 		draw_rect(r, ViewConfig.COL_BOARD_EDGE, false, 2.0)
 		var label: String = b["label"]
+		if _mode == "difficulty" and int(b.get("diff", -1)) >= 0:
+			label += "   (%dg)" % Config.gold_reward(int(b["diff"]))   # purse for this tier
 		if not on:
 			label += "   (soon)"
 		var tcol := ViewConfig.COL_TEXT if on else ViewConfig.COL_TEXT_OFF

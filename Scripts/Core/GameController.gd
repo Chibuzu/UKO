@@ -151,15 +151,21 @@ func _update_shift_telegraph() -> void:
 func _show_result(result: String) -> void:
 	var text := "DRAW"
 	var color := ViewConfig.COL_DRAW
+	var reward := Config.GOLD_REWARD_DRAW
 	if result == "a_wins":
 		text = "A WINS"
 		color = ViewConfig.COL_WIN_A
+		reward = Config.gold_reward(difficulty)   # player beat the AI -> purse by tier
 	elif result == "b_wins":
 		text = "B WINS"
 		color = ViewConfig.COL_WIN_B
+		reward = 0                                 # the AI won; no payout
+	var balance := PlayerProfile.gold()
+	if reward > 0:
+		balance = PlayerProfile.add_gold(reward)   # bank it (persists to disk)
 	var es := EndScreen.new()
 	add_child(es)
-	es.setup(text, color)
+	es.setup(text, color, reward, balance)
 	es.choice.connect(_on_end_choice)
 	end_screen = es
 

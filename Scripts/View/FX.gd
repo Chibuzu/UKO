@@ -46,25 +46,46 @@ func beam(from_local: Vector2, to_local: Vector2, color: Color) -> void:
 		t.tween_property(ln, "modulate:a", 0.0, ViewConfig.BEAM_DUR)
 		t.finished.connect(ln.queue_free)
 
-# Hand-drawn bolt projectile: flies from the caster to the impact tile, rotated
-# to its travel direction (the art is drawn pointing right). False if no art.
-func bolt_projectile(from_local: Vector2, to_local: Vector2, travel_dur: float = -1.0) -> bool:
-	var path := "res://assets/sprites/bolt_proj.png"
-	if not ResourceLoader.exists(path):
-		return false
+# Continuous projectile flight: ONE sprite that travels the whole path
+# (caster -> each tile -> impact) in real time, staying visible for the entire
+# flight. `seg_durs[k]` is the real time for leg k (tick-derived upstream, so
+# the bolt's speed matches the sim). Uses bolt_proj.png if the artist made one,
+# otherwise a generated glow dot — so the bolt is ALWAYS visible either way.
+func projectile_flight(points: Array, seg_durs: Array, color: Color = ViewConfig.COL_FX_BOLT, delay: float = 0.0) -> void:
+	if points.size() < 2:
+		return
 	var s := Sprite2D.new()
 	add_child(s)
-	s.texture = load(path)
+	s.texture = _bolt_texture(color)
 	s.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	s.position = from_local
-	s.rotation = (to_local - from_local).angle()
-	# Caller may pass a tick-derived duration so the bolt speed matches the sim;
-	# otherwise fall back to a fixed pixel speed.
-	var dur: float = travel_dur if travel_dur >= 0.0 else clampf((to_local - from_local).length() / 600.0, 0.08, 0.4)
+	s.position = points[0]
+	s.rotation = (points[1] - points[0]).angle()   # art drawn pointing right; bolt flies straight
 	var t := create_tween()
-	t.tween_property(s, "position", to_local, dur)
+	if delay > 0.0:
+		t.tween_interval(delay)   # sit at the muzzle while the cast group holds, then launch in sync
+	for k in range(1, points.size()):
+		var d: float = float(seg_durs[k - 1]) if (k - 1) < seg_durs.size() else 0.12
+		t.tween_property(s, "position", points[k], maxf(0.01, d))
 	t.finished.connect(s.queue_free)
-	return true
+
+# bolt_proj.png if present, else a small soft glow dot built once and cached, so
+# a projectile is never invisible just because the art has not been added yet.
+static var _dot_tex: Texture2D = null
+func _bolt_texture(color: Color) -> Texture2D:
+	var path := "res://assets/sprites/bolt_proj.png"
+	if ResourceLoader.exists(path):
+		return load(path)
+	if _dot_tex == null:
+		var r := 5
+		var sz := r * 2 + 2
+		var img := Image.create(sz, sz, false, Image.FORMAT_RGBA8)
+		var c := Vector2(sz, sz) * 0.5
+		for y in sz:
+			for x in sz:
+				var aa := clampf(float(r) - Vector2(x + 0.5, y + 0.5).distance_to(c) + 0.5, 0.0, 1.0)
+				img.set_pixel(x, y, Color(color.r, color.g, color.b, aa))   # opaque core, soft edge
+		_dot_tex = ImageTexture.create_from_image(img)
+	return _dot_tex
 
 # Hand-drawn 3x3 AoE animation, centered on the caster's tile. Each source
 # frame is the 3x3 footprint, so it overlays the eight neighbours + centre at

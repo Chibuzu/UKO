@@ -45,6 +45,21 @@ const ENERGY_PULSE_ACTIONS := 6   # regen fires every 6 SHARED non-Wait actions 
 const ENERGY_PULSE_TURNS := 3     # legacy, unused (kept so any old harness still compiles)
 const WAIT_ENERGY := 10           # small personal energy top-up WAIT now grants (tunable)
 
+# ── Rewards: gold for beating the AI ────────────────────────────────────
+# Paid only when the PLAYER (A) wins. Keyed by AI.Difficulty (EASY=0 ..
+# EXTREME=3) as a raw int so Config keeps no dependency on the AI layer.
+# Higher tier -> bigger purse. Tune freely.
+const GOLD_REWARD := {
+	0: 10,    # EASY
+	1: 25,    # CHALLENGING
+	2: 60,    # HARD
+	3: 150,   # EXTREME
+}
+const GOLD_REWARD_DRAW := 0   # consolation gold on a draw (0 = none)
+
+static func gold_reward(difficulty: int) -> int:
+	return int(GOLD_REWARD.get(difficulty, 0))
+
 # ── Energy costs (ruleset 4) ────────────────────────────────────────────
 # Movement cost is DIRECTIONAL (relative to facing): closing is cheap, retreat
 # is expensive — this is the structural brake on kiting. The duration penalty

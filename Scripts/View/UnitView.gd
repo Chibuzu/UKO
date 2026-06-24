@@ -139,14 +139,16 @@ func pop() -> void:
 	t.tween_property(self, "scale", Vector2.ONE, 0.22).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 # ── Frame-animation playback ────────────────────────────────────────────
-func play_anim(name: String, dir: Vector2 = Vector2.ZERO) -> void:
+func play_anim(name: String, dir: Vector2 = Vector2.ZERO, rot_offset: float = PI / 2.0) -> void:
 	if body and body.sprite_frames.has_animation(name) \
 			and body.sprite_frames.get_frame_count(name) > 0:
 		if dir != Vector2.ZERO:
-			# Directional one-shot (move walk, melee swing): the art is drawn
-			# pointing UP, so add a quarter turn to aim it down the heading.
+			# Directional one-shot. `rot_offset` accounts for where the art's
+			# reference points by default: the move/attack figure points UP
+			# (+PI/2 turns UP onto `dir`); the guard shield's closed side points
+			# RIGHT, so it passes its facing with a 0 offset (see EventPlayer).
 			body.flip_h = false
-			body.rotation = dir.angle() + PI / 2.0
+			body.rotation = dir.angle() + rot_offset
 		else:
 			body.rotation = 0.0    # everything else plays upright
 		body.play(name)

@@ -10,6 +10,7 @@ extends Node
 var board: BoardView
 var fx: Fx
 var units: Dictionary = {}   # "A" -> UnitView, "B" -> UnitView
+var _flights: Dictionary = {}   # owner -> {points, seg_durs, color}: a projectile's whole path, pre-planned
 
 func setup(p_board: BoardView, p_fx: Fx, unit_a: UnitView, unit_b: UnitView) -> void:
 	board = p_board
@@ -17,6 +18,7 @@ func setup(p_board: BoardView, p_fx: Fx, unit_a: UnitView, unit_b: UnitView) -> 
 	units = {"A": unit_a, "B": unit_b}
 
 func play(events: Array, final_a: Combatant, final_b: Combatant) -> void:
+	_flights = _plan_flights(events)   # gather each bolt's full path up front
 	var i := 0
 	while i < events.size():
 		var tick = events[i]["tick"]
@@ -96,7 +98,10 @@ func _visualize(e: Dictionary) -> float:
 			return ViewConfig.HIT_DUR
 		"guard_raised":
 			if u:
-				u.play_anim("guard")
+				# Rotate the shield so its OPEN side sits behind the fighter: the
+				# guard art is closed on the RIGHT, so aligning that closed side
+				# with the facing vector (0 offset) leaves the open mouth at the back.
+				u.play_anim("guard", Vector2(Config.FACING_VEC[u.facing]), 0.0)
 				u.flash(ViewConfig.FLASH_GUARD)
 			return ViewConfig.FLASH_DUR
 		"guard_success":
@@ -147,13 +152,11 @@ func _visualize(e: Dictionary) -> float:
 				return dout
 			return ViewConfig.FLASH_DUR
 		"projectile_step":
-			# The bolt flies one tile; the hop takes its per-tile tick budget, so the
-			# bolt speed matches the sim. Inter-group spacing is the proportional gap.
-			var pspell: String = e.get("spell", "")
-			var tpt := int(Config.def(pspell).get("tick_per_tile", 0))
-			var hop := clampf(float(tpt) * ViewConfig.SEC_PER_TICK, ViewConfig.GAP_MIN, ViewConfig.GAP_MAX)
-			fx.bolt_projectile(ViewConfig.tile_center(e.get("from", e["tile"])), ViewConfig.tile_center(e["tile"]), hop)
-			return 0.0   # async; the inter-group gap paces it
+			# The visible bolt is ONE sprite launched at spell_cast that flies the
+			# whole path (see _cast_visual / _plan_flights). These step events now
+			# only PACE the timeline — their tick spacing is the inter-group gap, so
+			# the bolt stays in sync with the sim and the hit lands on time.
+			return 0.0
 		_:
 			return 0.0
 
@@ -182,7 +185,14 @@ func _cast_visual(caster: UnitView, e: Dictionary) -> void:
 		caster.play_anim(cast_anim)
 	match style:
 		"projectile":
-			board.shake(ViewConfig.SHAKE_HIT * 0.5)   # muzzle kick; the bolt travels via projectile_step
+			board.shake(ViewConfig.SHAKE_HIT * 0.5)   # muzzle kick
+			# Fire the whole flight now: one sprite travels caster -> ... -> impact,
+			# staying visible the entire time (paced to match the step ticks).
+			var fl: Dictionary = _flights.get(e.get("owner", ""), {})
+			if not fl.is_empty():
+				# Delay by the cast group's hold (FX_DUR) so the bolt reaches each
+				# tile exactly as the matching step is paced — arrival == impact.
+				fx.projectile_flight(fl["points"], fl["seg_durs"], fl["color"], ViewConfig.FX_DUR)
 		"aoe":
 			if not fx.aoe_anim(caster.position):
 				board.flash_tiles(tiles, color)            # fallback if art missing
@@ -206,3 +216,27 @@ func _style_color(style: String) -> Color:
 			return ViewConfig.COL_FX_BUFF
 		_:
 			return ViewConfig.COL_FX_AOE
+
+# Walk the event list and assemble each projectile's WHOLE path before playback,
+# keyed by caster (one bolt per caster per turn). points = [launch tile center,
+# tile1, tile2, ...]; one seg_dur per leg, tick-derived so the sprite's speed
+# matches the sim (and the inter-group gaps). If the bolt is consumed early, the
+# path simply ends at the hit tile — only the emitted steps are included.
+func _plan_flights(events: Array) -> Dictionary:
+	var out := {}
+	for e in events:
+		if String(e.get("type", "")) != "projectile_step":
+			continue
+		var owner: String = e.get("owner", "")
+		var spell: String = e.get("spell", "")
+		var tpt := int(Config.def(spell).get("tick_per_tile", 0))
+		var seg := clampf(float(tpt) * ViewConfig.SEC_PER_TICK, ViewConfig.GAP_MIN, ViewConfig.GAP_MAX)
+		if not out.has(owner):
+			out[owner] = {
+				"points": [ViewConfig.tile_center(e.get("from", e["tile"]))],
+				"seg_durs": [],
+				"color": _style_color("projectile"),
+			}
+		out[owner]["points"].append(ViewConfig.tile_center(e["tile"]))
+		out[owner]["seg_durs"].append(seg)
+	return out

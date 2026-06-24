@@ -12,6 +12,8 @@ const GAP := 16
 
 var _result := ""
 var _color := Color.WHITE
+var _reward := 0
+var _balance := 0
 var _buttons := [
 	{"id": "replay", "label": "REPLAY"},
 	{"id": "rematch", "label": "REMATCH"},
@@ -19,9 +21,11 @@ var _buttons := [
 ]
 var _hover := -1
 
-func setup(result_text: String, result_color: Color) -> void:
+func setup(result_text: String, result_color: Color, reward: int = 0, balance: int = 0) -> void:
 	_result = result_text
 	_color = result_color
+	_reward = reward
+	_balance = balance
 	queue_redraw()
 
 func _btn_rect(i: int, vp: Vector2) -> Rect2:
@@ -36,6 +40,11 @@ func _draw() -> void:
 	var font := ThemeDB.fallback_font
 	draw_string(font, Vector2(0, vp.y * 0.42), _result,
 		HORIZONTAL_ALIGNMENT_CENTER, vp.x, 60, _color)
+	# Gold reward line (only when something was won; balance shown for context).
+	if _reward > 0:
+		draw_string(font, Vector2(0, vp.y * 0.42 + 38),
+			"+%d GOLD     (total %d)" % [_reward, _balance],
+			HORIZONTAL_ALIGNMENT_CENTER, vp.x, 26, ViewConfig.COL_GOLD)
 	for i in range(_buttons.size()):
 		var r := _btn_rect(i, vp)
 		var col := ViewConfig.COL_BTN_HOVER if _hover == i else ViewConfig.COL_BTN

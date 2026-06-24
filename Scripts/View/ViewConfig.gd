@@ -60,6 +60,7 @@ const COL_TEXT_OFF := Color(0.45, 0.45, 0.50)
 const COL_WIN_A := Color(0.40, 0.65, 1.0)
 const COL_WIN_B := Color(1.0, 0.45, 0.45)
 const COL_DRAW := Color(0.90, 0.85, 0.35)
+const COL_GOLD := Color(1.0, 0.84, 0.30)   # gold reward / wallet readout
 
 # Combat log panel (far right).
 const LOG_ORIGIN := Vector2(620, 40)
