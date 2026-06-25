@@ -21,6 +21,13 @@ const ENABLER_DISCOUNT := 0.7
 const MP_FLOOR := 0.15
 const EP_FLOOR := 0.20
 
+# HP is valued by the RACE, not the raw gap: an even trade helps whoever's ahead
+# and hurts whoever's behind, so the AI presses a lead and refuses even trades when
+# behind -- with no explicit "don't trade when behind" rule. HP_RACE drives the
+# relative (win-probability-like) term; HP_LIN keeps a gentle absolute gradient.
+const HP_RACE := 80.0
+const HP_LIN := 0.3
+
 # Per-fighter resource weights {hp, mp, ep}, derived from its loadout.
 static func weights(c: Combatant) -> Dictionary:
 	return {
@@ -29,24 +36,49 @@ static func weights(c: Combatant) -> Dictionary:
 		"ep": ENABLER_DISCOUNT * _best_dmg_per_ep(c),
 	}
 
-# Value a resource bundle (or a delta) in HP-equivalent points for caster `c`.
+# Raw LINEAR bundle value (per-point marginal weights). Kept for simple deltas and
+# the cost approximations; the DECISION currency is advantage(), which is concave.
 static func value(c: Combatant, hp: float, mp: float, ep: float) -> float:
 	var w := weights(c)
 	return hp * w["hp"] + mp * w["mp"] + ep * w["ep"]
 
-# Worth of a fighter's CURRENT stockpile.
+# Solo worth of a fighter's stockpile: linear HP + CONCAVE resources (debug/logging;
+# the relative HP race lives in advantage()).
 static func stock(c: Combatant) -> float:
-	return value(c, float(c.hp), float(c.mp), float(c.energy))
+	return float(c.hp) + _resource_value(c)
 
-# The economy differential the AI maximises: my stockpile minus the enemy's,
-# each side valued by its OWN conversion rates. Positive = I'm ahead.
+# The economy differential the AI maximises. HP enters as a RACE term (relative),
+# resources as CONCAVE stockpiles (banked-but-unusable EP/MP is worth little, so the
+# AI won't farm energy by waiting/wiggling, but values it highly when short).
 static func advantage(me: Combatant, enemy: Combatant) -> float:
-	return stock(me) - stock(enemy)
+	return _hp_race(float(me.hp), float(enemy.hp)) + (_resource_value(me) - _resource_value(enemy))
 
-# Cost of an action in value-points (the MP + EP it spends), for caster `c`.
+# Cost of an action in value-points (the MP + EP it spends), at the base marginal
+# weights -- a cheap approximation used for pruning, not the final cell value.
 static func action_cost_value(c: Combatant, mp_cost: int, ep_cost: int) -> float:
 	var w := weights(c)
 	return float(mp_cost) * w["mp"] + float(ep_cost) * w["ep"]
+
+# Relative HP standing. (my-foe)/(my+foe) is +/-1 at a wipe, 0 at parity, and an even
+# trade nudges it toward whoever leads -- the convexity that makes pressing pay.
+static func _hp_race(my_hp: float, foe_hp: float) -> float:
+	var s := my_hp + foe_hp
+	var rel := 0.0
+	if s > 0.0:
+		rel = (my_hp - foe_hp) / s
+	return HP_RACE * rel + HP_LIN * (my_hp - foe_hp)
+
+# Concave value of a fighter's MP+EP: marginal worth is ~2x the base weight when the
+# bar is near empty and ~0 near full, so surplus you can't spend is nearly worthless.
+static func _resource_value(c: Combatant) -> float:
+	var w := weights(c)
+	return w["mp"] * float(Config.MAX_MP) * _concave(float(c.mp), float(Config.MAX_MP)) \
+		+ w["ep"] * float(Config.MAX_ENERGY) * _concave(float(c.energy), float(Config.MAX_ENERGY))
+
+# f(r) = 2r - r^2 : concave, f(0)=0, f(1)=1, slope 2 at empty -> 0 at full.
+static func _concave(level: float, cap: float) -> float:
+	var r := clampf(level / maxf(1.0, cap), 0.0, 1.0)
+	return 2.0 * r - r * r
 
 # Best HP-damage one point of MP can buy on this loadout (>= MP_FLOOR).
 static func _best_dmg_per_mp(c: Combatant) -> float:

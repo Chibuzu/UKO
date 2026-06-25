@@ -32,7 +32,7 @@ static func choose_sequence(difficulty: int, me: Combatant, foe: Combatant,
 		Difficulty.HARD:
 			return HardAI.choose_sequence(me, foe, grid, spells, opp_model)
 		Difficulty.EXTREME:
-			return ExtremeAI.choose_sequence(me, foe, grid, spells, opp_model)  # game-theoretic equilibrium
+			return EconomyAI.choose_sequence(me, foe, grid, spells, opp_model)  # economy + intent + Nash (remodelled)
 		_:
 			return StubOpponent.choose_sequence(me, foe, grid, spells)
 		_:

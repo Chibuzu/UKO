@@ -1,66 +1,60 @@
 # PlanGenerator.gd
-# AI PLAN VOCABULARY (new-brain step 4). Turns the raw legal-move explosion into
-# a small, DIVERSE, intent-aligned set of candidate sequences -- the rows/columns
-# the plan matrix (step 5) and the Nash solver will reason over. Pruning to good
-# plans is what keeps the eventual mix sharp ("cast when the enemy's in range")
-# instead of spreading probability over junk.
+# AI PLAN VOCABULARY (remodel step #4, revised). Turns the raw legal-move set into
+# a small, diverse set of candidate sequences for the plan matrix -- but ranks them
+# TURN-AWARE so it never drops a plan the accurate evaluator would value.
 #
-# MODULAR BY DESIGN:
-#   * Legal sequences come from AIToolkit.candidates() -- already gear-generic
-#     (it reads each spell's shape/needs_tile and only offers an action when it
-#     actually reaches). We do NOT re-enumerate moves here.
-#   * Intent alignment is by ROLE TAG (IntentSelector.favored_roles + a spell's
-#     `ai_role`), never by spell id, so new gear participates automatically.
-#   * Ranking uses ResourceModel + TileUtility, so plans are judged on the same
-#     value axis as everything else.
+# Why the rewrite: the first version ranked by TileUtility.standing_value, which is
+# facing-/guard-/turn-blind. It pruned exactly the plans that win the hard spots --
+# pivot-to-face + guard when flanked, a foot-retreat from a closing attack -- before
+# the real EconomyEval matrix ever saw them. Now each candidate is scored by a cheap
+# 1-ply EconomyEval against the foe's actual THREATS (rolled through the real
+# Resolver), so blocking, escaping, and pressing are all visible at prune time.
+#
+# MODULAR: still no spell/gear ids. Legal moves come from AIToolkit (gear-generic),
+# value from EconomyEval/ResourceModel/Resolver, intent only nudges via a small role
+# bonus -- it no longer FILTERS, so a situational plan can never be pruned just for
+# not matching the current intent.
 class_name PlanGenerator
 extends RefCounted
 
-const MAX_PLANS := 6          # matrix is plans x plans; keep it small for the solver
-const PER_ROLE_CAP := 2       # at most this many plans sharing a salient role (diversity)
-const ROLE_BONUS := 8.0       # value-points per favoured-role action a plan contains
-const POSTURE_BONUS := 3.0    # weight on moving the way the intent's posture wants
-const SPEND_PENALTY := 0.25   # mild bias against burning resources during PRUNING only
-const SPACE_DIST := 2         # preferred stand-off distance for "space" postures
+const MAX_PLANS := 6          # my plan rows for the matrix
+const FOE_COLS := 6           # foe threat columns (incl. one passive)
+const N_CHEAP := 14           # survivors of the cheap pre-cut that get turn-aware scoring
+const PER_ROLE_CAP := 2       # at most this many picked plans sharing a salient role
+const ROLE_BONUS := 6.0       # value-points nudge per favoured-role action (intent style)
+const POSTURE_BONUS := 3.0    # nudge for moving the way the intent's posture wants
+const SPACE_DIST := 2
 
 const OFFENSE_ROLES := ["poke", "aoe", "attack"]
 const SAFE_ROLES := ["guard", "rest", "blink"]
-
-# Salient-role priority for diversity grouping + labelling (offense first).
 const ROLE_PRIORITY := ["poke", "aoe", "attack", "blink", "guard", "rest", "buff", "move", "pivot", "wait"]
 
-# Map an action id to its role tag: spells carry `ai_role`; basic actions use
-# their category. This is the ONLY id->role bridge, so it stays gear-generic.
-static func role_of(action_id: String) -> String:
-	if Config.is_spell(action_id):
-		return String(SpellBook.SPELLS.get(action_id, {}).get("ai_role", "spell"))
-	return String(Config.def(action_id).get("category", action_id))
-
-# Intent-aligned, diverse set of candidate sequences for the matrix.
-static func plans(me: Combatant, foe: Combatant, grid: Grid, intent: String, k: int = MAX_PLANS) -> Array:
-	var tagged := plans_tagged(me, foe, grid, intent, k)
+# ── public API ─────────────────────────────────────────────────────────────
+# My intent-aligned, diverse, TURN-AWARE-ranked plan set for the matrix rows.
+static func plans(me: Combatant, foe: Combatant, grid: Grid, intent: String, threats: Array = [], k: int = MAX_PLANS) -> Array:
 	var out: Array = []
-	for e in tagged:
+	for e in plans_tagged(me, foe, grid, intent, threats, k):
 		out.append(e["seq"])
 	if out.is_empty():
 		out = [[{"id": "wait"}]]
 	return out
 
-# Same as plans() but keeps each plan's {seq, role, score} -- handy for the matrix
-# (diversity in mixing) and for logging which intent produced what.
-static func plans_tagged(me: Combatant, foe: Combatant, grid: Grid, intent: String, k: int = MAX_PLANS) -> Array:
+static func plans_tagged(me: Combatant, foe: Combatant, grid: Grid, intent: String, threats: Array = [], k: int = MAX_PLANS) -> Array:
+	# The foe replies that actually hurt me -- what every one of my plans is judged
+	# against. Caller may pass these in (EconomyAI reuses them as the foe columns).
+	if threats.is_empty():
+		threats = threat_columns(foe, me, grid, FOE_COLS)
+	# Bound the turn-aware stage: a diverse superset (best per role + best overall).
+	var survivors := _precut(me, foe, grid)
 	var scored: Array = []
-	for seq in AIToolkit.candidates(me, foe, grid):
-		if seq.is_empty():
-			continue
+	for seq in survivors:
 		scored.append({
 			"seq": seq,
 			"role": plan_role(seq),
-			"score": _heuristic(me, foe, grid, seq, intent),
+			"score": _turn_aware_rank(me, foe, grid, seq, threats, intent),
 		})
 	scored.sort_custom(func(a, b): return a["score"] > b["score"])
 
-	# Greedy pick, capped per salient role so the matrix gets variety not 6 pokes.
 	var picked: Array = []
 	var role_count := {}
 	for e in scored:
@@ -71,14 +65,98 @@ static func plans_tagged(me: Combatant, foe: Combatant, grid: Grid, intent: Stri
 			continue
 		picked.append(e)
 		role_count[r] = int(role_count.get(r, 0)) + 1
-
-	# Coverage guarantee: the matrix needs both an offensive and a safe option to
-	# represent the guard/attack/dodge counterplay, even if the intent leans one way.
 	_ensure_some(picked, scored, OFFENSE_ROLES, k)
 	_ensure_some(picked, scored, SAFE_ROLES, k)
 	return picked
 
-# All role tags present in a sequence.
+# The foe's most DANGEROUS replies (threat-focused, NOT intent-pruned) plus one
+# passive column, used as the matrix's foe columns AND to rank my plans. Keeping
+# this broad is what stops the AI being blind to closing attacks / flanks.
+static func threat_columns(foe: Combatant, me: Combatant, grid: Grid, k: int = FOE_COLS) -> Array:
+	var cands: Array = []
+	for c in AIToolkit.candidates(foe, me, grid):
+		if not c.is_empty():
+			cands.append(c)
+	if cands.is_empty():
+		return [[{"id": "wait"}]]
+	var ranked: Array = []
+	for c in cands:
+		ranked.append({"seq": c, "role": plan_role(c), "thr": _threat_rank(me, foe, grid, c)})
+	ranked.sort_custom(func(a, b): return a["thr"] > b["thr"])
+	var out: Array = []
+	var role_count := {}
+	for e in ranked:
+		if out.size() >= k - 1:
+			break
+		var r: String = e["role"]
+		if int(role_count.get(r, 0)) >= PER_ROLE_CAP:
+			continue
+		out.append(e["seq"])
+		role_count[r] = int(role_count.get(r, 0)) + 1
+	out.append([{"id": "wait"}])   # passive column: "the foe doesn't press" -> lets me value pressing
+	return out
+
+# ── ranking ────────────────────────────────────────────────────────────────
+# Cheap, NON-blind pre-cut: keep the best plan of every salient role (so pivot+guard,
+# retreat, rest, etc. always survive) then fill with the top by standing value, up to
+# N_CHEAP. Bounds how many plans get the (costlier) turn-aware sim.
+static func _precut(me: Combatant, foe: Combatant, grid: Grid) -> Array:
+	var ranked: Array = []
+	for c in AIToolkit.candidates(me, foe, grid):
+		if c.is_empty():
+			continue
+		var proj := me.clone()
+		for a in c:
+			AIToolkit.apply_projection(proj, a)
+		var sv := TileUtility.standing_value(grid, proj, foe, proj.pos)
+		if sv == -INF:
+			sv = -1.0e6
+		ranked.append({"seq": c, "role": plan_role(c), "sv": sv})
+	ranked.sort_custom(func(a, b): return a["sv"] > b["sv"])
+	var keep := {}                 # index -> true
+	var seen_roles := {}
+	for i in ranked.size():        # archetype coverage: best of each salient role
+		var r: String = ranked[i]["role"]
+		if not seen_roles.has(r):
+			keep[i] = true
+			seen_roles[r] = true
+	for i in ranked.size():        # fill the rest with the strongest overall
+		if keep.size() >= N_CHEAP:
+			break
+		keep[i] = true
+	var out: Array = []
+	for i in keep:
+		out.append(ranked[i]["seq"])
+	return out
+
+# Turn-aware value of one of my plans: its average EconomyEval outcome against the
+# foe's threat replies (real Resolver -> sees block/escape/flank/press), plus the
+# small intent style nudge.
+static func _turn_aware_rank(me: Combatant, foe: Combatant, grid: Grid, seq: Array, threats: Array, intent: String) -> float:
+	var tot := 0.0
+	for t in threats:
+		tot += EconomyEval.score_rich(me, foe, grid, seq, t)
+	var v := tot / float(maxi(1, threats.size()))
+	v += ROLE_BONUS * float(_role_match(seq, intent))
+	var proj := me.clone()
+	for a in seq:
+		AIToolkit.apply_projection(proj, a)
+	v += POSTURE_BONUS * _posture_fit(intent, me.pos, foe.pos, proj.pos)
+	return v
+
+# How much HP I lose if I just WAIT while the foe plays foe_seq -- a clean,
+# non-circular measure of how threatening that reply is (captures move+attack, flank).
+static func _threat_rank(me: Combatant, foe: Combatant, grid: Grid, foe_seq: Array) -> float:
+	var out := Resolver.resolve(grid, foe, me, foe_seq, [{"id": "wait"}], 0)
+	var me_after: Combatant = out["b"]
+	return float(me.hp - me_after.hp)
+
+# ── role / posture helpers ──────────────────────────────────────────────────
+static func role_of(action_id: String) -> String:
+	if Config.is_spell(action_id):
+		return String(SpellBook.SPELLS.get(action_id, {}).get("ai_role", "spell"))
+	return String(Config.def(action_id).get("category", action_id))
+
 static func _roles(seq: Array) -> Array:
 	var out: Array = []
 	for a in seq:
@@ -87,26 +165,12 @@ static func _roles(seq: Array) -> Array:
 			out.append(r)
 	return out
 
-# The sequence's salient role (offense first), for diversity + labelling.
 static func plan_role(seq: Array) -> String:
 	var roles := _roles(seq)
 	for pref in ROLE_PRIORITY:
 		if roles.has(pref):
 			return pref
 	return "wait"
-
-# Prune-time heuristic (NOT the final score -- the matrix simulates that). Rewards
-# landing on a strong tile, matching the intent's roles, and moving the way the
-# posture wants; lightly penalises spend so equal plans prefer the cheaper one.
-static func _heuristic(me: Combatant, foe: Combatant, grid: Grid, seq: Array, intent: String) -> float:
-	var proj := me.clone()
-	for a in seq:
-		AIToolkit.apply_projection(proj, a)
-	var h := TileUtility.standing_value(grid, proj, foe, proj.pos)
-	h += ROLE_BONUS * float(_role_match(seq, intent))
-	h += POSTURE_BONUS * _posture_fit(intent, me.pos, foe.pos, proj.pos)
-	h -= SPEND_PENALTY * (ResourceModel.stock(me) - ResourceModel.stock(proj))
-	return h
 
 static func _role_match(seq: Array, intent: String) -> int:
 	var fav := IntentSelector.favored_roles(intent)
@@ -116,7 +180,6 @@ static func _role_match(seq: Array, intent: String) -> int:
 			n += 1
 	return n
 
-# How well a plan's net displacement serves the intent's posture.
 static func _posture_fit(intent: String, my_pos: Vector2i, foe_pos: Vector2i, proj_pos: Vector2i) -> float:
 	var dd := float(Grid.dist(my_pos, foe_pos) - Grid.dist(proj_pos, foe_pos))   # >0 = closed in
 	match IntentSelector.posture(intent):
@@ -127,10 +190,8 @@ static func _posture_fit(intent: String, my_pos: Vector2i, foe_pos: Vector2i, pr
 		"space":
 			return -absf(float(Grid.dist(proj_pos, foe_pos) - SPACE_DIST))
 		_:
-			return 0.0   # "control": rely on standing_value's mobility/safety terms
+			return 0.0
 
-# Make sure at least one plan with a salient role in `group` is present; if not,
-# add the best-scoring such plan (swapping out the weakest pick if we're full).
 static func _ensure_some(picked: Array, scored: Array, group: Array, k: int) -> void:
 	for e in picked:
 		if e["role"] in group:
