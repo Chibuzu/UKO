@@ -53,6 +53,10 @@ var body: AnimatedSprite2D = null     # null = no art found, draw the disc inste
 var overlay: AnimatedSprite2D = null  # one-shot effects drawn ON TOP (e.g. pivot)
 var _held: String = ""                # an animation frozen on its last frame until released (the raised guard)
 var _gear_layers: Array = []          # AnimatedSprite2D overlays for equipped gear (idle-only for now)
+# Draw equipped gear ON the fighter sprite. OFF for now — the current overlay art
+# reads as messy in-engine; flip back to true once clean per-piece art is in.
+# (Gear still drives spells and the shop regardless of this flag.)
+const SHOW_GEAR_OVERLAYS := false
 
 func init_state(c: Combatant) -> void:
 	unit_id = c.id
@@ -78,7 +82,8 @@ func init_state(c: Combatant) -> void:
 		overlay.visible = false
 		add_child(overlay)
 		overlay.animation_finished.connect(_on_overlay_finished)
-	_build_gear_layers(c)
+	if SHOW_GEAR_OVERLAYS:
+		_build_gear_layers(c)
 	set_state(c)
 
 # Equipped-gear overlays. Each equipped slot adds a sprite layer that plays its

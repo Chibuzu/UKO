@@ -132,6 +132,7 @@ func _rotate_map() -> void:
 		_log_shift("%s crushed by a shifting wall (-%d)" % [who.id, Config.MAP_CRUSH_DAMAGE], ViewConfig.COL_WIN_B)
 	_log_shift("-- QUADRANTS SHIFT --", ViewConfig.COL_TEXT)
 	board.queue_redraw()   # walls moved; repaint the arena
+	board.earthquake()     # rumble + trembling walls to sell the shift
 
 # Push a shift/crush line to the live log AND remember it for this turn, so the
 # replay reproduces it (these lines live outside the turn's resolved events).

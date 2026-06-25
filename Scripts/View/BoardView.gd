@@ -16,6 +16,8 @@ var fx_color: Color = ViewConfig.COL_FX_AOE
 var ghost_tiles: Array = []                     # tiles becoming walls at the next quadrant shift
 var _base_pos: Vector2 = ViewConfig.BOARD_ORIGIN # rest position (shake offsets from here)
 var _shake := 0.0                                # current shake magnitude
+var _quake_t := 0.0                              # earthquake time remaining (seconds)
+var _quake_amp := 0.0                            # current per-wall tremble amplitude (for _draw)
 const BG_PATH := "res://assets/sprites/map_bg.png"
 var bg_tex: Texture2D = null                     # decorative floor; live blockers draw on top
 const BLOCKER_PATH := "res://assets/sprites/blocker.png"
@@ -37,10 +39,32 @@ func setup(g: Grid) -> void:
 func shake(amount: float) -> void:
 	_shake = maxf(_shake, amount)
 
+# Start an earthquake: a sustained rolling rumble used when the arena quadrants
+# shift. Bigger and far longer than a hit-shake, and the walls tremble too (_draw).
+func earthquake() -> void:
+	_quake_t = ViewConfig.QUAKE_DUR
+
 func _process(delta: float) -> void:
+	var off := Vector2.ZERO
 	if _shake > 0.0:
 		_shake = maxf(0.0, _shake - delta * ViewConfig.SHAKE_DECAY)
-		position = _base_pos + Vector2(randf_range(-1, 1), randf_range(-1, 1)) * _shake
+		off += Vector2(randf_range(-1, 1), randf_range(-1, 1)) * _shake
+	if _quake_t > 0.0:
+		_quake_t = maxf(0.0, _quake_t - delta)
+		var env := _quake_t / ViewConfig.QUAKE_DUR        # 1 -> 0
+		env *= env                                        # ease-out: violent, then settling
+		var amp := ViewConfig.QUAKE_AMP * env
+		var tt := ViewConfig.QUAKE_DUR - _quake_t
+		# Rolling ground (low-freq sway, stronger on X) plus a little fine jitter.
+		off += Vector2(sin(tt * 46.0), sin(tt * 39.0 + 1.7) * 0.6) * amp
+		off += Vector2(randf_range(-1, 1), randf_range(-1, 1)) * amp * 0.35
+		_quake_amp = ViewConfig.QUAKE_TILE * env
+		queue_redraw()                                    # walls tremble per-frame during the quake
+	elif _quake_amp != 0.0:
+		_quake_amp = 0.0
+		queue_redraw()
+	if _shake > 0.0 or _quake_t > 0.0:
+		position = _base_pos + off
 	elif position != _base_pos:
 		position = _base_pos
 
@@ -48,6 +72,7 @@ func _draw() -> void:
 	if grid == null:
 		return
 	var total := Grid.SIZE * ViewConfig.TILE
+	var qtime := Time.get_ticks_msec() / 1000.0   # phase clock for the wall tremble
 	if bg_tex:
 		draw_texture_rect(bg_tex, Rect2(0, 0, total, total), false)   # decorative floor
 	for y in range(Grid.SIZE):
@@ -58,6 +83,10 @@ func _draw() -> void:
 					# Wall art, rotated 0/90/180/270 by a stable per-tile hash so the
 					# weave varies across the arena (square tile stays aligned).
 					var c := rect.position + rect.size * 0.5
+					if _quake_amp > 0.0:
+						# Each wall trembles on its own phase, settling as the quake fades.
+						var ph := float(x * 7 + y * 13)
+						c += Vector2(sin(qtime * 55.0 + ph), cos(qtime * 48.0 + ph * 1.3)) * _quake_amp
 					var rot := float((x * 3 + y * 5) % 4) * (PI / 2.0)
 					draw_set_transform(c, rot, Vector2.ONE)
 					draw_texture_rect(blocker_tex,

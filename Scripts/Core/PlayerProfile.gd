@@ -11,6 +11,7 @@ class_name PlayerProfile
 extends RefCounted
 
 const SAVE_PATH := "user://profile.cfg"
+const STARTING_GOLD := 2000   # a brand-new account starts with enough to buy the full set (4 x 500)
 
 static var _gold: int = 0
 static var _owned: Dictionary = {}      # gear_id -> true
@@ -28,6 +29,8 @@ static func _ensure_loaded() -> void:
 		for id in cf.get_value("gear", "owned", []):
 			_owned[String(id)] = true
 		_equipped = cf.get_value("gear", "equipped", {}).duplicate()
+	else:
+		_gold = STARTING_GOLD   # no save yet -> seed the starting purse
 
 static func _save() -> void:
 	var cf := ConfigFile.new()
@@ -115,9 +118,9 @@ static func buy(gear_id: String) -> bool:
 	_save()
 	return true
 
-# Wipe everything (handy for a reset button / testing).
+# Wipe to a fresh account (starting gold, no gear). Handy for a reset button / testing.
 static func reset() -> void:
-	_gold = 0
+	_gold = STARTING_GOLD
 	_owned = {}
 	_equipped = {}
 	_loaded = true
