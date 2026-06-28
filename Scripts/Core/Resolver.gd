@@ -99,7 +99,7 @@ static func resolve(grid: Grid, in_a: Combatant, in_b: Combatant,
 				"projectile":
 					_projectile_step(s, actor, target, tick, proj_consumed, grid, damaged_tick, dead_tick, events)
 				"blink_arrive":
-					actor.pos = s["dest"]                  # teleport completes: re-enter the board
+					actor.pos = _blink_settle(grid, target, s["origin"], s["dest"])   # avoid landing on the foe
 					actor.facing = int(s["facing"])
 					events.append(_ev("blink", tick, actor.id, {"to": actor.pos, "facing": actor.facing}))
 				"rest":
@@ -516,15 +516,31 @@ static func _launch_blink(grid: Grid, s: Dictionary, caster: Combatant, target: 
 		events.append(_ev("blink_fizzle", tick, caster.id, {}))
 		return
 	var dest: Vector2i = land["tile"]
+	var origin := caster.pos
 	var face := int(s.get("facing", caster.facing))
-	events.append(_ev("blink_depart", tick, caster.id, {"from": caster.pos, "to": dest}))
+	events.append(_ev("blink_depart", tick, caster.id, {"from": origin, "to": dest}))
 	caster.pos = IN_TRANSIT                       # off the board until arrival -- untargetable
 	sched.append({
 		"owner": caster.id, "id": s["id"], "category": "blink_arrive",
 		"tick": tick + Config.blink_travel(s["id"]), "band_priority": Config.PRIORITY_BLINK_ARRIVE,
-		"dest": dest, "facing": face,
+		"dest": dest, "origin": origin, "facing": face,
 	})
 	_resort_tail(sched, i)
+
+# Land on `dest`; if the target reached it first during the blink's travel time,
+# settle on the nearest free tile back toward the origin (one tile closer) so the
+# two fighters never share a tile. If the blinker arrives FIRST, dest is free and
+# it lands normally (and the foe's later move into it fizzles, as moves already do).
+static func _blink_settle(grid: Grid, foe: Combatant, origin: Vector2i, dest: Vector2i) -> Vector2i:
+	var step: Vector2i = (origin - dest).sign()   # unit step back toward origin (cardinal blink)
+	var cur := dest
+	while true:
+		if grid.in_bounds(cur) and not grid.is_blocked(cur) and foe.pos != cur:
+			return cur
+		if cur == origin or step == Vector2i.ZERO:
+			break
+		cur += step
+	return origin   # whole path contested -> fall back to the vacated origin
 
 static func _sched_less(x: Dictionary, y: Dictionary) -> bool:
 	if x["tick"] != y["tick"]:

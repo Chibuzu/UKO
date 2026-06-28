@@ -30,6 +30,7 @@ var _shift_notes: Array = []   # this turn's rotation/crush log lines, recorded 
 var selection: SelectionController   # player input / targeting system
 var replay: ReplayController         # record + replay system
 var end_screen: EndScreen
+var opponent: OpponentSource         # AI or remote human -- swap this for online play
 
 func _ready() -> void:
 	difficulty = AI.selected_difficulty   # whatever the menu's difficulty page picked
@@ -83,6 +84,8 @@ func _ready() -> void:
 
 func _game_loop() -> void:
 	var opp_model := OpponentModel.new()   # learns player A's habits across this match
+	if opponent == null:
+		opponent = AIOpponent.new(difficulty, get_tree())   # offline default; a lobby swaps in NetworkOpponent
 	while true:
 		turn_num += 1
 		_shift_notes.clear()
@@ -96,12 +99,9 @@ func _game_loop() -> void:
 
 		var pre_a := a.clone()   # snapshot the turn's START state for the replay
 		var pre_b := b.clone()
-		# Yield two frames so the menu actually PAINTS "Waiting for opponent..." before
-		# the synchronous AI search hogs the main thread -- otherwise the queued redraw
-		# never reaches the screen until the search is already finished.
-		await get_tree().process_frame
-		await get_tree().process_frame
-		var seq_b: Array = AI.choose_sequence(difficulty, b, a, grid, b.spell_ids(), opp_model)
+		# The opponent's plan comes from the seam: the AI (which absorbs the repaint
+		# yield) offline, or a remote human online. The loop doesn't know which.
+		var seq_b: Array = await opponent.opponent_sequence(b, a, grid, turn_num, seq_a, opp_model)
 		var out := Resolver.resolve(grid, a, b, seq_a, seq_b, turn_num)
 		opp_model.observe(seq_a)   # learn what A actually did, for next turn's prediction
 		replay.record(turn_num, pre_a, pre_b, out["a"], out["b"], out["events"], grid.snapshot(), _shift_notes.duplicate(true))

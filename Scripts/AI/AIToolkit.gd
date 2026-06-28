@@ -112,7 +112,7 @@ static func slot_actions(c: Combatant, foe: Combatant, grid: Grid) -> Array:
 	# Its energy refund + speed boost require a SUCCESSFUL block, so guarding with
 	# nothing to block is a pure waste -- don't offer it (same hygiene as rest/wait).
 	if Config.can_afford(c.energy, c.mp, c.statuses, "guard") and ThreatModel.has_melee_threat(foe, c, grid):
-		acts.append({"id": "guard"})
+		acts.append({"id": "guard"})   # vs any affordable melee, incl. blink-in (mp+cd then energy to swing)
 
 	for sid in c.spell_ids():
 		if not can_use(c, sid):

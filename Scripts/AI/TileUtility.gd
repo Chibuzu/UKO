@@ -27,7 +27,8 @@ const CARDINALS := [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0,
 
 # Tile-utility feature weights, in value-points. Tune freely.
 const W_OFFENSE := 1.0     # net strike value I can project from a tile
-const W_SAFETY := 0.8      # HP risk from standing on a tile the enemy threatens
+const W_SAFETY := 0.8      # HP risk from standing on a tile the enemy threatens THIS turn
+const W_POTENTIAL := 0.4   # next-turn risk: a tile the enemy can only reach by closing first
 const W_MOBILITY := 1.5    # per open escape route (orthogonal neighbour)
 const W_EDGE := 2.0        # penalty per board edge the tile touches (corner = 2)
 const W_GHOST := 999.0     # tile about to become a wall: effectively do-not-stand
@@ -82,9 +83,41 @@ static func _reach(grid: Grid, center: Vector2i, actor: Combatant, net: bool) ->
 						out[p] = maxf(out.get(p, -INF), v)
 	return out
 
-# HP at risk on every tile from `threatener`'s current position.
+# HP at risk on every tile from `threatener`'s CURRENT position -- the strikes it
+# can land THIS turn without moving. The immediate, certain threat.
 static func danger_field(grid: Grid, threatener: Combatant) -> PackedFloat32Array:
 	return _rasterize(_reach(grid, threatener.pos, threatener, false))
+
+# EXTRA HP at risk on each tile that the foe can only reach by taking one setup step
+# first (paying its move cost, then striking with what's left). This is a NEXT-TURN
+# possibility, not an instant hit -- callers discount it (W_POTENTIAL) and net it
+# against their own riposte, so a tile the foe can close into but where you'd win the
+# trade reads as safe. Affordability (move + strike costs) is enforced here.
+static func potential_danger_field(grid: Grid, threatener: Combatant) -> PackedFloat32Array:
+	var immediate := _reach(grid, threatener.pos, threatener, false)
+	var extra := {}
+	for d in CARDINALS:
+		var p: Vector2i = threatener.pos + d
+		if not grid.in_bounds(p) or grid.is_blocked(p):
+			continue
+		var mc := Config.effective_move_cost(threatener.facing, threatener.pos, p, threatener.statuses)
+		if threatener.energy < mc:
+			continue
+		var ghost := threatener.clone()
+		ghost.pos = p
+		ghost.energy = threatener.energy - mc          # one action spent stepping; strike with the rest
+		var rf := _reach(grid, p, ghost, false)
+		for t in rf:
+			var add := maxf(0.0, float(rf[t]) - float(immediate.get(t, 0.0)))   # only reach BEYOND immediate
+			if add > 0.0:
+				extra[t] = maxf(float(extra.get(t, 0.0)), add)
+	return _rasterize(extra)
+
+# Roughly how much I can hit a now-adjacent foe for NEXT turn (one swing, or two if
+# I can afford it) -- the answer a closing enemy has to beat to make closing pay.
+static func _riposte_capacity(me: Combatant) -> float:
+	var swings := 2 if me.energy >= 2 * Config.COST_ATTACK else 1
+	return float(Config.ATTACK_DAMAGE) * float(swings)
 
 # Net value `me` would net by striking `enemy` FROM each origin tile.
 static func strike_value_field(grid: Grid, me: Combatant, enemy: Combatant) -> PackedFloat32Array:
@@ -95,6 +128,8 @@ static func strike_value_field(grid: Grid, me: Combatant, enemy: Combatant) -> P
 # about to drop. Blocked tiles score -INF (cannot stand). All in value-points.
 static func tile_score(grid: Grid, me: Combatant, enemy: Combatant) -> PackedFloat32Array:
 	var danger := danger_field(grid, enemy)
+	var potential := potential_danger_field(grid, enemy)
+	var riposte := _riposte_capacity(me)
 	var strike := strike_value_field(grid, me, enemy)
 	var ghosts := {}
 	for g in grid.incoming_walls():
@@ -108,7 +143,8 @@ static func tile_score(grid: Grid, me: Combatant, enemy: Combatant) -> PackedFlo
 			if grid.is_blocked(t):
 				out[i] = -INF
 				continue
-			var s := W_OFFENSE * strike[i] - W_SAFETY * danger[i]
+			var pot := maxf(0.0, potential[i] - riposte)   # only risky if the foe out-trades my answer
+			var s := W_OFFENSE * strike[i] - W_SAFETY * danger[i] - W_POTENTIAL * pot
 			s += W_MOBILITY * float(_open_neighbours(grid, t))
 			s -= W_EDGE * float(_edge_pressure(grid, t))
 			if ghosts.has(t):
@@ -123,8 +159,10 @@ static func standing_value(grid: Grid, me: Combatant, enemy: Combatant, tile: Ve
 		return -INF
 	var i := tile.y * Grid.SIZE + tile.x
 	var danger := danger_field(grid, enemy)
+	var potential := potential_danger_field(grid, enemy)
+	var pot := maxf(0.0, potential[i] - _riposte_capacity(me))   # next-turn risk I can't out-trade
 	var my_reach := _reach(grid, enemy.pos, me, true)
-	var s := W_OFFENSE * maxf(0.0, my_reach.get(tile, 0.0)) - W_SAFETY * danger[i]
+	var s := W_OFFENSE * maxf(0.0, my_reach.get(tile, 0.0)) - W_SAFETY * danger[i] - W_POTENTIAL * pot
 	s += W_MOBILITY * float(_open_neighbours(grid, tile))
 	s -= W_EDGE * float(_edge_pressure(grid, tile))
 	for g in grid.incoming_walls():

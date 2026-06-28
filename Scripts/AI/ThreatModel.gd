@@ -23,7 +23,7 @@ extends RefCounted
 # against def's current facing.
 static func melee_damage(att: Combatant, def: Combatant, grid: Grid) -> int:
 	var best := 0
-	var blink_tiles := _blink_reach(att, def, grid)   # tiles att could blink onto (computed once)
+	var blink_tiles := _blink_reach(att, def, grid)   # tiles att could blink onto (mp + cd gated)
 	for dv in Grid.DIRS:
 		var t: Vector2i = def.pos + dv          # an orthogonal strike tile beside def
 		if not grid.in_bounds(t) or grid.is_blocked(t):
