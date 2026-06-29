@@ -31,11 +31,26 @@ var selection: SelectionController   # player input / targeting system
 var replay: ReplayController         # record + replay system
 var end_screen: EndScreen
 var opponent: OpponentSource         # AI or remote human -- swap this for online play
+var match_config: MatchConfig        # map seed + loadouts + which side is local
+
+# Lobby handoff: set these before change_scene_to_file(game) and _ready consumes them.
+# Null -> single-player defaults. (static so they survive the scene change.)
+static var pending_config: MatchConfig
+static var pending_opponent: OpponentSource
 
 func _ready() -> void:
 	difficulty = AI.selected_difficulty   # whatever the menu's difficulty page picked
+	# Lobby handoff (set before the scene change). Null -> single-player vs the AI.
+	match_config = pending_config
+	opponent = pending_opponent
+	pending_config = null      # consume: a later single-player match must not inherit these
+	pending_opponent = null
+
 	var rng := RandomNumberGenerator.new()
-	rng.randomize()
+	if match_config != null:
+		rng.seed = match_config.map_seed   # both clients seed identically -> same arena + rotations
+	else:
+		rng.randomize()
 	grid = Grid.new()
 	grid.generate(rng)
 
@@ -43,10 +58,17 @@ func _ready() -> void:
 	add_child(board)
 	board.setup(grid)
 
+	# Sides are FIXED: a == A, b == B on every client, so the deterministic Resolver
+	# is always called in the same order. Which side the LOCAL player drives is
+	# match_config.local_is_a; that changes input/menu wiring only, never the slots.
 	a = Combatant.new("A", grid.spawn_a, Config.Facing.EAST)
 	b = Combatant.new("B", grid.spawn_b, Config.Facing.WEST)
-	a.equip(PlayerProfile.loadout())
-	b.equip(AI_GEAR)
+	if match_config != null:
+		a.equip(match_config.loadout_a)
+		b.equip(match_config.loadout_b)
+	else:
+		a.equip(PlayerProfile.loadout())   # offline: your shop gear vs the AI's kit
+		b.equip(AI_GEAR)
 
 	ua = UnitView.new()
 	board.add_child(ua)
@@ -82,6 +104,18 @@ func _ready() -> void:
 
 	_game_loop()
 
+# Side mapping. a/b are always A/B; these say which one the LOCAL player drives.
+# Single-player (no config) -> local is A, exactly as before. They read the live
+# a/b each call, so they stay correct after the per-turn a = out["a"] reassignment.
+func _local_is_a() -> bool:
+	return match_config == null or match_config.local_is_a
+
+func _local() -> Combatant:
+	return a if _local_is_a() else b
+
+func _foe() -> Combatant:
+	return b if _local_is_a() else a
+
 func _game_loop() -> void:
 	var opp_model := OpponentModel.new()   # learns player A's habits across this match
 	if opponent == null:
@@ -93,22 +127,26 @@ func _game_loop() -> void:
 			_rotate_map()
 		_update_shift_telegraph()
 		_begin_turn()
-		var seq_a: Array = await selection.player_sequence_ready
-		menu.set_state(a, b, false, a.spell_ids(), [], false, true)   # confirmed -> waiting for opponent
+		var local_plan: Array = await selection.player_sequence_ready
+		menu.set_state(_local(), _foe(), false, _local().spell_ids(), [], false, true)   # confirmed -> waiting for opponent
 		board.clear_highlights()
 
-		var pre_a := a.clone()   # snapshot the turn's START state for the replay
+		var pre_a := a.clone()   # snapshot the turn's START state for the replay (A/B, fixed)
 		var pre_b := b.clone()
 		# The opponent's plan comes from the seam: the AI (which absorbs the repaint
 		# yield) offline, or a remote human online. The loop doesn't know which.
-		var seq_b: Array = await opponent.opponent_sequence(b, a, grid, turn_num, seq_a, opp_model)
+		var opponent_plan: Array = await opponent.opponent_sequence(_foe(), _local(), grid, turn_num, local_plan, opp_model)
+		# Resolve in the FIXED A/B order on every client; map local/opponent into the
+		# right slots so the host (local=A) and client (local=B) feed identical args.
+		var seq_a: Array = local_plan if _local_is_a() else opponent_plan
+		var seq_b: Array = opponent_plan if _local_is_a() else local_plan
 		var out := Resolver.resolve(grid, a, b, seq_a, seq_b, turn_num)
-		opp_model.observe(seq_a)   # learn what A actually did, for next turn's prediction
+		opp_model.observe(local_plan)   # the AI models its foe (the local player) -> learn their move
 		replay.record(turn_num, pre_a, pre_b, out["a"], out["b"], out["events"], grid.snapshot(), _shift_notes.duplicate(true))
 		await play.play(out["events"], out["a"], out["b"])
 		a = out["a"]
 		b = out["b"]
-		menu.set_state(a, b, false, a.spell_ids(), [], false)
+		menu.set_state(_local(), _foe(), false, _local().spell_ids(), [], false)
 		combat_log.add_turn(turn_num, out["events"])
 
 		if out["result"] != "ongoing":
@@ -116,7 +154,7 @@ func _game_loop() -> void:
 			return
 
 func _begin_turn() -> void:
-	selection.begin_turn(a, b)
+	selection.begin_turn(_local(), _foe())
 
 # Every MAP_ROTATE_EVERY turns the arena's four quadrants shift one step clockwise:
 # walls reposition around the
@@ -155,14 +193,14 @@ func _show_result(result: String) -> void:
 	var text := "DRAW"
 	var color := ViewConfig.COL_DRAW
 	var reward := Config.GOLD_REWARD_DRAW
-	if result == "a_wins":
-		text = "A WINS"
-		color = ViewConfig.COL_WIN_A
-		reward = Config.gold_reward(difficulty)   # player beat the AI -> purse by tier
-	elif result == "b_wins":
-		text = "B WINS"
-		color = ViewConfig.COL_WIN_B
-		reward = 0                                 # the AI won; no payout
+	if result == "a_wins" or result == "b_wins":
+		var a_won := result == "a_wins"
+		text = "A WINS" if a_won else "B WINS"
+		color = ViewConfig.COL_WIN_A if a_won else ViewConfig.COL_WIN_B
+		# Gold is a single-player progression reward for beating the AI. Online play
+		# mints nothing (no farming), so a PvP result pays 0 regardless of who won.
+		var local_won := a_won == _local_is_a()
+		reward = Config.gold_reward(difficulty) if (local_won and match_config == null) else 0
 	var balance := PlayerProfile.gold()
 	if reward > 0:
 		balance = PlayerProfile.add_gold(reward)   # bank it (persists to disk)
