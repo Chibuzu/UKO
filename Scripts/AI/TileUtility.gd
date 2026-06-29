@@ -161,8 +161,15 @@ static func standing_value(grid: Grid, me: Combatant, enemy: Combatant, tile: Ve
 	var danger := danger_field(grid, enemy)
 	var potential := potential_danger_field(grid, enemy)
 	var pot := maxf(0.0, potential[i] - _riposte_capacity(me))   # next-turn risk I can't out-trade
+	# Flank exposure: standing within melee range while NOT facing the foe takes the
+	# 1.5x/2x hit (FLANK_MULT). This is what makes pivot-to-face rank above an
+	# identical plan that leaves my back turned -- the danger field alone is
+	# facing-blind, so without this the precut can't tell guard from pivot+guard.
+	var face_mult := 1.0
+	if Grid.dist(tile, enemy.pos) <= 2:
+		face_mult = float(Config.FLANK_MULT[Config.flank_tier(me.facing, tile, enemy.pos)])
 	var my_reach := _reach(grid, enemy.pos, me, true)
-	var s := W_OFFENSE * maxf(0.0, my_reach.get(tile, 0.0)) - W_SAFETY * danger[i] - W_POTENTIAL * pot
+	var s := W_OFFENSE * maxf(0.0, my_reach.get(tile, 0.0)) - W_SAFETY * danger[i] * face_mult - W_POTENTIAL * pot * face_mult
 	s += W_MOBILITY * float(_open_neighbours(grid, tile))
 	s -= W_EDGE * float(_edge_pressure(grid, tile))
 	for g in grid.incoming_walls():

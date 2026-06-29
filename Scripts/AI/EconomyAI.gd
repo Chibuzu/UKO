@@ -27,6 +27,7 @@ const ROOT_ROWS := 4       # rows (my plans) to deepen with the 2-turn lookahead
 const ROOT_COLS := 3       # foe replies per deepened row to look at (its best answers)
 const EXPLOIT_LAMBDA := 0.0  # 0 = pure Nash. >0 tilts toward the foe's observed habits (bounded)
 const EXPLOIT_TEMP := 8.0    # softmax temperature for the exploit tilt
+const DEBUG_LOG := true      # TEMPORARY: print foe columns, my rows, matrix, and mix each turn
 
 static func choose_sequence(me: Combatant, foe: Combatant, grid: Grid, spells: Array, opp_model = null) -> Array:
 	# 1. Strategic intent for MY plans, from the resource economy.
@@ -75,7 +76,38 @@ static func choose_sequence(me: Combatant, foe: Combatant, grid: Grid, spells: A
 			mix[i] = (1.0 - EXPLOIT_LAMBDA) * float(mix[i]) + EXPLOIT_LAMBDA * float(exploit[i])
 
 	# 5. Sample a plan from the mix.
-	return my_plans[_sample(mix)]
+	var idx := _sample(mix)
+	if DEBUG_LOG:
+		_log_decision(my_intent, my_plans, foe_plans, M, mix, idx)
+	return my_plans[idx]
+
+# ── diagnostics (TEMPORARY) ────────────────────────────────────────────────
+# Compact one-line view of a sequence, e.g. "[blink(4,5), attack(5,5)]".
+static func _seq_str(seq: Array) -> String:
+	var parts: Array = []
+	for a in seq:
+		var s := String(a.get("id", "?"))
+		if a.has("tile"):
+			s += str(a["tile"])
+		parts.append(s)
+	return "[" + ", ".join(parts) + "]"
+
+# Dump the foe columns, my plans with their Nash weight, the payoff matrix, and the
+# choice -- so we can SEE on a guard turn whether the bolt column was present and
+# whether the lateral dodge survived pruning.
+static func _log_decision(intent: String, my_plans: Array, foe_plans: Array, M: Array, mix: Array, idx: int) -> void:
+	print("[EconomyAI] intent=", intent)
+	print("  FOE COLUMNS:")
+	for j in foe_plans.size():
+		print("    c", j, " ", _seq_str(foe_plans[j]))
+	print("  MY PLANS (p = Nash mix | cells = value vs each column):")
+	for i in my_plans.size():
+		var row := ""
+		for j in M[i].size():
+			row += "%8.1f" % float(M[i][j])
+		var p := float(mix[i]) if i < mix.size() else 0.0
+		var mark := "  <== CHOSEN" if i == idx else ""
+		print("    r", i, " p=", "%.2f" % p, "  ", PlanGenerator.plan_role(my_plans[i]), " ", _seq_str(my_plans[i]), " |", row, mark)
 
 # ── matrix helpers (self-contained; small + pure) ──────────────────────────
 # Rows with the best WORST-CASE value -- the plans worth a deep look.

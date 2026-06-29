@@ -70,8 +70,11 @@ static func plans_tagged(me: Combatant, foe: Combatant, grid: Grid, intent: Stri
 	return picked
 
 # The foe's most DANGEROUS replies (threat-focused, NOT intent-pruned) plus one
-# passive column, used as the matrix's foe columns AND to rank my plans. Keeping
-# this broad is what stops the AI being blind to closing attacks / flanks.
+# passive column, used as the matrix's foe columns AND to rank my plans. Covers every
+# distinct threatening TYPE first (the best bolt AND the best blink+melee both make
+# it in) so a counter that only beats one of them -- guard -- is correctly seen as
+# exploitable by the other. Keeping this broad stops the AI committing to a
+# hard-counter when the enemy has an equally cheap alternative.
 static func threat_columns(foe: Combatant, me: Combatant, grid: Grid, k: int = FOE_COLS) -> Array:
 	var cands: Array = []
 	for c in AIToolkit.candidates(foe, me, grid):
@@ -85,14 +88,32 @@ static func threat_columns(foe: Combatant, me: Combatant, grid: Grid, k: int = F
 	ranked.sort_custom(func(a, b): return a["thr"] > b["thr"])
 	var out: Array = []
 	var role_count := {}
-	for e in ranked:
+	var taken := {}
+	# (1) cover every distinct threatening type: the best of each role that actually
+	#     deals damage, so no exploitable alternative is missing from the matrix.
+	for i in ranked.size():
 		if out.size() >= k - 1:
 			break
-		var r: String = e["role"]
+		if float(ranked[i]["thr"]) <= 0.0:
+			continue                                  # 0 damage now -> not a threat; passive covers it
+		var r: String = ranked[i]["role"]
+		if role_count.has(r):
+			continue
+		out.append(ranked[i]["seq"])
+		role_count[r] = 1
+		taken[i] = true
+	# (2) fill remaining slots with the next most damaging threats (capped per role).
+	for i in ranked.size():
+		if out.size() >= k - 1:
+			break
+		if taken.has(i) or float(ranked[i]["thr"]) <= 0.0:
+			continue
+		var r: String = ranked[i]["role"]
 		if int(role_count.get(r, 0)) >= PER_ROLE_CAP:
 			continue
-		out.append(e["seq"])
+		out.append(ranked[i]["seq"])
 		role_count[r] = int(role_count.get(r, 0)) + 1
+		taken[i] = true
 	out.append([{"id": "wait"}])   # passive column: "the foe doesn't press" -> lets me value pressing
 	return out
 
