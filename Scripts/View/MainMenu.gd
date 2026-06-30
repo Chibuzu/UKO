@@ -7,6 +7,7 @@ class_name MainMenu
 extends Node2D
 
 const GAME_SCENE := "res://Game.tscn"   # adjust if your game scene lives elsewhere
+const STORY_SCENE := "res://Overworld.tscn"
 
 const BTN_W := 300
 
@@ -15,7 +16,8 @@ var _hover := -1
 
 var _buttons := [
 	{"id": "play", "label": "PLAY", "on": true},
-	{"id": "multiplayer", "label": "MULTIPLAYER", "on": false},
+	{"id": "story", "label": "STORY", "on": true},
+	{"id": "multiplayer", "label": "MULTIPLAYER", "on": true},
 	{"id": "gear", "label": "GEAR", "on": true},
 ]
 
@@ -30,7 +32,22 @@ var _diff_buttons := [
 	{"diff": -1,                        "label": "BACK",        "on": true},
 ]
 
+# Multiplayer (lobby) page. HOST starts a server (you become side A); JOIN connects
+# to the IP in the field (you become side B). The handshake produces a MatchConfig
+# both sides share, then we hand off to the game scene.
+var _mp_buttons := [
+	{"id": "quick",     "label": "QUICK MATCH",  "on": true},
+	{"id": "host_code", "label": "HOST PRIVATE", "on": true},
+	{"id": "join_code", "label": "JOIN PRIVATE", "on": true},
+	{"id": "mp_back",   "label": "BACK",         "on": true},
+]
+var _mp_status := ""            # connection status line shown on the lobby page
+var _session: GDSyncSession     # live while on the lobby / handed to the match on connect
+var _code_edit: LineEdit        # room code: shown for HOST PRIVATE, typed for JOIN PRIVATE
+
 func _active() -> Array:
+	if _mode == "multiplayer":
+		return _mp_buttons
 	return _buttons if _mode == "main" else _diff_buttons
 
 func _btn_h() -> float:
@@ -40,7 +57,11 @@ func _gap() -> float:
 	return 18.0 if _mode == "main" else 14.0
 
 func _top(vp: Vector2) -> float:
-	return vp.y * (0.40 if _mode == "main" else 0.32)
+	if _mode == "main":
+		return vp.y * 0.40
+	if _mode == "multiplayer":
+		return vp.y * 0.52   # leave room for the IP field + labels above the buttons
+	return vp.y * 0.32
 
 func _btn_rect(i: int, vp: Vector2) -> Rect2:
 	var x := vp.x * 0.5 - BTN_W * 0.5
@@ -57,6 +78,14 @@ func _draw() -> void:
 	if _mode == "difficulty":
 		draw_string(font, Vector2(0, vp.y * 0.27), "SELECT DIFFICULTY",
 			HORIZONTAL_ALIGNMENT_CENTER, vp.x, 22, ViewConfig.COL_TEXT_OFF)
+	if _mode == "multiplayer":
+		draw_string(font, Vector2(0, vp.y * 0.27), "MULTIPLAYER",
+			HORIZONTAL_ALIGNMENT_CENTER, vp.x, 22, ViewConfig.COL_TEXT_OFF)
+		draw_string(font, Vector2(0, vp.y * 0.40), "Room code (share to HOST, type to JOIN):",
+			HORIZONTAL_ALIGNMENT_CENTER, vp.x, 15, ViewConfig.COL_TEXT_OFF)
+		if _mp_status != "":
+			draw_string(font, Vector2(0, vp.y * 0.92), _mp_status,
+				HORIZONTAL_ALIGNMENT_CENTER, vp.x, 18, ViewConfig.COL_TEXT)
 
 	if _mode == "gear":
 		_draw_gear(vp, font)
@@ -137,6 +166,12 @@ func _input(event: InputEvent) -> void:
 					_mode = "gear"                 # GEAR opens the loadout page
 					_hover = -1
 					queue_redraw()
+				elif items[i]["id"] == "story":
+					get_tree().change_scene_to_file(STORY_SCENE)   # STORY opens the overworld
+				elif items[i]["id"] == "multiplayer":
+					_enter_multiplayer()           # MULTIPLAYER opens the lobby
+			elif _mode == "multiplayer":
+				_mp_click(items[i]["id"])
 			else:
 				var diff: int = items[i]["diff"]
 				if diff == -1:
@@ -250,3 +285,95 @@ func _gear_click(i: int) -> void:
 
 func _gear_back_rect(vp: Vector2) -> Rect2:
 	return Rect2(vp.x * 0.5 - 90, vp.y * 0.90, 180, 40)
+
+# ── Multiplayer lobby (GD-Sync: global relay + lobbies, no NAT/port-forwarding) ──
+# A LineEdit holds the room code -- shown for HOST PRIVATE, typed for JOIN PRIVATE.
+func _ready() -> void:
+	_code_edit = LineEdit.new()
+	_code_edit.placeholder_text = "room code"
+	_code_edit.alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_code_edit.max_length = 8
+	_code_edit.visible = false
+	add_child(_code_edit)
+
+func _enter_multiplayer() -> void:
+	_mode = "multiplayer"
+	_hover = -1
+	_mp_status = "Quick Match to find anyone, or a private code to play a friend."
+	_make_session()
+	var vp := get_viewport_rect().size
+	var w := 220.0
+	_code_edit.position = Vector2(vp.x * 0.5 - w * 0.5, vp.y * 0.43)
+	_code_edit.size = Vector2(w, 34)
+	_code_edit.text = ""
+	_code_edit.visible = true
+	queue_redraw()
+
+func _leave_multiplayer() -> void:
+	if is_instance_valid(_session):
+		_session.leave()       # exit any lobby we joined while browsing
+	_teardown_session()
+	_code_edit.visible = false
+	_mode = "main"
+	_hover = -1
+	queue_redraw()
+
+# Parented to /root with a FIXED name: GD-Sync routes remote calls by node path, so
+# the session must sit at the same path on both clients and survive the scene change.
+func _make_session() -> void:
+	_teardown_session()
+	var stale := get_tree().root.get_node_or_null("GDSyncSession")
+	if stale != null:
+		stale.free()   # zombie from a prior match/attempt, still subscribed to GD-Sync signals
+	_session = GDSyncSession.new()
+	_session.name = "GDSyncSession"
+	get_tree().root.add_child(_session)
+	_session.match_ready.connect(_on_match_ready)
+	_session.match_failed.connect(_on_match_failed)
+
+func _teardown_session() -> void:
+	if is_instance_valid(_session):
+		_session.queue_free()
+	_session = null
+
+func _mp_click(id: String) -> void:
+	match id:
+		"quick":
+			_session.quick_match(PlayerProfile.loadout())
+			_mp_status = "Searching for an opponent..."
+		"host_code":
+			var code := _gen_code()
+			_code_edit.text = code
+			_session.host_code(code, PlayerProfile.loadout())
+			_mp_status = "Share code %s -- waiting for your friend..." % code
+		"join_code":
+			var code := _code_edit.text.strip_edges().to_upper()
+			if code.length() < 3:
+				_mp_status = "Enter the room code your friend shared."
+			else:
+				_session.join_code(code, PlayerProfile.loadout())
+				_mp_status = "Joining %s..." % code
+		"mp_back":
+			_leave_multiplayer()
+	queue_redraw()
+
+# Handshake done: both sides hold an identical MatchConfig. Hand the live session to
+# the match via a NetworkOpponent (over GD-Sync) and switch scenes. The session stays
+# in /root (null our handle so _teardown won't free it) so its relay link survives.
+func _on_match_ready(config: MatchConfig) -> void:
+	GameController.pending_config = config
+	GameController.pending_opponent = NetworkOpponent.new(GDSyncTransport.new(_session))
+	_session = null
+	get_tree().change_scene_to_file(GAME_SCENE)
+
+func _on_match_failed(reason: String) -> void:
+	_mp_status = reason
+	queue_redraw()
+
+# Short, unambiguous room code (no 0/O/1/I to avoid friends mistyping).
+func _gen_code() -> String:
+	var chars := "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+	var code := ""
+	for i in 4:
+		code += chars[randi() % chars.length()]
+	return code

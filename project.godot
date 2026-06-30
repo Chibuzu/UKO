@@ -8,6 +8,13 @@
 
 config_version=5
 
+[GD-Sync]
+
+version="1.0"
+publicKey="9255944f4238a869"
+privateKey="664ac6b94be6b552"
+uniqueUsername=false
+
 [application]
 
 config/name="UKO"
@@ -15,11 +22,19 @@ run/main_scene="uid://cew8t5jk6n5cu"
 config/features=PackedStringArray("4.6", "Forward Plus")
 config/icon="res://icon.svg"
 
+[autoload]
+
+GDSync="*uid://fdmv3puv5j7g"
+
 [display]
 
 window/size/window_width_override=1920
 window/size/window_height_override=1080
 window/stretch/mode="canvas_items"
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/GD-Sync/plugin.cfg")
 
 [physics]
 

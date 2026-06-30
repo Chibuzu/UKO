@@ -35,7 +35,10 @@ var gear: Array = ["", "", "", ""]
 func equip(loadout: Array) -> void:
 	gear = []
 	for i in range(4):
-		gear.append(String(loadout[i]) if i < loadout.size() else "")
+		var entry: Variant = loadout[i] if i < loadout.size() else ""
+		# str() (not String()) tolerates whatever survives network serialization --
+		# notably an empty slot that came back as null instead of "" -- without crashing.
+		gear.append("" if entry == null else str(entry))
 
 # The spell ids this fighter can cast, in slot order (empties skipped). This is
 # what the menu/AI read instead of a hardcoded list.

@@ -14,6 +14,11 @@ extends RefCounted
 
 signal turn_revealed(bundle: Dictionary)
 
+# Emitted if the remote peer drops mid-match. NetworkOpponent surfaces this (via
+# aborted()) so the turn loop can end the match rather than wait forever for a reveal
+# that will never come. The Loopback transport never fires it.
+signal opponent_left()
+
 # Send our planned sequence for `turn`. The mediator must withhold it from the
 # opponent until they too have submitted.
 func submit_sequence(turn: int, seq: Array) -> void:

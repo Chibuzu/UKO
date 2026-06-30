@@ -12,6 +12,7 @@ func _init(session: NetworkSession) -> void:
 	_session = session
 	# Re-emit the session's reveals as our own turn_revealed signal.
 	_session.turn_revealed.connect(func(bundle): turn_revealed.emit(bundle))
+	_session.opponent_left.connect(func(): opponent_left.emit())
 
 func submit_sequence(turn: int, seq: Array) -> void:
 	_session.submit_local(turn, seq)

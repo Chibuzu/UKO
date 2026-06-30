@@ -4,6 +4,7 @@
 # ReplayController (record + end-of-match replay). It holds the Godot wiring
 # (nodes, signals, the loop) so the systems stay pure logic; new systems/features
 # get their own script and are instantiated + wired here.
+class_name GameController
 extends Node
 
 # The player's loadout is whatever they've bought and equipped in the shop
@@ -64,6 +65,7 @@ func _ready() -> void:
 	a = Combatant.new("A", grid.spawn_a, Config.Facing.EAST)
 	b = Combatant.new("B", grid.spawn_b, Config.Facing.WEST)
 	if match_config != null:
+		print("[MP] loadout_a=", match_config.loadout_a, " loadout_b=", match_config.loadout_b)
 		a.equip(match_config.loadout_a)
 		b.equip(match_config.loadout_b)
 	else:
@@ -127,7 +129,7 @@ func _game_loop() -> void:
 			_rotate_map()
 		_update_shift_telegraph()
 		_begin_turn()
-		var local_plan: Array = await selection.player_sequence_ready
+		var local_plan: Array = await _await_local_plan()
 		menu.set_state(_local(), _foe(), false, _local().spell_ids(), [], false, true)   # confirmed -> waiting for opponent
 		board.clear_highlights()
 
@@ -136,6 +138,9 @@ func _game_loop() -> void:
 		# The opponent's plan comes from the seam: the AI (which absorbs the repaint
 		# yield) offline, or a remote human online. The loop doesn't know which.
 		var opponent_plan: Array = await opponent.opponent_sequence(_foe(), _local(), grid, turn_num, local_plan, opp_model)
+		if opponent.aborted():
+			_end_disconnected()   # remote peer left -> no reveal is coming; stop, don't hang
+			return
 		# Resolve in the FIXED A/B order on every client; map local/opponent into the
 		# right slots so the host (local=A) and client (local=B) feed identical args.
 		var seq_a: Array = local_plan if _local_is_a() else opponent_plan
@@ -155,6 +160,28 @@ func _game_loop() -> void:
 
 func _begin_turn() -> void:
 	selection.begin_turn(_local(), _foe())
+
+# Online turn clock. Offline (vs the AI) there's no clock -- never rush the player and
+# the AI can't stall. Online, an AFK player must not hang the opponent forever, so we
+# race the player's confirm against a generous deadline and auto-submit a WAIT if it
+# lapses. Both clients run this independently, so each side always commits in time and
+# the mediator never waits indefinitely.
+const MP_TURN_SECONDS := 60.0
+
+func _await_local_plan() -> Array:
+	if match_config == null:
+		return await selection.player_sequence_ready
+	var box := {"seq": null}
+	var on_ready := func(seq: Array):
+		if box["seq"] == null:
+			box["seq"] = seq
+	selection.player_sequence_ready.connect(on_ready, CONNECT_ONE_SHOT)
+	var deadline := get_tree().create_timer(MP_TURN_SECONDS)
+	while box["seq"] == null and deadline.time_left > 0.0:
+		await get_tree().process_frame
+	if selection.player_sequence_ready.is_connected(on_ready):
+		selection.player_sequence_ready.disconnect(on_ready)
+	return box["seq"] if box["seq"] != null else [{"id": "wait"}]
 
 # Every MAP_ROTATE_EVERY turns the arena's four quadrants shift one step clockwise:
 # walls reposition around the
@@ -207,6 +234,15 @@ func _show_result(result: String) -> void:
 	var es := EndScreen.new()
 	add_child(es)
 	es.setup(text, color, reward, balance)
+	es.choice.connect(_on_end_choice)
+	end_screen = es
+
+# Remote peer dropped mid-match: show a no-contest card (no gold either way) reusing
+# the normal end screen, so the player returns to the menu instead of a frozen board.
+func _end_disconnected() -> void:
+	var es := EndScreen.new()
+	add_child(es)
+	es.setup("OPPONENT LEFT", ViewConfig.COL_DRAW, 0, PlayerProfile.gold())
 	es.choice.connect(_on_end_choice)
 	end_screen = es
 

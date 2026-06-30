@@ -20,3 +20,9 @@ extends RefCounted
 func opponent_sequence(me: Combatant, foe: Combatant, grid: Grid, turn_num: int, local_seq: Array, opp_model) -> Array:
 	push_error("OpponentSource.opponent_sequence is abstract")
 	return [{"id": "wait"}]
+
+# True once the opponent connection has dropped and this source can no longer produce
+# real plans (a remote peer left). The turn loop ends the match instead of hanging on
+# a reveal that will never arrive. Offline sources (the AI) never abort.
+func aborted() -> bool:
+	return false
