@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://dqsqwpjhwgf5v"]
+
+[ext_resource type="Script" uid="uid://d34nbfibqt0nx" path="res://Story/StoryController.gd" id="1_g00xm"]
+
+[node name="Story" type="Node" unique_id=1853463446]
+script = ExtResource("1_g00xm")

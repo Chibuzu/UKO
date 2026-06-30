@@ -7,7 +7,7 @@ class_name MainMenu
 extends Node2D
 
 const GAME_SCENE := "res://Game.tscn"   # adjust if your game scene lives elsewhere
-const STORY_SCENE := "res://Overworld.tscn"
+const STORY_SCENE := "res://Story.tscn"
 
 const BTN_W := 300
 
