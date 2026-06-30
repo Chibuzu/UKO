@@ -1,156 +1,172 @@
 # Overworld.gd
-# A small explorable STORY zone (60x60) that reuses the combat game's real art:
-# the floor/wall tiles (map_bg.png / blocker.png) and the character renderer
-# (UnitView) for the player and every monster. Movement is TILE-BASED: each press
-# steps one tile, the figure slides + plays its walk animation, and the camera
-# follows. Falls back to discs/flat tiles when the art isn't loaded (e.g. an
-# export that didn't pack resources), so it always runs.
-#
-# Monsters are proper ENTITIES (the Mob inner class): each owns a Combatant, so it
-# already carries pos/facing/hp/mp/energy/gear -- the "resources" a future step
-# turns into roaming behaviour (move/attack/pivot) and into the duel you drop into.
+# The STORY-zone scene controller -- glue only. It owns the map, the player entity,
+# and the mob entities, runs the walk loop, and HANDS OFF to a real UKO duel the
+# moment you step into a mob's range: it sets up a single-player match (your gear vs
+# the mob's kit, at the mob's tier), saves the zone, and switches to Game.tscn. When
+# the duel ends the game returns here and the zone restores (same map, your spot, the
+# beaten mob gone). All real logic lives in the modules; this just wires them.
 class_name Overworld
 extends Node2D
 
-const SIZE := 60
-const TILE := ViewConfig.TILE          # 32 -- identical tiles to the combat grid
+const TILE := ViewConfig.TILE
+const VIEW_TILES := 12           # camera frames a 12-tile-tall window (battle-board scale)
+const GAME_SCENE := "res://Game.tscn"
+const STORY_SCENE := "res://Overworld.tscn"
 const BG_PATH := "res://assets/sprites/map_bg.png"
 const BLOCKER_PATH := "res://assets/sprites/blocker.png"
 
-# Two monster TYPES + a boss, data-driven so adding a type is one row here.
-# tint distinguishes them while they share the one character sprite; per-monster
-# art later is just a different sprite prefix (a UnitView change, not here).
+# Two monster types + a boss, data-driven. They share the one character sprite, told
+# apart by tint + scale; per-type art later is a UnitView change, not a change here.
 const MOB_TYPES := {
-	"grunt": {"name": "Imp",     "gear": ["dark_focus", "", "", ""],                                   "tint": Color(0.70, 1.0, 0.70), "scale": 1.0},
-	"brute": {"name": "Brute",   "gear": ["burst_node", "blink_boots", "", ""],                        "tint": Color(1.0, 0.78, 0.45), "scale": 1.18},
+	"grunt": {"name": "Imp",     "gear": ["dark_focus", "", "", ""],                                    "tint": Color(0.70, 1.0, 0.70), "scale": 1.0},
+	"brute": {"name": "Brute",   "gear": ["burst_node", "blink_boots", "", ""],                         "tint": Color(1.0, 0.78, 0.45), "scale": 1.18},
 	"boss":  {"name": "WARLORD", "gear": ["discount_charm", "burst_node", "dark_focus", "blink_boots"], "tint": Color(0.85, 0.55, 1.0), "scale": 1.5},
 }
 
-class Mob extends RefCounted:
-	var type: String = ""
-	var name: String = ""
-	var tile: Vector2i = Vector2i.ZERO
-	var combatant: Combatant = null     # the rules-side entity (gear/resources, future actions)
-	var view: UnitView = null           # the on-map figure
+const DEFAULT_MOBS := [
+	{"type": "grunt", "tile": Vector2i(14, 14)},
+	{"type": "grunt", "tile": Vector2i(20, 44)},
+	{"type": "brute", "tile": Vector2i(46, 18)},
+	{"type": "brute", "tile": Vector2i(40, 41)},
+	{"type": "boss",  "tile": Vector2i(48, 48)},
+]
 
-var _blocked: Array = []
-var _player_tile: Vector2i = Vector2i.ZERO
-var _player_combatant: Combatant = null
-var _player_view: UnitView = null
+var _map: OverworldMap
+var _player: OverworldEntity
 var _mobs: Array = []
+var _player_tile: Vector2i
 var _cam: Camera2D
 var _move_cd: float = 0.0
 var _bg: Texture2D = null
 var _blocker: Texture2D = null
 
 func _ready() -> void:
-	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST   # crisp pixel tiles
+	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	if ResourceLoader.exists(BG_PATH):
 		_bg = load(BG_PATH)
 	if ResourceLoader.exists(BLOCKER_PATH):
 		_blocker = load(BLOCKER_PATH)
-	_generate()
-	_spawn_player()
-	_spawn_mobs()
+	_map = OverworldMap.new()
+	if OverworldState.active:
+		_restore()
+	else:
+		_fresh()
 	_cam = Camera2D.new()
 	add_child(_cam)
 	_cam.make_current()
-	_cam.global_position = _player_view.position
+	_cam.global_position = _player.world_pos()
+	_apply_zoom()
+	get_viewport().size_changed.connect(_apply_zoom)
 	_add_hud()
 
-# ── generation ───────────────────────────────────────────────────────────────
-func _generate() -> void:
-	_blocked = []
-	for y in SIZE:
-		var row: Array = []
-		for x in SIZE:
-			row.append(false)
-		_blocked.append(row)
-	var rng := RandomNumberGenerator.new()
-	rng.randomize()
-	for x in SIZE:
-		_blocked[0][x] = true
-		_blocked[SIZE - 1][x] = true
-	for y in SIZE:
-		_blocked[y][0] = true
-		_blocked[y][SIZE - 1] = true
-	var village := Rect2i(SIZE / 2 - 6, SIZE / 2 - 6, 12, 12)   # clear spawn area
-	for i in 80:
-		var cx := rng.randi_range(2, SIZE - 3)
-		var cy := rng.randi_range(2, SIZE - 3)
-		if village.has_point(Vector2i(cx, cy)):
-			continue
-		for j in rng.randi_range(1, 4):
-			var bx := clampi(cx + rng.randi_range(-1, 1), 1, SIZE - 2)
-			var by := clampi(cy + rng.randi_range(-1, 1), 1, SIZE - 2)
-			if not village.has_point(Vector2i(bx, by)):
-				_blocked[by][bx] = true
+# ── enter / restore the zone ─────────────────────────────────────────────────
+func _fresh() -> void:
+	OverworldState.seed_value = randi()
+	OverworldState.fighting = -1
+	OverworldState.mobs = []
+	_map.generate(OverworldState.seed_value)
+	_player_tile = _map.nearest_open(Vector2i(OverworldMap.SIZE / 2, OverworldMap.SIZE / 2))
+	OverworldState.player_tile = _player_tile
+	_spawn_player()
+	for d in DEFAULT_MOBS:
+		var tile: Vector2i = _map.nearest_open(d["tile"])
+		_spawn_mob(d["type"], tile)
+		OverworldState.mobs.append({"type": d["type"], "tile": tile})
+	OverworldState.active = true
+
+func _restore() -> void:
+	# Resolve the duel we just came back from: a win removes that mob for good.
+	if OverworldState.fighting >= 0:
+		if GameController.last_match_won:
+			OverworldState.mobs.remove_at(OverworldState.fighting)
+		OverworldState.fighting = -1
+	_map.generate(OverworldState.seed_value)
+	_player_tile = OverworldState.player_tile
+	_spawn_player()
+	for entry in OverworldState.mobs:
+		_spawn_mob(entry["type"], entry["tile"])
+	# Don't instantly re-fight a survivor you're standing next to (after a loss).
+	for m in _mobs:
+		if m.behavior.in_range(m, _player):
+			m.behavior.suppressed = true
 
 # ── spawning ─────────────────────────────────────────────────────────────────
 func _spawn_player() -> void:
-	_player_tile = Vector2i(SIZE / 2, SIZE / 2)
-	_player_combatant = Combatant.new("A", _player_tile, Config.Facing.SOUTH)
-	_player_combatant.equip(PlayerProfile.loadout())     # carry the player's real gear
-	_player_view = UnitView.new()
-	_player_view.init_state(_player_combatant)
-	_player_view.unit_id = ""                            # no label on the player
-	add_child(_player_view)
-
-func _spawn_mobs() -> void:
-	var placements := [
-		["grunt", Vector2i(14, 14)],
-		["grunt", Vector2i(20, 44)],
-		["brute", Vector2i(46, 18)],
-		["brute", Vector2i(40, 41)],
-		["boss",  Vector2i(48, 48)],
-	]
-	for p in placements:
-		_spawn_mob(p[0], _nearest_open(p[1]))
+	# The player carries YOUR equipped gear (PlayerProfile), so it's your real state
+	# both on the map and in the duel it hands off to.
+	_player = OverworldEntity.make("A", _player_tile, Config.Facing.SOUTH, PlayerProfile.loadout(), "")
+	_player.view.z_index = 1
+	add_child(_player.view)
 
 func _spawn_mob(type: String, tile: Vector2i) -> void:
 	var def: Dictionary = MOB_TYPES[type]
-	var c := Combatant.new("B", tile, Config.Facing.SOUTH)
-	c.equip(def["gear"])
-	var v := UnitView.new()
-	v.init_state(c)
-	v.unit_id = def["name"]               # label under the figure
-	v.base_color = def["tint"]            # tints the fallback disc
-	v.modulate = def["tint"]              # tints the real sprite to tell types apart
-	v.scale = Vector2(def["scale"], def["scale"])
-	add_child(v)
-	var m := Mob.new()
-	m.type = type
-	m.name = def["name"]
-	m.tile = tile
-	m.combatant = c
-	m.view = v
-	_mobs.append(m)
+	var e := OverworldEntity.make("B", tile, Config.Facing.SOUTH, def["gear"], def["name"])
+	e.tag = type
+	e.view.modulate = def["tint"]
+	e.view.base_color = def["tint"]
+	e.view.scale = Vector2(def["scale"], def["scale"])
+	e.behavior = MobBehavior.new()
+	add_child(e.view)
+	_mobs.append(e)
 
-# ── tile-based movement ──────────────────────────────────────────────────────
+# ── walk loop ────────────────────────────────────────────────────────────────
 func _process(delta: float) -> void:
 	if Input.is_action_just_pressed("ui_cancel"):
 		get_tree().change_scene_to_file("res://MainMenu.tscn")
 		return
-	_cam.global_position = _player_view.position   # follow the sliding figure
+	_drive_player(delta)
+	_cam.global_position = _player.world_pos()
 	queue_redraw()
+
+func _drive_player(delta: float) -> void:
 	if _move_cd > 0.0:
 		_move_cd -= delta
 		return
 	var dir := _input_dir()
 	if dir == Vector2i.ZERO:
 		return
-	var f := _facing_for(dir)
-	if f != _player_combatant.facing:
-		_player_combatant.facing = f
-		_player_view.set_facing(f)                 # turn to face where we walk
+	_player.face(_facing_for(dir))
 	var target := _player_tile + dir
-	if _solid_tile(target):
-		_move_cd = 0.12                            # bumped a wall: debounce, don't move
+	if _map.is_solid(target):
+		_move_cd = 0.12
 		return
 	_player_tile = target
-	_player_combatant.pos = target
-	_player_view.tween_to(target)                  # slide + walk animation
-	_move_cd = ViewConfig.MOVE_DUR                 # one step at a time
+	OverworldState.player_tile = target          # keep saved spot current for the hand-off
+	_player.step_to(target)
+	_move_cd = ViewConfig.MOVE_DUR
+	_check_engage()                              # stepped somewhere new -> in any mob's range?
+
+func _check_engage() -> void:
+	for i in _mobs.size():
+		var m: OverworldEntity = _mobs[i]
+		if m.behavior.wants_fight(m, _player):
+			_start_duel(i)
+			return
+
+# Hand off to a real UKO duel: single-player, your gear vs this mob's kit, at the
+# mob's tier. GameController returns here when it ends (see _restore).
+func _start_duel(index: int) -> void:
+	var m: OverworldEntity = _mobs[index]
+	OverworldState.player_tile = _player_tile
+	OverworldState.fighting = index
+	GameController.pending_b_gear = m.combatant.gear.duplicate()
+	GameController.pending_return_scene = STORY_SCENE
+	AI.selected_difficulty = _mob_diff(m.tag)
+	get_tree().change_scene_to_file(GAME_SCENE)
+
+func _mob_diff(type: String) -> int:
+	match type:
+		"grunt": return AI.Difficulty.EASY
+		"brute": return AI.Difficulty.CHALLENGING
+		"boss":  return AI.Difficulty.EXTREME
+	return AI.Difficulty.CHALLENGING
+
+# ── camera / input helpers ───────────────────────────────────────────────────
+func _apply_zoom() -> void:
+	if _cam == null:
+		return
+	var z := get_viewport_rect().size.y / float(VIEW_TILES * TILE)
+	_cam.zoom = Vector2(z, z)
 
 func _input_dir() -> Vector2i:
 	if Input.is_action_pressed("ui_up")    or Input.is_key_pressed(KEY_W): return Vector2i(0, -1)
@@ -160,23 +176,18 @@ func _input_dir() -> Vector2i:
 	return Vector2i.ZERO
 
 func _facing_for(dir: Vector2i) -> int:
-	for fc in Config.FACING_VEC:                   # invert the shared facing table
+	for fc in Config.FACING_VEC:
 		if Config.FACING_VEC[fc] == dir:
 			return fc
 	return Config.Facing.SOUTH
 
-func _solid_tile(t: Vector2i) -> bool:
-	if t.x < 0 or t.y < 0 or t.x >= SIZE or t.y >= SIZE:
-		return true
-	return _blocked[t.y][t.x]
-
-# ── draw the real tiles, culled to what's on screen ─────────────────────────
+# ── draw tiles, culled to the (zoomed) view ─────────────────────────────────
 func _draw() -> void:
 	var view := _visible_range()
 	for y in range(view.position.y, view.end.y):
 		for x in range(view.position.x, view.end.x):
 			var r := Rect2(x * TILE, y * TILE, TILE, TILE)
-			if _blocked[y][x]:
+			if _map.blocked[y][x]:
 				if _blocker:
 					draw_texture_rect(_blocker, r, false)
 				else:
@@ -189,33 +200,23 @@ func _draw() -> void:
 			draw_rect(r, ViewConfig.COL_GRID_LINE, false, 1.0)
 
 func _visible_range() -> Rect2i:
-	var center: Vector2 = _cam.global_position if _cam else _player_view.position
-	var half := get_viewport_rect().size * 0.5
+	var z: float = _cam.zoom.x if _cam else 1.0
+	var center: Vector2 = _cam.global_position if _cam else _player.world_pos()
+	var half := (get_viewport_rect().size / z) * 0.5
 	var tl := center - half - Vector2(TILE, TILE)
 	var br := center + half + Vector2(TILE, TILE)
-	var x0 := clampi(int(tl.x / TILE), 0, SIZE - 1)
-	var y0 := clampi(int(tl.y / TILE), 0, SIZE - 1)
-	var x1 := clampi(int(br.x / TILE) + 1, 0, SIZE)
-	var y1 := clampi(int(br.y / TILE) + 1, 0, SIZE)
+	var sz := OverworldMap.SIZE
+	var x0 := clampi(int(tl.x / TILE), 0, sz - 1)
+	var y0 := clampi(int(tl.y / TILE), 0, sz - 1)
+	var x1 := clampi(int(br.x / TILE) + 1, 0, sz)
+	var y1 := clampi(int(br.y / TILE) + 1, 0, sz)
 	return Rect2i(x0, y0, x1 - x0, y1 - y0)
-
-# ── helpers ──────────────────────────────────────────────────────────────────
-func _nearest_open(t: Vector2i) -> Vector2i:
-	if not _blocked[t.y][t.x]:
-		return t
-	for r in range(1, 8):
-		for dy in range(-r, r + 1):
-			for dx in range(-r, r + 1):
-				var n := Vector2i(clampi(t.x + dx, 1, SIZE - 2), clampi(t.y + dy, 1, SIZE - 2))
-				if not _blocked[n.y][n.x]:
-					return n
-	return Vector2i(SIZE / 2, SIZE / 2)
 
 func _add_hud() -> void:
 	var layer := CanvasLayer.new()
 	add_child(layer)
 	var hint := Label.new()
-	hint.text = "STORY ZONE   —   WASD / Arrows: move (tile by tile)    ·    ESC: menu"
+	hint.text = "STORY ZONE   —   WASD / Arrows: move   ·   walk into a monster to fight   ·   ESC: menu"
 	hint.position = Vector2(16, 12)
 	hint.add_theme_color_override("font_color", ViewConfig.COL_TEXT)
 	layer.add_child(hint)

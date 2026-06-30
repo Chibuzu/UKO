@@ -39,6 +39,13 @@ var match_config: MatchConfig        # map seed + loadouts + which side is local
 static var pending_config: MatchConfig
 static var pending_opponent: OpponentSource
 
+# Story/overworld hooks (single-player): a custom B loadout (a mob's kit), where to
+# return when the match ends, and the last result -- so the overworld can hand off a
+# mob duel and read the outcome back. Empty/"" -> normal (AI gear, return to menu).
+static var pending_b_gear: Array = []
+static var pending_return_scene: String = ""
+static var last_match_won: bool = false
+
 func _ready() -> void:
 	difficulty = AI.selected_difficulty   # whatever the menu's difficulty page picked
 	# Lobby handoff (set before the scene change). Null -> single-player vs the AI.
@@ -46,6 +53,8 @@ func _ready() -> void:
 	opponent = pending_opponent
 	pending_config = null      # consume: a later single-player match must not inherit these
 	pending_opponent = null
+	var b_gear_override: Array = pending_b_gear
+	pending_b_gear = []        # consume: a later match must not inherit a story mob's kit
 
 	var rng := RandomNumberGenerator.new()
 	if match_config != null:
@@ -69,8 +78,8 @@ func _ready() -> void:
 		a.equip(match_config.loadout_a)
 		b.equip(match_config.loadout_b)
 	else:
-		a.equip(PlayerProfile.loadout())   # offline: your shop gear vs the AI's kit
-		b.equip(AI_GEAR)
+		a.equip(PlayerProfile.loadout())   # offline: your shop gear vs the AI's (or a story mob's) kit
+		b.equip(AI_GEAR if b_gear_override.is_empty() else b_gear_override)
 
 	ua = UnitView.new()
 	board.add_child(ua)
@@ -220,6 +229,7 @@ func _show_result(result: String) -> void:
 	var text := "DRAW"
 	var color := ViewConfig.COL_DRAW
 	var reward := Config.GOLD_REWARD_DRAW
+	last_match_won = false
 	if result == "a_wins" or result == "b_wins":
 		var a_won := result == "a_wins"
 		text = "A WINS" if a_won else "B WINS"
@@ -227,6 +237,7 @@ func _show_result(result: String) -> void:
 		# Gold is a single-player progression reward for beating the AI. Online play
 		# mints nothing (no farming), so a PvP result pays 0 regardless of who won.
 		var local_won := a_won == _local_is_a()
+		last_match_won = local_won
 		reward = Config.gold_reward(difficulty) if (local_won and match_config == null) else 0
 	var balance := PlayerProfile.gold()
 	if reward > 0:
@@ -251,6 +262,8 @@ func _on_end_choice(which: String) -> void:
 		"rematch":
 			get_tree().reload_current_scene()      # fresh match, same scene
 		"menu":
-			get_tree().change_scene_to_file(MENU_SCENE)
+			var dest := pending_return_scene if pending_return_scene != "" else MENU_SCENE
+			pending_return_scene = ""    # consume: normal matches return to the menu
+			get_tree().change_scene_to_file(dest)
 		"replay":
 			replay.enter(end_screen)
