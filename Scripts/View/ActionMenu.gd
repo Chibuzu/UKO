@@ -38,10 +38,19 @@ var spells: Array = []          # spell ids available to the player
 var planned: Array = []         # short labels of actions chosen so far
 var confirming := false         # both actions chosen; awaiting confirm
 var waiting := false            # confirmed; the opponent is taking its turn
+var rest_prompt := false        # roam sanctuary tile: REST is pressable even while disabled
 var hover := ""
 
 func _ready() -> void:
 	position = ViewConfig.MENU_ORIGIN
+
+# Story roam only: light up REST (a golden-tile full rest) while the rest of the menu stays
+# disabled. Cleared automatically whenever combat calls set_state.
+func set_rest_prompt(active: bool) -> void:
+	if rest_prompt == active:
+		return
+	rest_prompt = active
+	queue_redraw()
 
 func set_state(p: Combatant, e: Combatant, is_enabled: bool, spell_ids: Array,
 		p_planned: Array = [], p_confirming: bool = false, p_waiting: bool = false) -> void:
@@ -52,6 +61,7 @@ func set_state(p: Combatant, e: Combatant, is_enabled: bool, spell_ids: Array,
 	planned = p_planned
 	confirming = p_confirming
 	waiting = p_waiting
+	rest_prompt = false            # combat drives the menu; drop any roam rest prompt
 	queue_redraw()
 
 func _entries() -> Array:
@@ -79,7 +89,11 @@ func _btn_rect(i: int) -> Rect2:
 	return Rect2(0, HUD_H + i * (BTN_H + GAP), BTN_W, BTN_H)
 
 func _usable(id: String) -> bool:
-	if player == null or not enabled:
+	if player == null:
+		return false
+	if rest_prompt and id == "rest":
+		return true                 # golden sanctuary tile -> REST is pressable outside combat
+	if not enabled:
 		return false
 	if id == "confirm":
 		return true                 # not a costed action; always clickable
@@ -153,7 +167,7 @@ func _input(event: InputEvent) -> void:
 		if old != hover:
 			queue_redraw()
 	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		if not enabled:
+		if not enabled and not rest_prompt:
 			return
 		var local := get_local_mouse_position()
 		var entries := _entries()

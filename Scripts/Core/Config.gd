@@ -142,10 +142,16 @@ static func blink_travel(id: String) -> int:
 # intervening tiles (wall or fighter). Only the LANDING tile must be free: in
 # bounds, not a wall, not the foe. (Short range keeps the wall-hop from trivializing corners.)
 static func blink_landing(grid: Grid, from: Vector2i, dir: Vector2i, dist: int, foe_pos: Vector2i) -> Dictionary:
-	var land: Vector2i = from + dir * dist
-	if not grid.in_bounds(land) or grid.is_blocked(land) or land == foe_pos:
+	# Land as far along `dir` as possible (up to `dist`), stepping back toward `from` when the
+	# far tiles are walls or the foe sits on them -- so aiming a blink at a foe lands you
+	# ADJACENT rather than fizzling. Empty only when no tile in the line is landable at all.
+	if dir == Vector2i.ZERO or dist <= 0:
 		return {}
-	return {"tile": land}
+	for dd in range(dist, 0, -1):
+		var land: Vector2i = from + dir * dd
+		if grid.in_bounds(land) and not grid.is_blocked(land) and land != foe_pos:
+			return {"tile": land}
+	return {}
 
 # True if this spell flies as a projectile (expands into per-tile flight steps)
 # instead of striking its whole shape at one instant.

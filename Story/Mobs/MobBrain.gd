@@ -32,5 +32,5 @@ static func make_kind(type: String) -> MobKind:
 		"bat":   k = BatKind.new()
 		"slime": k = SlimeKind.new()
 		_:       k = MobKind.new()      # serpent + fallback: base melee behavior
-	k.setup(type)
+	k.setup(type, PROFILES.get(type, {}))
 	return k

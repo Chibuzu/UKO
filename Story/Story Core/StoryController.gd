@@ -23,6 +23,17 @@ const DEATH_GOLD_PENALTY := 25
 const MOB_COUNT := 28
 const TYPE_WEIGHTS := [["bat", 50], ["slime", 38], ["serpent", 12]]
 
+# Mobs wander the world while you roam. They step on this cadence (slower than you, so
+# you can outrun them), beeline toward you within MOB_AGGRO tiles, else drift randomly.
+const MOB_ROAM_CD := 0.55
+const MOB_AGGRO := 7
+
+# Passive recovery: every REGEN_EVERY actions YOU take (roam steps + combat actions), only
+# ENERGY comes back -- moving never heals. HP/MP are recovered by resting or a sanctuary tile.
+const REGEN_EVERY := 6
+const REGEN_EP := 10
+const REST_SAFE := 5             # a sanctuary tile only rests you if no mob is within this many tiles
+
 enum Phase { ROAM, COMBAT }
 
 var omap: OverworldMap
@@ -36,13 +47,16 @@ var selection: SelectionController
 
 var player: Combatant
 var player_uv: UnitView
-var mobs: Array = []              # [{combatant, uv, ai, type}]
-var _opp_model: OpponentModel
+var mobs: Array = []              # [{combatant, uv, kind, type}]
 var turn_num: int = 0
 var _phase: int = Phase.ROAM
 var _roam_cd: float = 0.0
 var _seed: int = 0                    # world seed; regenerating from it restores the exact map
 var _win: Vector2i = Vector2i.ZERO    # current top-left world tile of the visible window
+var pause_menu: StoryPauseMenu        # ESC overlay (gear / inventory / exit)
+var _paused: bool = false
+var _mob_cd: float = 0.0              # countdown to the next world-wander step for all mobs
+var _actions: int = 0                 # your actions since the last passive-regen tick
 
 func _ready() -> void:
 	var save: Dictionary = StorySave.read() if StorySave.has_save() else {}
@@ -59,6 +73,7 @@ func _ready() -> void:
 	board = WorldBoard.new()
 	add_child(board)
 	board.setup_world(grid)
+	board.rest_set = omap.rest_set                 # golden sanctuary tiles drawn on the board
 
 	var start: Vector2i
 	if resuming:
@@ -97,11 +112,22 @@ func _ready() -> void:
 	selection.setup(grid, board, menu)
 	board.tile_clicked.connect(selection._on_tile_clicked)
 	board.selection_cancelled.connect(selection._on_cancel)
-	menu.action_chosen.connect(selection._on_action_chosen)
+	menu.action_chosen.connect(_on_menu_action)
 
-	_opp_model = OpponentModel.new()
 	_init_window()                                 # center the window on the player to start
 	menu.set_state(player, player, false, player.spell_ids(), [], false)
+
+	# Pause overlay on its own CanvasLayer so it always draws above the board/menu/log.
+	var pause_layer := CanvasLayer.new()
+	pause_layer.layer = 20
+	add_child(pause_layer)
+	pause_menu = StoryPauseMenu.new()
+	pause_layer.add_child(pause_menu)
+	pause_menu.visible = false
+	pause_menu.resume.connect(_close_pause)
+	pause_menu.save.connect(_pause_save)
+	pause_menu.exit_to_menu.connect(_exit_to_menu)
+	_refresh_rest_prompt()                         # you may start on the village sanctuary tile
 
 # Build one mob of `type` at `tile` and register it. Shared by procedural spawn and
 # save-restore, so both paths stay in lockstep.
@@ -110,19 +136,17 @@ func _add_mob(type: String, tile: Vector2i) -> Dictionary:
 	var c := Combatant.new("B", tile, Config.Facing.SOUTH)
 	c.equip([])                                    # NO gear -> no spells, ever
 	c.hp = int(prof.get("hp", 100))
+	c.mp = 0                                        # mobs have only HP...
+	c.energy = Config.MAX_ENERGY                    # ...and a full energy pool so moving never locks
 	var uv := UnitView.new()
 	board.add_child(uv)
+	uv.disc_only = true                            # mobs are colored balls, not your fighter
+	uv.disc_color = prof.get("tint", Color.WHITE)
 	uv.init_state(c)
 	uv.unit_id = String(prof.get("name", "?"))
-	uv.base_color = prof.get("tint", Color.WHITE)
-	uv.modulate = prof.get("tint", Color.WHITE)
 	var sc: float = float(prof.get("scale", 1.0))
 	uv.scale = Vector2(sc, sc)
-	# Melee mobs use the real difficulty AI (spell-less); the ranged Bat kites via MobBrain.
-	var ai: AIOpponent = null
-	if String(prof.get("kind", "melee")) == "melee":
-		ai = AIOpponent.new(int(prof.get("difficulty", AI.Difficulty.CHALLENGING)), get_tree())
-	var entry := {"combatant": c, "uv": uv, "ai": ai, "type": type}
+	var entry := {"combatant": c, "uv": uv, "kind": MobBrain.make_kind(type), "type": type}
 	mobs.append(entry)
 	return entry
 
@@ -149,27 +173,66 @@ func _spawn_from_save(mob_data: Array) -> void:
 		var c: Combatant = e["combatant"]
 		c.facing = int(md.get("facing", Config.Facing.SOUTH))
 		c.hp = int(md.get("hp", c.hp))
-		c.mp = int(md.get("mp", c.mp))
-		c.energy = int(md.get("energy", c.energy))
+		c.mp = 0                                       # HP-only mobs
+		c.energy = Config.MAX_ENERGY
 		c.statuses = _int_dict(md.get("statuses", {}))
 		e["uv"].init_state(c)
 		e["uv"].set_facing(c.facing)
 
 # ── roam (real-time WASD) until a monster is in view, then the loop flips to COMBAT ─
 func _process(delta: float) -> void:
-	if _phase == Phase.ROAM:
+	if menu != null:
+		menu.player = player           # HUD always reflects your live resources, every frame
+		menu.queue_redraw()
+	if _phase == Phase.ROAM and not _paused:
 		_roam(delta)
+	if _phase == Phase.ROAM and not _paused:        # _roam may have flipped us into combat
+		_mob_roam(delta)
 
-# Manual save (F5) while roaming, with a floating confirmation.
-func _input(event: InputEvent) -> void:
-	if _phase == Phase.ROAM and event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F5:
-		_save_game()
+# ESC opens the pause overlay; R rests on a golden sanctuary tile. Only while roaming and
+# not paused. (Saving is deliberate now -- only the pause menu's SAVE button writes a save.)
+func _unhandled_input(event: InputEvent) -> void:
+	if _phase != Phase.ROAM or _paused:
+		return
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == KEY_ESCAPE:
+			_open_pause()
+			get_viewport().set_input_as_handled()
+		elif event.keycode == KEY_R:
+			_try_rest_tile()
+			get_viewport().set_input_as_handled()
+
+func _open_pause() -> void:
+	_paused = true
+	pause_menu.open()
+
+func _close_pause() -> void:
+	_paused = false
+	pause_menu.close()
+
+# Menu clicks route through here. In combat they drive the turn's selection; while roaming,
+# the only pressable button is the golden-tile REST (ActionMenu.rest_prompt) -> full regen.
+func _on_menu_action(id: String) -> void:
+	if _phase == Phase.ROAM:
+		if id == "rest":
+			_try_rest_tile()
+		return
+	selection._on_action_chosen(id)
+
+# Light up the REST button only while standing on a sanctuary tile with no mob nearby.
+func _refresh_rest_prompt() -> void:
+	var ok := _phase == Phase.ROAM and omap.is_rest(player.pos) and not _mob_near(player.pos, REST_SAFE)
+	menu.set_rest_prompt(ok)
+
+func _pause_save() -> void:
+	StorySave.write(_gather_save())    # SAVE button: write, then let the overlay confirm
+	pause_menu.note_saved()
+
+func _exit_to_menu() -> void:
+	# Save is deliberate now: leaving does NOT write. You resume from your last manual save.
+	get_tree().change_scene_to_file(MENU_SCENE)
 
 func _roam(delta: float) -> void:
-	if Input.is_action_just_pressed("ui_cancel"):
-		_save_game()                   # leaving saves your run so STORY resumes here
-		get_tree().change_scene_to_file(MENU_SCENE)
-		return
 	if _roam_cd > 0.0:
 		_roam_cd -= delta
 		return
@@ -183,7 +246,9 @@ func _roam(delta: float) -> void:
 		return
 	player.pos = target
 	player_uv.tween_to(target)
+	_bump_actions(1)                   # a step is an action -> feeds the every-6 regen
 	_follow_window()                   # scroll only near the window edge -> you visibly walk
+	_refresh_rest_prompt()             # light up REST if you just stepped onto a sanctuary tile
 	_roam_cd = ViewConfig.MOVE_DUR
 	if not _engaged().is_empty():
 		_phase = Phase.COMBAT
@@ -191,6 +256,7 @@ func _roam(delta: float) -> void:
 
 # ── combat: turn after turn while any mob is in your 12x12 ───────────────────
 func _combat_loop() -> void:
+	menu.set_rest_prompt(false)        # combat owns the menu now
 	while true:
 		var engaged := _engaged()
 		if engaged.is_empty():
@@ -200,79 +266,82 @@ func _combat_loop() -> void:
 			_die()
 			return
 	_phase = Phase.ROAM
+	_refresh_rest_prompt()             # back to roam: re-light REST if you ended on a sanctuary
 
 func _combat_turn(engaged: Array) -> void:
 	turn_num += 1
 	var nearest: Dictionary = engaged[0]
-	play.units["B"] = nearest["uv"]    # animate the nearest foe as B
+	player.rest_ready = true           # story: rest is always available -- it heals you mid-fight
 
 	# Your action -- the normal menu/targeting flow (begin_turn activates the menu).
 	selection.begin_turn(player, nearest["combatant"])
 	var player_seq: Array = await selection.player_sequence_ready
-	menu.set_state(player, nearest["combatant"], false, player.spell_ids(), [], false, true)
+
+	# If you aimed a single-target ATTACK at a specific mob, resolve THAT mob first. The
+	# primary (i==0) pairwise resolve is the one the log + animation come from, so without
+	# this a swing at a farther mob would log the NEAREST mob's whiff ("A swing misses") even
+	# though your real target was hit. Reorder so your target is primary.
+	var atk_tile := _attack_tile(player_seq)
+	if atk_tile != Vector2i(-1, -1):
+		for i in engaged.size():
+			if engaged[i]["combatant"].pos == atk_tile:
+				if i != 0:
+					var picked: Dictionary = engaged[i]
+					engaged.remove_at(i)
+					engaged.insert(0, picked)
+				break
+
+	play.units["B"] = engaged[0]["uv"]    # animate the mob you actually engaged as B
+	menu.set_state(player, engaged[0]["combatant"], false, player.spell_ids(), [], false, true)
 	board.clear_highlights()
 
-	# Each mob plans, handed a grid with the OTHER mobs as walls: melee mobs via their
-	# difficulty AI, the ranged Bat via its kite brain.
+	# Each mob plans a MOVE-ONLY sequence via its behavior, handed a grid with the others as walls.
 	var mob_cs: Array = []
-	var mob_types: Array = []
+	var mob_kinds: Array = []
 	for e in engaged:
+		e["combatant"].energy = Config.MAX_ENERGY   # HP-only: refill so planning/moving never stalls
 		mob_cs.append(e["combatant"])
-		mob_types.append(e["type"])
+		mob_kinds.append(e["kind"])
 	var mob_seqs: Array = []
 	for i in engaged.size():
 		var g := StoryCombat._grid_blocking_others(grid, mob_cs, {}, i)
-		var prof: Dictionary = MobBrain.PROFILES[engaged[i]["type"]]
-		var seq: Array
-		if String(prof.get("kind", "melee")) == "ranged":
-			seq = MobBrain.kite_seq(engaged[i]["combatant"], player.pos, g, prof)
-		else:
-			seq = await engaged[i]["ai"].opponent_sequence(engaged[i]["combatant"], player, g, turn_num, player_seq, _opp_model)
-		mob_seqs.append(seq)
+		mob_seqs.append(engaged[i]["kind"].plan(engaged[i]["combatant"], player, g))
 
-	var res := StoryCombat.resolve_turn(grid, player, mob_cs, player_seq, mob_seqs, mob_types)
+	var res := StoryCombat.resolve_turn(grid, player, mob_cs, player_seq, mob_seqs, mob_kinds)
 	var dmg: Array = res["dmg_by_mob"]
 	var p_end: Vector2i = res["player"].pos
 
-	# Animate the nearest fight fully via your EventPlayer.
+	# Your action + the nearest mob's movement animate via the engine; mob STRIKES are custom
+	# (not resolver events), so every mob's hit is shown manually.
 	await play.play(res["primary_events"], res["player"], res["mobs"][0])
-	# The nearest mob's melee hit is inside the engine events; a ranged poke is not, so show it.
-	if String(MobBrain.PROFILES[engaged[0]["type"]].get("kind", "melee")) == "ranged" and int(dmg[0]) > 0:
-		var m0: Combatant = res["mobs"][0]
-		nearest["uv"].play_anim("attack", Vector2(p_end - m0.pos))
-		player_uv.flash(ViewConfig.FLASH_HIT)
-		board.spawn_number(player_uv.position, "-%d" % int(dmg[0]), ViewConfig.COL_DMG)
-	# Light pass for the other mobs: move, swing, and land their hit on you.
-	for i in range(1, engaged.size()):
+	for i in engaged.size():
 		var m_after: Combatant = res["mobs"][i]
-		engaged[i]["uv"].tween_to(m_after.pos)
+		if i > 0:
+			engaged[i]["uv"].tween_to(m_after.pos)   # nearest already moved via play.play
 		if int(dmg[i]) > 0:
 			engaged[i]["uv"].play_anim("attack", Vector2(p_end - m_after.pos))
 			player_uv.flash(ViewConfig.FLASH_HIT)
 			board.spawn_number(player_uv.position, "-%d" % int(dmg[i]), ViewConfig.COL_DMG)
 		engaged[i]["uv"].set_display_hp(m_after.hp)
 
-	# Commit state (resources persist across turns and back into roaming).
+	# Commit state (resources persist), run per-mob post-turn hooks (splits etc.), clear/loot dead.
 	player = res["player"]
 	player_uv.set_display_hp(player.hp)
+	if int(res.get("guard_refund", 0)) > 0:
+		board.spawn_number(player_uv.position, "+%d EP" % int(res["guard_refund"]), ViewConfig.COL_HEAL)
 	for i in engaged.size():
 		engaged[i]["combatant"] = res["mobs"][i]
-	_opp_model.observe(player_seq)
+	for e in engaged:
+		e["kind"].on_committed(e, player, self)
+	_bump_actions(player_seq.size())   # your actions this turn feed the every-6 regen
 	_clear_dead()
 	combat_log.add_turn(turn_num, res["primary_events"])
 	_follow_window()                   # keep you in view; refresh mob visibility
 
 func _die() -> void:
+	# A setback: you forfeit some gold (that lives on your profile, so it persists) and return
+	# to the menu. Story progress is NOT auto-written -- you resume from your last manual save.
 	PlayerProfile.spend_gold(mini(DEATH_GOLD_PENALTY, PlayerProfile.gold()))
-	# Death is a setback, not a wipe: respawn at the village at full resources; the world
-	# and any mobs you cleared persist. The resume point becomes that safe restart.
-	player.pos = omap.nearest_open(Vector2i(OverworldMap.SIZE / 2, OverworldMap.SIZE / 2))
-	player.facing = Config.Facing.SOUTH
-	player.hp = Config.MAX_HP
-	player.mp = Config.MAX_MP
-	player.energy = Config.MAX_ENERGY
-	player.statuses = {}
-	StorySave.write(_gather_save())
 	get_tree().change_scene_to_file(MENU_SCENE)
 
 # ── windowing (edge-scroll follow, not constant re-centering) ─────────────────
@@ -331,10 +400,53 @@ func _clear_dead() -> void:
 	var keep: Array = []
 	for m in mobs:
 		if m["combatant"].is_dead():
+			_grant_loot(m)
 			m["uv"].queue_free()
 		else:
 			keep.append(m)
 	mobs = keep
+
+# Roll a dead mob's loot into the inventory, with a floating pickup label per item.
+func _grant_loot(m: Dictionary) -> void:
+	var pos: Vector2 = m["uv"].position
+	var yoff := 0.0
+	for d in m["kind"].roll_loot():
+		var item := String(d["item"])
+		PlayerInventory.add(item, int(d["count"]))
+		board.spawn_number(pos + Vector2(0.0, yoff), "+" + ItemBook.item_name(item), ItemBook.item_color(item))
+		yoff -= 14.0
+
+# Slime split: a same-resource copy on a free tile next to the player, joining the fight.
+# Called from SlimeKind.on_committed via the ctx (this controller).
+func spawn_split(parent: Dictionary, player_ref: Combatant) -> void:
+	var tile := _free_adjacent(player_ref.pos)
+	if tile == Vector2i(-1, -1):
+		return                                     # nowhere free -> skip the split this time
+	var pc: Combatant = parent["combatant"]
+	var e := _add_mob(String(parent["type"]), tile)
+	var c: Combatant = e["combatant"]
+	c.hp = pc.hp                                   # same resources as the parent at split time
+	c.mp = pc.mp
+	c.energy = pc.energy
+	e["no_split"] = true                           # the copy can't split again -> no runaway
+	e["uv"].set_display_hp(c.hp)
+	_apply_window()                                # reveal it if it's inside the view
+
+func _free_adjacent(p: Vector2i) -> Vector2i:
+	for d: Vector2i in [Vector2i(0, -1), Vector2i(1, 0), Vector2i(0, 1), Vector2i(-1, 0),
+			Vector2i(1, -1), Vector2i(1, 1), Vector2i(-1, 1), Vector2i(-1, -1)]:
+		var t := p + d
+		if not grid.is_blocked(t) and not _occupied(t):
+			return t
+	return Vector2i(-1, -1)
+
+func _occupied(t: Vector2i) -> bool:
+	if player.pos == t:
+		return true
+	for m in mobs:
+		if m["combatant"].pos == t:
+			return true
+	return false
 
 func _input_dir() -> Vector2i:
 	if Input.is_action_pressed("ui_up")    or Input.is_key_pressed(KEY_W): return Vector2i(0, -1)
@@ -355,12 +467,100 @@ func _facing_for(dir: Vector2i) -> int:
 			return fc
 	return Config.Facing.SOUTH
 
-# ── save / restore ────────────────────────────────────────────────────────────
-func _save_game() -> void:
-	StorySave.write(_gather_save())
-	if is_instance_valid(player_uv):
-		board.spawn_number(player_uv.position, "Saved", ViewConfig.COL_A)
+# ── world behavior: mob wandering, facing, passive regen, sanctuary rest ──────
+# Every mob takes a wander step on a shared cadence: beeline toward you within MOB_AGGRO,
+# otherwise drift. They never enter the village (your safe zone) and never overlap. A mob
+# that steps into your window starts combat, exactly like walking into one yourself.
+func _mob_roam(delta: float) -> void:
+	if mobs.is_empty():
+		return
+	_mob_cd -= delta
+	if _mob_cd > 0.0:
+		return
+	_mob_cd = MOB_ROAM_CD
+	var occ := _occupied_tiles()
+	for m in mobs:
+		var c: Combatant = m["combatant"]
+		var step := _wander_step(c.pos, occ)
+		if step != c.pos:
+			var mv := step - c.pos
+			occ.erase(c.pos)
+			occ[step] = true
+			c.pos = step
+			m["uv"].tween_to(step)
+			_face(c, m["uv"], mv)                     # face the way it moved -> you can flank it
+		m["uv"].visible = _in_window(c.pos, _win)
+	if not _engaged().is_empty():
+		_phase = Phase.COMBAT
+		_combat_loop()
+	else:
+		_refresh_rest_prompt()                       # a mob may have wandered in/out of range
 
+# One wander step: chase you if close, else a random open step. Never a wall, the village,
+# an occupied tile, or your own tile.
+func _wander_step(pos: Vector2i, occ: Dictionary) -> Vector2i:
+	var dirs: Array = [Vector2i(0, -1), Vector2i(1, 0), Vector2i(0, 1), Vector2i(-1, 0)]
+	if Grid.dist(pos, player.pos) <= MOB_AGGRO:
+		dirs.sort_custom(func(a, b): return Grid.dist(pos + a, player.pos) < Grid.dist(pos + b, player.pos))
+	else:
+		dirs.shuffle()
+		if randf() < 0.4:
+			return pos                               # idle sometimes -> a calmer, natural drift
+	for d: Vector2i in dirs:
+		var t: Vector2i = pos + d
+		if grid.is_blocked(t) or _in_village(t) or occ.has(t) or t == player.pos:
+			continue
+		return t
+	return pos
+
+func _occupied_tiles() -> Dictionary:
+	var occ: Dictionary = { player.pos: true }
+	for m in mobs:
+		occ[m["combatant"].pos] = true
+	return occ
+
+# The tile a single-target ATTACK in this sequence aims at (-1,-1 if none).
+func _attack_tile(seq: Array) -> Vector2i:
+	for a in seq:
+		if String(a.get("id", "")) == "attack":
+			return a.get("tile", Vector2i(-1, -1))
+	return Vector2i(-1, -1)
+
+# Passive recovery: every REGEN_EVERY of YOUR actions, only ENERGY comes back. HP/MP are
+# recovered by resting (a sanctuary tile fully restores you) -- moving never heals.
+func _bump_actions(n: int) -> void:
+	if n <= 0:
+		return
+	_actions += n
+	while _actions >= REGEN_EVERY:
+		_actions -= REGEN_EVERY
+		_regen_tick()
+
+func _regen_tick() -> void:
+	player.energy = mini(Config.MAX_ENERGY, player.energy + REGEN_EP)
+
+# Golden sanctuary tile (press R): if you're standing on one and no mob is within REST_SAFE
+# tiles, fully restore HP/MP/EP. Roam-only -- _unhandled_input already gates out combat.
+func _try_rest_tile() -> void:
+	if not omap.is_rest(player.pos):
+		return
+	if _mob_near(player.pos, REST_SAFE):
+		board.spawn_number(player_uv.position, "not safe", ViewConfig.COL_TEXT_OFF)
+		return
+	player.hp = Config.MAX_HP
+	player.mp = Config.MAX_MP
+	player.energy = Config.MAX_ENERGY
+	player_uv.set_display_hp(player.hp)
+	board.spawn_number(player_uv.position, "Rested!", ViewConfig.COL_GOLD)
+
+func _mob_near(t: Vector2i, r: int) -> bool:
+	for m in mobs:
+		var p: Vector2i = m["combatant"].pos
+		if maxi(absi(p.x - t.x), absi(p.y - t.y)) <= r:
+			return true
+	return false
+
+# ── save / restore ────────────────────────────────────────────────────────────
 func _gather_save() -> Dictionary:
 	var mob_data: Array = []
 	for m in mobs:
@@ -369,7 +569,7 @@ func _gather_save() -> Dictionary:
 			"type": m["type"],
 			"pos": [c.pos.x, c.pos.y],
 			"facing": c.facing,
-			"hp": c.hp, "mp": c.mp, "energy": c.energy,
+			"hp": c.hp,                    # mobs are HP-only: no mp/energy to persist
 			"statuses": c.statuses,
 		})
 	return {

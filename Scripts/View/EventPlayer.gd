@@ -84,16 +84,16 @@ func _visualize(e: Dictionary) -> float:
 			return ViewConfig.FLASH_DUR
 		"attack_hit":
 			if u:
-				u.play_anim("attack", Vector2(Config.FACING_VEC[u.facing]))
+				u.play_anim("attack", Vector2(e.get("dir", Config.FACING_VEC[u.facing])))
 			_impact(units.get(e["target"], null), int(e["damage"]), ViewConfig.FLASH_HIT, ViewConfig.SHAKE_HIT)
 			return ViewConfig.HIT_DUR
 		"attack_whiff":
 			if u:
-				u.play_anim("attack", Vector2(Config.FACING_VEC[u.facing]))
+				u.play_anim("attack", Vector2(e.get("dir", Config.FACING_VEC[u.facing])))
 			return ViewConfig.FLASH_DUR
 		"attack_blocked":
 			if u:
-				u.play_anim("attack", Vector2(Config.FACING_VEC[u.facing]))
+				u.play_anim("attack", Vector2(e.get("dir", Config.FACING_VEC[u.facing])))
 			board.shake(ViewConfig.SHAKE_HIT * 0.5)
 			return ViewConfig.HIT_DUR
 		"guard_raised":

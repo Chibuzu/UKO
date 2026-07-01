@@ -391,11 +391,12 @@ static func _attack(attacker: Combatant, target: Combatant, s: Dictionary,
 		tick: int, guarding: Dictionary, guard_blocked: Dictionary,
 		damaged_tick: Dictionary, dead_tick: Dictionary, events: Array) -> void:
 	# Must be adjacent to the struck tile at strike time (you may have moved).
+	var dir: Vector2i = s["tile"] - attacker.pos      # direction of the swing, for the anim
 	if Grid.dist(attacker.pos, s["tile"]) != 1:
-		events.append(_ev("attack_whiff", tick, attacker.id, {"tile": s["tile"]}))
+		events.append(_ev("attack_whiff", tick, attacker.id, {"tile": s["tile"], "dir": dir}))
 		return
 	if target.pos != s["tile"]:
-		events.append(_ev("attack_whiff", tick, attacker.id, {"tile": s["tile"]}))
+		events.append(_ev("attack_whiff", tick, attacker.id, {"tile": s["tile"], "dir": dir}))
 		return
 	var rel := _flank(target, attacker.pos)
 	var dmg := int(round(Config.ATTACK_DAMAGE * float(Config.FLANK_MULT[rel])))
@@ -405,11 +406,11 @@ static func _attack(attacker: Combatant, target: Combatant, s: Dictionary,
 		guard_blocked[target.id] = int(Config.GUARD_REFUND_TIER[rel])
 		var blocked: float = float(Config.GUARD_BLOCK[rel])
 		if blocked >= 1.0:
-			events.append(_ev("attack_blocked", tick, attacker.id, {"target": target.id}))
+			events.append(_ev("attack_blocked", tick, attacker.id, {"target": target.id, "dir": dir}))
 			return
 		dmg = int(round(dmg * (1.0 - blocked)))   # side graze / back bypass leaks through
 	_apply_damage(target, dmg, tick, damaged_tick, dead_tick)
-	events.append(_ev("attack_hit", tick, attacker.id, {"target": target.id, "damage": dmg, "flank": rel}))
+	events.append(_ev("attack_hit", tick, attacker.id, {"target": target.id, "damage": dmg, "flank": rel, "dir": dir}))
 
 # ── Spells (data-driven) ────────────────────────────────────────────────
 static func _cast_spell(grid: Grid, caster: Combatant, target: Combatant, s: Dictionary,
@@ -510,12 +511,16 @@ static func _resort_tail(sched: Array, i: int) -> void:
 static func _launch_blink(grid: Grid, s: Dictionary, caster: Combatant, target: Combatant,
 		sched: Array, i: int, tick: int, events: Array) -> void:
 	var d := Config.def(s["id"])
+	var rng := int(d.get("range", 1))
 	var bdir := _dir_from(caster.pos, s.get("tile", caster.pos))
-	var land := Config.blink_landing(grid, caster.pos, bdir, int(d.get("range", 1)), target.pos)
-	if land.is_empty():
+	# Only fizzle if the blink line is a genuine dead end (edge / wall with no landable tile).
+	# Do NOT fizzle just because the foe is on the target tile: the FINAL landing is chosen at
+	# ARRIVAL by _blink_settle, so a foe that retreats off the tile (or that we simply land
+	# beside) is handled then -- and if the exact tile is still taken we settle one closer.
+	if bdir == Vector2i.ZERO or not _blink_has_landing(grid, caster.pos, bdir, rng):
 		events.append(_ev("blink_fizzle", tick, caster.id, {}))
 		return
-	var dest: Vector2i = land["tile"]
+	var dest: Vector2i = caster.pos + bdir * rng   # intended full-range tile; settled on arrival
 	var origin := caster.pos
 	var face := int(s.get("facing", caster.facing))
 	events.append(_ev("blink_depart", tick, caster.id, {"from": origin, "to": dest}))
@@ -526,6 +531,15 @@ static func _launch_blink(grid: Grid, s: Dictionary, caster: Combatant, target: 
 		"dest": dest, "origin": origin, "facing": face,
 	})
 	_resort_tail(sched, i)
+
+# Does the blink line have at least one tile you could stand on (in-bounds, not a wall)?
+# Foe occupancy is intentionally ignored here -- that is resolved at arrival.
+static func _blink_has_landing(grid: Grid, from: Vector2i, dir: Vector2i, rng: int) -> bool:
+	for dd in range(1, rng + 1):
+		var t: Vector2i = from + dir * dd
+		if grid.in_bounds(t) and not grid.is_blocked(t):
+			return true
+	return false
 
 # Land on `dest`; if the target reached it first during the blink's travel time,
 # settle on the nearest free tile back toward the origin (one tile closer) so the

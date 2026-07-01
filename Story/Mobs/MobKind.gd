@@ -15,9 +15,9 @@ extends RefCounted
 var type: String = ""
 var prof: Dictionary = {}
 
-func setup(p_type: String) -> void:
+func setup(p_type: String, p_prof: Dictionary) -> void:
 	type = p_type
-	prof = MobBrain.PROFILES.get(p_type, {})
+	prof = p_prof
 
 # ── hooks (override per creature) ─────────────────────────────────────────────
 
@@ -95,9 +95,7 @@ static func _walk(mob: Combatant, target: Vector2i, grid: Grid, kite: bool, keep
 		c.energy -= cost
 		c.facing = _face(step - c.pos)
 		c.pos = step
-	if seq.is_empty():
-		seq.append({ "id": "wait" })     # hold position and strike from here
-	return seq
+	return seq     # empty == hold position (mobs never Wait); an in-range strike still applies
 
 static func _step(pos: Vector2i, target: Vector2i, grid: Grid, kite: bool, keep: int) -> Vector2i:
 	var d := Grid.dist(pos, target)
@@ -106,7 +104,7 @@ static func _step(pos: Vector2i, target: Vector2i, grid: Grid, kite: bool, keep:
 	var want_far := kite and d < keep
 	var best := pos
 	var best_d := d
-	for n in [pos + Vector2i(0, -1), pos + Vector2i(1, 0), pos + Vector2i(0, 1), pos + Vector2i(-1, 0)]:
+	for n: Vector2i in [pos + Vector2i(0, -1), pos + Vector2i(1, 0), pos + Vector2i(0, 1), pos + Vector2i(-1, 0)]:
 		if grid.is_blocked(n) or n == target:
 			continue
 		var nd := Grid.dist(n, target)

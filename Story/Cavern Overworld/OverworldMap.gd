@@ -6,8 +6,11 @@ class_name OverworldMap
 extends RefCounted
 
 const SIZE := 60
+const REST_COUNT := 4            # golden sanctuary tiles: rare, scattered out in the wilds
 
 var blocked: Array = []          # blocked[y][x] == true -> wall
+var rest_tiles: Array = []       # Vector2i sanctuary tiles (for drawing + save-independent regen)
+var rest_set: Dictionary = {}    # Vector2i -> true, for O(1) "is this a rest tile?" lookups
 
 func generate(seed_value: int) -> void:
 	blocked = []
@@ -35,6 +38,32 @@ func generate(seed_value: int) -> void:
 			var by := clampi(cy + rng.randi_range(-1, 1), 1, SIZE - 2)
 			if not village.has_point(Vector2i(bx, by)):
 				blocked[by][bx] = true
+
+	# Golden sanctuary tiles: a rare scattered few, all OUT in the wilds (never in the
+	# mob-free village), so mobs can always approach them -- they're a risk/reward rest, not a
+	# safe haven. Placed after walls (only open ground); seeded off the map seed so a zone
+	# regenerates the same shrines.
+	rest_tiles = []
+	rest_set = {}
+	var rr := RandomNumberGenerator.new()
+	rr.seed = seed_value ^ 0x51ED2701
+	var tries := 0
+	while rest_tiles.size() < REST_COUNT and tries < REST_COUNT * 200:
+		tries += 1
+		_try_add_rest(Vector2i(rr.randi_range(2, SIZE - 3), rr.randi_range(2, SIZE - 3)))
+
+func _in_village_rect(t: Vector2i) -> bool:
+	var c := SIZE / 2
+	return absi(t.x - c) <= 6 and absi(t.y - c) <= 6
+
+func _try_add_rest(t: Vector2i) -> void:
+	if is_solid(t) or _in_village_rect(t) or rest_set.has(t):
+		return
+	rest_set[t] = true
+	rest_tiles.append(t)
+
+func is_rest(t: Vector2i) -> bool:
+	return rest_set.has(t)
 
 func is_solid(t: Vector2i) -> bool:
 	if t.x < 0 or t.y < 0 or t.x >= SIZE or t.y >= SIZE:
