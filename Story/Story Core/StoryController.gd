@@ -18,14 +18,10 @@ const EDGE := 3                   # deadzone: the window only scrolls when you g
 const MENU_SCENE := "res://MainMenu.tscn"
 const DEATH_GOLD_PENALTY := 25
 
-# Mob look/stats/behavior live in MobBrain.PROFILES (single source). Here we only place them.
-const DEFAULT_MOBS := [
-	{"type": "bat",     "tile": Vector2i(14, 14)},
-	{"type": "bat",     "tile": Vector2i(20, 44)},
-	{"type": "slime",   "tile": Vector2i(46, 18)},
-	{"type": "slime",   "tile": Vector2i(40, 41)},
-	{"type": "serpent", "tile": Vector2i(48, 48)},
-]
+# Procedural spawning. Mob look/stats/behavior live in MobBrain.PROFILES (single source);
+# here we only decide HOW MANY and WHICH TYPES, then scatter them on open ground.
+const MOB_COUNT := 28
+const TYPE_WEIGHTS := [["bat", 50], ["slime", 38], ["serpent", 12]]
 
 enum Phase { ROAM, COMBAT }
 
@@ -45,11 +41,16 @@ var _opp_model: OpponentModel
 var turn_num: int = 0
 var _phase: int = Phase.ROAM
 var _roam_cd: float = 0.0
+var _seed: int = 0                    # world seed; regenerating from it restores the exact map
 var _win: Vector2i = Vector2i.ZERO    # current top-left world tile of the visible window
 
 func _ready() -> void:
+	var save: Dictionary = StorySave.read() if StorySave.has_save() else {}
+	var resuming := not save.is_empty()
+	_seed = int(save.get("seed", randi())) if resuming else randi()
+
 	omap = OverworldMap.new()
-	omap.generate(randi())
+	omap.generate(_seed)                           # same seed -> same map, so a save restores exactly
 	grid = WorldGrid.new()
 	grid.build(omap)
 
@@ -59,15 +60,25 @@ func _ready() -> void:
 	add_child(board)
 	board.setup_world(grid)
 
-	var start := omap.nearest_open(Vector2i(OverworldMap.SIZE / 2, OverworldMap.SIZE / 2))
+	var start: Vector2i
+	if resuming:
+		start = _v2i(save["player"]["pos"])
+	else:
+		start = omap.nearest_open(Vector2i(OverworldMap.SIZE / 2, OverworldMap.SIZE / 2))
 	player = Combatant.new("A", start, Config.Facing.SOUTH)
 	player.equip(PlayerProfile.loadout())          # you carry your real equipped gear
+	if resuming:
+		_restore_player(save["player"])
 	player_uv = UnitView.new()
 	board.add_child(player_uv)
 	player_uv.init_state(player)
 	player_uv.z_index = 1
 
-	_spawn_mobs()
+	if resuming:
+		_spawn_from_save(save.get("mobs", []))
+		turn_num = int(save.get("turn", 0))
+	else:
+		_spawn_mobs_procedural()
 
 	fx = Fx.new()
 	board.add_child(fx)
@@ -92,34 +103,71 @@ func _ready() -> void:
 	_init_window()                                 # center the window on the player to start
 	menu.set_state(player, player, false, player.spell_ids(), [], false)
 
-func _spawn_mobs() -> void:
-	for d in DEFAULT_MOBS:
-		var tile: Vector2i = omap.nearest_open(d["tile"])
-		var prof: Dictionary = MobBrain.PROFILES[d["type"]]
-		var c := Combatant.new("B", tile, Config.Facing.SOUTH)
-		c.equip([])                                  # NO gear -> no spells, ever
-		c.hp = int(prof.get("hp", 100))
-		var uv := UnitView.new()
-		board.add_child(uv)
-		uv.init_state(c)
-		uv.unit_id = String(prof.get("name", "?"))
-		uv.base_color = prof.get("tint", Color.WHITE)
-		uv.modulate = prof.get("tint", Color.WHITE)
-		var sc: float = float(prof.get("scale", 1.0))
-		uv.scale = Vector2(sc, sc)
-		# Melee mobs use the real difficulty AI (spell-less); the ranged Bat kites via MobBrain.
-		var ai: AIOpponent = null
-		if String(prof.get("kind", "melee")) == "melee":
-			ai = AIOpponent.new(int(prof.get("difficulty", AI.Difficulty.CHALLENGING)), get_tree())
-		mobs.append({"combatant": c, "uv": uv, "ai": ai, "type": d["type"]})
+# Build one mob of `type` at `tile` and register it. Shared by procedural spawn and
+# save-restore, so both paths stay in lockstep.
+func _add_mob(type: String, tile: Vector2i) -> Dictionary:
+	var prof: Dictionary = MobBrain.PROFILES[type]
+	var c := Combatant.new("B", tile, Config.Facing.SOUTH)
+	c.equip([])                                    # NO gear -> no spells, ever
+	c.hp = int(prof.get("hp", 100))
+	var uv := UnitView.new()
+	board.add_child(uv)
+	uv.init_state(c)
+	uv.unit_id = String(prof.get("name", "?"))
+	uv.base_color = prof.get("tint", Color.WHITE)
+	uv.modulate = prof.get("tint", Color.WHITE)
+	var sc: float = float(prof.get("scale", 1.0))
+	uv.scale = Vector2(sc, sc)
+	# Melee mobs use the real difficulty AI (spell-less); the ranged Bat kites via MobBrain.
+	var ai: AIOpponent = null
+	if String(prof.get("kind", "melee")) == "melee":
+		ai = AIOpponent.new(int(prof.get("difficulty", AI.Difficulty.CHALLENGING)), get_tree())
+	var entry := {"combatant": c, "uv": uv, "ai": ai, "type": type}
+	mobs.append(entry)
+	return entry
+
+# New game: scatter mobs on open tiles outside the spawn village, types by weight.
+func _spawn_mobs_procedural() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = _seed ^ 0x9E3779B9                  # decorrelate placement from map-gen
+	var taken: Dictionary = {}
+	var placed := 0
+	var guard := 0
+	while placed < MOB_COUNT and guard < MOB_COUNT * 40:
+		guard += 1
+		var t := Vector2i(rng.randi_range(1, OverworldMap.SIZE - 2), rng.randi_range(1, OverworldMap.SIZE - 2))
+		if omap.is_solid(t) or _in_village(t) or taken.has(t):
+			continue
+		taken[t] = true
+		_add_mob(_roll_type(rng), t)
+		placed += 1
+
+# Resume: rebuild each saved mob at its exact type/tile/state.
+func _spawn_from_save(mob_data: Array) -> void:
+	for md in mob_data:
+		var e := _add_mob(String(md["type"]), _v2i(md["pos"]))
+		var c: Combatant = e["combatant"]
+		c.facing = int(md.get("facing", Config.Facing.SOUTH))
+		c.hp = int(md.get("hp", c.hp))
+		c.mp = int(md.get("mp", c.mp))
+		c.energy = int(md.get("energy", c.energy))
+		c.statuses = _int_dict(md.get("statuses", {}))
+		e["uv"].init_state(c)
+		e["uv"].set_facing(c.facing)
 
 # ── roam (real-time WASD) until a monster is in view, then the loop flips to COMBAT ─
 func _process(delta: float) -> void:
 	if _phase == Phase.ROAM:
 		_roam(delta)
 
+# Manual save (F5) while roaming, with a floating confirmation.
+func _input(event: InputEvent) -> void:
+	if _phase == Phase.ROAM and event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F5:
+		_save_game()
+
 func _roam(delta: float) -> void:
 	if Input.is_action_just_pressed("ui_cancel"):
+		_save_game()                   # leaving saves your run so STORY resumes here
 		get_tree().change_scene_to_file(MENU_SCENE)
 		return
 	if _roam_cd > 0.0:
@@ -216,6 +264,15 @@ func _combat_turn(engaged: Array) -> void:
 
 func _die() -> void:
 	PlayerProfile.spend_gold(mini(DEATH_GOLD_PENALTY, PlayerProfile.gold()))
+	# Death is a setback, not a wipe: respawn at the village at full resources; the world
+	# and any mobs you cleared persist. The resume point becomes that safe restart.
+	player.pos = omap.nearest_open(Vector2i(OverworldMap.SIZE / 2, OverworldMap.SIZE / 2))
+	player.facing = Config.Facing.SOUTH
+	player.hp = Config.MAX_HP
+	player.mp = Config.MAX_MP
+	player.energy = Config.MAX_ENERGY
+	player.statuses = {}
+	StorySave.write(_gather_save())
 	get_tree().change_scene_to_file(MENU_SCENE)
 
 # ── windowing (edge-scroll follow, not constant re-centering) ─────────────────
@@ -297,3 +354,66 @@ func _facing_for(dir: Vector2i) -> int:
 		if Config.FACING_VEC[fc] == dir:
 			return fc
 	return Config.Facing.SOUTH
+
+# ── save / restore ────────────────────────────────────────────────────────────
+func _save_game() -> void:
+	StorySave.write(_gather_save())
+	if is_instance_valid(player_uv):
+		board.spawn_number(player_uv.position, "Saved", ViewConfig.COL_A)
+
+func _gather_save() -> Dictionary:
+	var mob_data: Array = []
+	for m in mobs:
+		var c: Combatant = m["combatant"]
+		mob_data.append({
+			"type": m["type"],
+			"pos": [c.pos.x, c.pos.y],
+			"facing": c.facing,
+			"hp": c.hp, "mp": c.mp, "energy": c.energy,
+			"statuses": c.statuses,
+		})
+	return {
+		"version": 1,
+		"seed": _seed,
+		"turn": turn_num,
+		"player": {
+			"pos": [player.pos.x, player.pos.y],
+			"facing": player.facing,
+			"hp": player.hp, "mp": player.mp, "energy": player.energy,
+			"statuses": player.statuses,
+		},
+		"mobs": mob_data,
+	}
+
+func _restore_player(pd: Dictionary) -> void:
+	player.facing = int(pd.get("facing", Config.Facing.SOUTH))
+	player.hp = int(pd.get("hp", player.hp))
+	player.mp = int(pd.get("mp", player.mp))
+	player.energy = int(pd.get("energy", player.energy))
+	player.statuses = _int_dict(pd.get("statuses", {}))
+
+# ── procedural helpers ─────────────────────────────────────────────────────────
+func _in_village(t: Vector2i) -> bool:
+	var c := OverworldMap.SIZE / 2
+	return absi(t.x - c) <= VIEW_RADIUS and absi(t.y - c) <= VIEW_RADIUS
+
+func _roll_type(rng: RandomNumberGenerator) -> String:
+	var total := 0
+	for w in TYPE_WEIGHTS:
+		total += int(w[1])
+	var r := rng.randi_range(1, total)
+	for w in TYPE_WEIGHTS:
+		r -= int(w[1])
+		if r <= 0:
+			return String(w[0])
+	return "bat"
+
+# JSON numbers come back as floats -> coerce.
+func _v2i(arr: Array) -> Vector2i:
+	return Vector2i(int(arr[0]), int(arr[1]))
+
+func _int_dict(d: Dictionary) -> Dictionary:
+	var out: Dictionary = {}
+	for k in d:
+		out[k] = int(d[k])
+	return out

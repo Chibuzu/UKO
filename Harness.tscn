@@ -1,6 +1,0 @@
-[gd_scene format=3 uid="uid://bosklkkmo1l7r"]
-
-[ext_resource type="Script" uid="uid://j36silrdl8vn" path="res://Scripts/Test/ResolverHarness.gd" id="1_jm7uk"]
-
-[node name="Node" type="Node" unique_id=881022124]
-script = ExtResource("1_jm7uk")

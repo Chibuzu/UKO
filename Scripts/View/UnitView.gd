@@ -49,6 +49,8 @@ var face_angle: float = 0.0           # visual facing, tweened on pivot (radians
 var display_hp: int = Config.MAX_HP
 var shown_hp: float = Config.MAX_HP
 var base_color: Color = Color.WHITE
+var disc_only: bool = false            # mobs: skip the fighter sprite, render as a plain colored ball
+var disc_color: Color = Color.WHITE    # the ball's color when disc_only
 var body: AnimatedSprite2D = null     # null = no art found, draw the disc instead
 var overlay: AnimatedSprite2D = null  # one-shot effects drawn ON TOP (e.g. pivot)
 var _held: String = ""                # an animation frozen on its last frame until released (the raised guard)
@@ -60,8 +62,8 @@ const SHOW_GEAR_OVERLAYS := false
 
 func init_state(c: Combatant) -> void:
 	unit_id = c.id
-	base_color = ViewConfig.COL_A if c.id == "A" else ViewConfig.COL_B
-	if body == null and ResourceLoader.exists(SPRITE_DIR + "idle_1.png"):
+	base_color = disc_color if disc_only else (ViewConfig.COL_A if c.id == "A" else ViewConfig.COL_B)
+	if not disc_only and body == null and ResourceLoader.exists(SPRITE_DIR + "idle_1.png"):
 		body = AnimatedSprite2D.new()
 		body.sprite_frames = _build_frames()
 		body.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST   # crisp pixels
