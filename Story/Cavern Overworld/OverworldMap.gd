@@ -7,10 +7,13 @@ extends RefCounted
 
 const SIZE := 60
 const REST_COUNT := 4            # golden sanctuary tiles: rare, scattered out in the wilds
+const GEM_COUNT := 16            # purple gemstone nodes: gatherable, scattered out in the wilds
 
 var blocked: Array = []          # blocked[y][x] == true -> wall
 var rest_tiles: Array = []       # Vector2i sanctuary tiles (for drawing + save-independent regen)
 var rest_set: Dictionary = {}    # Vector2i -> true, for O(1) "is this a rest tile?" lookups
+var gem_tiles: Array = []        # Vector2i gemstone nodes (walkable overlay tiles, gatherable)
+var gem_set: Dictionary = {}     # Vector2i -> true, for O(1) "is this a gemstone?" lookups
 
 func generate(seed_value: int) -> void:
 	blocked = []
@@ -51,6 +54,46 @@ func generate(seed_value: int) -> void:
 	while rest_tiles.size() < REST_COUNT and tries < REST_COUNT * 200:
 		tries += 1
 		_try_add_rest(Vector2i(rr.randi_range(2, SIZE - 3), rr.randi_range(2, SIZE - 3)))
+
+	# Gemstone nodes: purple gatherable tiles scattered through the wilds (never in the
+	# village, so gathering is a step out into the world). Walkable overlay tiles like the
+	# shrines -- not solid walls -- so they don't affect movement or mob pathing. Seeded off
+	# the map seed so a zone regenerates the same deposits (the controller then subtracts any
+	# already gathered from a save).
+	gem_tiles = []
+	gem_set = {}
+	var gr := RandomNumberGenerator.new()
+	gr.seed = seed_value ^ 0x2545F491
+	var gtries := 0
+	while gem_tiles.size() < GEM_COUNT and gtries < GEM_COUNT * 200:
+		gtries += 1
+		_try_add_gem(Vector2i(gr.randi_range(2, SIZE - 3), gr.randi_range(2, SIZE - 3)))
+
+func _try_add_gem(t: Vector2i) -> void:
+	if is_solid(t) or _in_village_rect(t) or gem_set.has(t) or rest_set.has(t):
+		return
+	gem_set[t] = true
+	gem_tiles.append(t)
+
+func is_gem(t: Vector2i) -> bool:
+	return gem_set.has(t)
+
+# Gathered -> the node is gone. Mutates the shared set/array IN PLACE so the WorldBoard's
+# reference (assigned once) still points at the live data and redraws without it.
+func remove_gem(t: Vector2i) -> void:
+	if not gem_set.has(t):
+		return
+	gem_set.erase(t)
+	gem_tiles.erase(t)
+
+# Restore the exact set of remaining nodes from a save (in place, so shared refs survive).
+func set_gems(tiles: Array) -> void:
+	gem_set.clear()
+	gem_tiles.clear()
+	for e in tiles:
+		var t := Vector2i(int(e[0]), int(e[1]))
+		gem_set[t] = true
+		gem_tiles.append(t)
 
 func _in_village_rect(t: Vector2i) -> bool:
 	var c := SIZE / 2

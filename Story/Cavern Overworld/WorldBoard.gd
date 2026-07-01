@@ -13,6 +13,7 @@ extends BoardView
 const VIEW_TILES := 12
 var window_origin: Vector2i = Vector2i.ZERO
 var rest_set: Dictionary = {}     # Vector2i sanctuary tiles -> true (set by the controller)
+var gem_set: Dictionary = {}      # Vector2i gemstone nodes -> true (set by the controller)
 
 func setup_world(g: Grid) -> void:
 	grid = g
@@ -60,6 +61,9 @@ func _draw() -> void:
 				if rest_set.has(Vector2i(wx, wy)):        # golden sanctuary tile
 					draw_rect(rect, ViewConfig.COL_REST_FILL)
 					draw_rect(rect, ViewConfig.COL_GOLD, false, 2.0)
+				if gem_set.has(Vector2i(wx, wy)):         # purple gemstone node
+					draw_rect(rect, ViewConfig.COL_GEM_FILL)
+					draw_rect(rect, ViewConfig.COL_GEM, false, 2.0)
 			draw_rect(rect, ViewConfig.COL_GRID_LINE, false, 1.0)
 	for pos in highlights:
 		draw_rect(Rect2(pos.x * T, pos.y * T, T, T), highlight_color)

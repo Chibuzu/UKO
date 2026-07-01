@@ -361,9 +361,14 @@ func _blink_targets() -> Array:
 		return out
 	var rng := int(Config.def(pending).get("range", 2))
 	for dv in Grid.DIRS:
+		# A direction is castable if its line has any landable tile. Aim at the FULL-RANGE
+		# tile so you can target an enemy or blocker sitting there -- the resolver settles the
+		# real landing at arrival (the full jump if the tile clears, one tile if it stays).
 		var bl := Config.blink_landing(grid, plan_c.pos, dv, rng, b.pos)
-		if not bl.is_empty():
-			out.append(bl["tile"])
+		if bl.is_empty():
+			continue
+		var aim: Vector2i = plan_c.pos + dv * rng
+		out.append(aim if grid.in_bounds(aim) else bl["tile"])
 	return out
 
 # In-bounds orthogonal neighbours of the landing -- click one to face that way.

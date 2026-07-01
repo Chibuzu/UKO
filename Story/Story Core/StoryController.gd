@@ -20,13 +20,13 @@ const DEATH_GOLD_PENALTY := 25
 
 # Procedural spawning. Mob look/stats/behavior live in MobBrain.PROFILES (single source);
 # here we only decide HOW MANY and WHICH TYPES, then scatter them on open ground.
-const MOB_COUNT := 28
+const MOB_COUNT := 60
 const TYPE_WEIGHTS := [["bat", 50], ["slime", 38], ["serpent", 12]]
 
 # Mobs wander the world while you roam. They step on this cadence (slower than you, so
 # you can outrun them), beeline toward you within MOB_AGGRO tiles, else drift randomly.
 const MOB_ROAM_CD := 0.55
-const MOB_AGGRO := 7
+const MOB_AGGRO := 9
 
 # Passive recovery: every REGEN_EVERY actions YOU take (roam steps + combat actions), only
 # ENERGY comes back -- moving never heals. HP/MP are recovered by resting or a sanctuary tile.
@@ -54,6 +54,10 @@ var _roam_cd: float = 0.0
 var _seed: int = 0                    # world seed; regenerating from it restores the exact map
 var _win: Vector2i = Vector2i.ZERO    # current top-left world tile of the visible window
 var pause_menu: StoryPauseMenu        # ESC overlay (gear / inventory / exit)
+var quest_dialog: QuestDialog         # NPC quest overlay (accept / turn in)
+var npcs: Array = []                  # [{id, uv, tile}] -- village quest-givers (visual discs)
+var _quests: Array = []               # live QuestKind objects for currently-active quests
+var _talk_npc: String = ""            # id of the NPC whose dialog is open (for re-refresh)
 var _paused: bool = false
 var _mob_cd: float = 0.0              # countdown to the next world-wander step for all mobs
 var _actions: int = 0                 # your actions since the last passive-regen tick
@@ -74,6 +78,9 @@ func _ready() -> void:
 	add_child(board)
 	board.setup_world(grid)
 	board.rest_set = omap.rest_set                 # golden sanctuary tiles drawn on the board
+	if resuming and save.has("gems"):
+		omap.set_gems(save["gems"])                # gathered gemstone nodes stay gone across a save
+	board.gem_set = omap.gem_set                   # purple gemstone nodes drawn on the board
 
 	var start: Vector2i
 	if resuming:
@@ -127,6 +134,20 @@ func _ready() -> void:
 	pause_menu.resume.connect(_close_pause)
 	pause_menu.save.connect(_pause_save)
 	pause_menu.exit_to_menu.connect(_exit_to_menu)
+
+	_spawn_npcs()                                  # village quest-givers (colored discs)
+	_load_quests()                                 # rebuild live quest objects from PlayerQuests
+
+	# Quest dialog on its own CanvasLayer, above the board, like the pause overlay.
+	var dlg_layer := CanvasLayer.new()
+	dlg_layer.layer = 21
+	add_child(dlg_layer)
+	quest_dialog = QuestDialog.new()
+	dlg_layer.add_child(quest_dialog)
+	quest_dialog.visible = false
+	quest_dialog.quest_action.connect(_on_quest_action)
+	quest_dialog.closed.connect(_close_dialog)
+
 	_refresh_rest_prompt()                         # you may start on the village sanctuary tile
 
 # Build one mob of `type` at `tile` and register it. Shared by procedural spawn and
@@ -211,18 +232,29 @@ func _close_pause() -> void:
 	pause_menu.close()
 
 # Menu clicks route through here. In combat they drive the turn's selection; while roaming,
-# the only pressable button is the golden-tile REST (ActionMenu.rest_prompt) -> full regen.
+# only the contextual buttons are live: REST (golden tile), GATHER (gemstone), TALK (NPC).
 func _on_menu_action(id: String) -> void:
 	if _phase == Phase.ROAM:
-		if id == "rest":
-			_try_rest_tile()
+		match id:
+			"rest":   _try_rest_tile()
+			"gather": _gather_nearby()
+			"talk":   _talk_nearby()
 		return
 	selection._on_action_chosen(id)
 
-# Light up the REST button only while standing on a sanctuary tile with no mob nearby.
+# Light up the roam contextual buttons for whatever you're standing next to: REST on a safe
+# sanctuary tile, GATHER by a gemstone, TALK by an NPC.
 func _refresh_rest_prompt() -> void:
-	var ok := _phase == Phase.ROAM and omap.is_rest(player.pos) and not _mob_near(player.pos, REST_SAFE)
+	var roam := _phase == Phase.ROAM and not _paused
+	var ok := roam and omap.is_rest(player.pos) and not _mob_near(player.pos, REST_SAFE)
 	menu.set_rest_prompt(ok)
+	var extras: Array = []
+	if roam:
+		if _nearest_gem(1) != Vector2i(-1, -1):
+			extras.append({"id": "gather", "label": "GATHER"})
+		if _npc_near(1) != "":
+			extras.append({"id": "talk", "label": "TALK"})
+	menu.set_roam_extras(extras)
 
 func _pause_save() -> void:
 	StorySave.write(_gather_save())    # SAVE button: write, then let the overlay confirm
@@ -248,6 +280,8 @@ func _roam(delta: float) -> void:
 	player_uv.tween_to(target)
 	_bump_actions(1)                   # a step is an action -> feeds the every-6 regen
 	_follow_window()                   # scroll only near the window edge -> you visibly walk
+	if omap.is_rest(player.pos):
+		_quest_event("rest_found", player.pos)   # discovering a shrine can advance a find quest
 	_refresh_rest_prompt()             # light up REST if you just stepped onto a sanctuary tile
 	_roam_cd = ViewConfig.MOVE_DUR
 	if not _engaged().is_empty():
@@ -333,6 +367,7 @@ func _combat_turn(engaged: Array) -> void:
 		engaged[i]["combatant"] = res["mobs"][i]
 	for e in engaged:
 		e["kind"].on_committed(e, player, self)
+		_face_toward(e["combatant"], e["uv"], player.pos)   # end of turn: mobs turn to face you
 	_bump_actions(player_seq.size())   # your actions this turn feed the every-6 regen
 	_clear_dead()
 	combat_log.add_turn(turn_num, res["primary_events"])
@@ -401,6 +436,7 @@ func _clear_dead() -> void:
 	for m in mobs:
 		if m["combatant"].is_dead():
 			_grant_loot(m)
+			_quest_event("kill", String(m["type"]))   # advance any active kill quests
 			m["uv"].queue_free()
 		else:
 			keep.append(m)
@@ -415,6 +451,132 @@ func _grant_loot(m: Dictionary) -> void:
 		PlayerInventory.add(item, int(d["count"]))
 		board.spawn_number(pos + Vector2(0.0, yoff), "+" + ItemBook.item_name(item), ItemBook.item_color(item))
 		yoff -= 14.0
+
+# ── NPCs / quests / gemstones ──────────────────────────────────────────────────
+# Spawn a colored disc per village NPC (visual only -- they don't fight or move).
+func _spawn_npcs() -> void:
+	for id in NPCBook.ids():
+		var nd := NPCBook.npc_def(id)
+		var tile := NPCBook.tile_of(id)
+		var marker := Combatant.new("N", tile, Config.Facing.SOUTH)   # only for positioning
+		var uv := UnitView.new()
+		board.add_child(uv)
+		uv.disc_only = true
+		uv.disc_color = nd.get("color", Color.WHITE)
+		uv.prop = true                             # no facing/HP bars -- villagers, not fighters
+		uv.init_state(marker)
+		uv.unit_id = String(nd.get("name", "?"))
+		npcs.append({"id": id, "uv": uv, "tile": tile})
+
+# Rebuild live QuestKind objects for every quest that's currently accepted (progress loaded).
+func _load_quests() -> void:
+	_quests = []
+	for qid in PlayerQuests.active_ids():
+		var q := QuestBook.make_quest(qid)
+		q.load_state(PlayerQuests.state_of(qid))
+		_quests.append(q)
+
+func _live_quest(qid: String) -> QuestKind:
+	for q in _quests:
+		if q.id == qid:
+			return q
+	return null
+
+# Feed a world event to every active quest, then persist any that advanced.
+func _quest_event(kind: String, arg) -> void:
+	for q in _quests:
+		match kind:
+			"kill":       q.on_kill(String(arg))
+			"gather":     q.on_gather(String(arg))
+			"rest_found": q.on_rest_found(arg)
+		PlayerQuests.set_state(q.id, q.save_state())
+
+# The closest gemstone within Chebyshev `r` of the player, or (-1,-1) if none.
+func _nearest_gem(r: int) -> Vector2i:
+	var best := Vector2i(-1, -1)
+	var best_d := r + 1
+	for t in omap.gem_tiles:
+		var d: int = maxi(absi(t.x - player.pos.x), absi(t.y - player.pos.y))
+		if d <= r and d < best_d:
+			best = t
+			best_d = d
+	return best
+
+# The closest NPC id within Chebyshev `r` of the player, or "" if none.
+func _npc_near(r: int) -> String:
+	var best := ""
+	var best_d := r + 1
+	for n in npcs:
+		var t: Vector2i = n["tile"]
+		var d: int = maxi(absi(t.x - player.pos.x), absi(t.y - player.pos.y))
+		if d <= r and d < best_d:
+			best = String(n["id"])
+			best_d = d
+	return best
+
+# GATHER button: mine the nearest gemstone -> a material in the bag + a gather quest tick.
+func _gather_nearby() -> void:
+	var g := _nearest_gem(1)
+	if g == Vector2i(-1, -1):
+		return
+	omap.remove_gem(g)
+	board.queue_redraw()
+	PlayerInventory.add("gemstone", 1)
+	board.spawn_number(player_uv.position, "+" + ItemBook.item_name("gemstone"), ItemBook.item_color("gemstone"))
+	_quest_event("gather", "gemstone")
+	_refresh_rest_prompt()             # the node is gone -> the GATHER button may drop
+
+# TALK button: open the nearest NPC's quest dialog (pauses roam while it's up).
+func _talk_nearby() -> void:
+	var npc := _npc_near(1)
+	if npc == "":
+		return
+	_talk_npc = npc
+	_paused = true
+	quest_dialog.open_for(_npc_dialog_data(npc))
+
+# Snapshot of an NPC's quest for the dialog: which button to show + current progress text.
+func _npc_dialog_data(npc_id: String) -> Dictionary:
+	var nd := NPCBook.npc_def(npc_id)
+	var qid := NPCBook.quest_of(npc_id)
+	var qdef := QuestBook.quest_def(qid)
+	var mode := "accept"
+	var prog := ""
+	if PlayerQuests.is_done(qid):
+		mode = "done"
+	elif PlayerQuests.is_active(qid):
+		var q := _live_quest(qid)
+		if q != null:
+			prog = q.progress_text()
+			mode = "turn_in" if q.can_turn_in() else "progress"
+	return {
+		"npc": nd.get("name", ""), "color": nd.get("color", Color.WHITE),
+		"qid": qid, "title": qdef.get("title", ""), "desc": qdef.get("desc", ""),
+		"progress": prog, "mode": mode,
+	}
+
+# Dialog ACCEPT / TURN IN. After acting, re-open the dialog on its new state.
+func _on_quest_action(qid: String, action: String) -> void:
+	if action == "accept":
+		PlayerQuests.accept(qid)
+		var nq := QuestBook.make_quest(qid)
+		nq.load_state(PlayerQuests.state_of(qid))
+		_quests.append(nq)
+	elif action == "turn_in":
+		var q := _live_quest(qid)
+		if q != null and q.can_turn_in():
+			q.grant_reward()
+			PlayerQuests.complete(qid)
+			_quests.erase(q)
+			board.spawn_number(player_uv.position, "Quest complete!", ViewConfig.COL_GOLD)
+	if _talk_npc != "":
+		quest_dialog.open_for(_npc_dialog_data(_talk_npc))
+
+func _close_dialog() -> void:
+	_paused = false
+	_talk_npc = ""
+	quest_dialog.close()
+	_refresh_rest_prompt()
 
 # Slime split: a same-resource copy on a free tile next to the player, joining the fight.
 # Called from SlimeKind.on_committed via the ctx (this controller).
@@ -467,6 +629,17 @@ func _facing_for(dir: Vector2i) -> int:
 			return fc
 	return Config.Facing.SOUTH
 
+# Turn `c` to face `target` along the dominant axis (cardinal only), updating its view.
+func _face_toward(c: Combatant, uv: UnitView, target: Vector2i) -> void:
+	var dv := target - c.pos
+	var dir: Vector2i
+	if absi(dv.x) >= absi(dv.y):
+		dir = Vector2i(signi(dv.x), 0)
+	else:
+		dir = Vector2i(0, signi(dv.y))
+	if dir != Vector2i.ZERO:
+		_face(c, uv, dir)
+
 # ── world behavior: mob wandering, facing, passive regen, sanctuary rest ──────
 # Every mob takes a wander step on a shared cadence: beeline toward you within MOB_AGGRO,
 # otherwise drift. They never enter the village (your safe zone) and never overlap. A mob
@@ -483,12 +656,11 @@ func _mob_roam(delta: float) -> void:
 		var c: Combatant = m["combatant"]
 		var step := _wander_step(c.pos, occ)
 		if step != c.pos:
-			var mv := step - c.pos
 			occ.erase(c.pos)
 			occ[step] = true
 			c.pos = step
 			m["uv"].tween_to(step)
-			_face(c, m["uv"], mv)                     # face the way it moved -> you can flank it
+		_face_toward(c, m["uv"], player.pos)         # always turned to face you
 		m["uv"].visible = _in_window(c.pos, _win)
 	if not _engaged().is_empty():
 		_phase = Phase.COMBAT
@@ -572,6 +744,9 @@ func _gather_save() -> Dictionary:
 			"hp": c.hp,                    # mobs are HP-only: no mp/energy to persist
 			"statuses": c.statuses,
 		})
+	var gem_data: Array = []
+	for t in omap.gem_tiles:
+		gem_data.append([t.x, t.y])
 	return {
 		"version": 1,
 		"seed": _seed,
@@ -583,6 +758,7 @@ func _gather_save() -> Dictionary:
 			"statuses": player.statuses,
 		},
 		"mobs": mob_data,
+		"gems": gem_data,              # remaining gemstone nodes (gathered ones stay gone)
 	}
 
 func _restore_player(pd: Dictionary) -> void:

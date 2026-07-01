@@ -39,6 +39,7 @@ var planned: Array = []         # short labels of actions chosen so far
 var confirming := false         # both actions chosen; awaiting confirm
 var waiting := false            # confirmed; the opponent is taking its turn
 var rest_prompt := false        # roam sanctuary tile: REST is pressable even while disabled
+var roam_extras: Array = []     # roam-only contextual buttons, e.g. [{"id":"gather","label":"GATHER"}]
 var hover := ""
 
 func _ready() -> void:
@@ -52,6 +53,35 @@ func set_rest_prompt(active: bool) -> void:
 	rest_prompt = active
 	queue_redraw()
 
+# Story roam only: contextual buttons for things you can do standing in the world (GATHER a
+# gemstone, TALK to an NPC). Each is {"id","label"}; they're pressable while the combat menu
+# is disabled and cleared automatically whenever combat calls set_state.
+func set_roam_extras(list: Array) -> void:
+	if _same_extras(list):
+		return
+	roam_extras = list
+	queue_redraw()
+
+func _same_extras(list: Array) -> bool:
+	if list.size() != roam_extras.size():
+		return false
+	for i in range(list.size()):
+		if String(list[i].get("id", "")) != String(roam_extras[i].get("id", "")):
+			return false
+	return true
+
+func _roam_extra_label(id: String) -> String:
+	for e in roam_extras:
+		if String(e.get("id", "")) == id:
+			return String(e.get("label", id))
+	return ""
+
+func _is_roam_extra(id: String) -> bool:
+	for e in roam_extras:
+		if String(e.get("id", "")) == id:
+			return true
+	return false
+
 func set_state(p: Combatant, e: Combatant, is_enabled: bool, spell_ids: Array,
 		p_planned: Array = [], p_confirming: bool = false, p_waiting: bool = false) -> void:
 	player = p
@@ -62,6 +92,7 @@ func set_state(p: Combatant, e: Combatant, is_enabled: bool, spell_ids: Array,
 	confirming = p_confirming
 	waiting = p_waiting
 	rest_prompt = false            # combat drives the menu; drop any roam rest prompt
+	roam_extras = []               # ...and any roam contextual buttons
 	queue_redraw()
 
 func _entries() -> Array:
@@ -70,6 +101,8 @@ func _entries() -> Array:
 		list.append("spell:" + String(slot["role"]))   # fixed category buttons
 	if confirming:
 		list.append("confirm")
+	for e in roam_extras:
+		list.append(String(e.get("id", "")))   # roam contextual buttons (gather / talk)
 	return list
 
 # The equipped spell id whose ai_role matches this slot ("" if no gear fills it).
@@ -91,6 +124,8 @@ func _btn_rect(i: int) -> Rect2:
 func _usable(id: String) -> bool:
 	if player == null:
 		return false
+	if _is_roam_extra(id):
+		return true                 # roam contextual button (gather / talk) -> always pressable
 	if rest_prompt and id == "rest":
 		return true                 # golden sanctuary tile -> REST is pressable outside combat
 	if not enabled:
@@ -109,6 +144,8 @@ func _usable(id: String) -> bool:
 	return Config.can_afford(player.energy, player.mp, player.statuses, id)
 
 func _label(id: String) -> String:
+	if _is_roam_extra(id):
+		return _roam_extra_label(id)
 	if id == "confirm":
 		return "CONFIRM \u2713"
 	if id.begins_with("spell:"):
@@ -167,7 +204,7 @@ func _input(event: InputEvent) -> void:
 		if old != hover:
 			queue_redraw()
 	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		if not enabled and not rest_prompt:
+		if not enabled and not rest_prompt and roam_extras.is_empty():
 			return
 		var local := get_local_mouse_position()
 		var entries := _entries()

@@ -38,6 +38,19 @@ static func count(item_id: String) -> int:
 	_ensure_loaded()
 	return int(_counts.get(item_id, 0))
 
+# Remove up to n of an item (for quest hand-ins). Returns true if it had enough and took it.
+static func take(item_id: String, n: int) -> bool:
+	_ensure_loaded()
+	if n <= 0:
+		return true
+	if int(_counts.get(item_id, 0)) < n:
+		return false
+	_counts[item_id] = int(_counts[item_id]) - n
+	if int(_counts[item_id]) <= 0:
+		_counts.erase(item_id)
+	_save()
+	return true
+
 # Everything held, {item_id: count}, positive counts only.
 static func all() -> Dictionary:
 	_ensure_loaded()

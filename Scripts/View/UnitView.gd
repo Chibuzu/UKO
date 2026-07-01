@@ -51,6 +51,7 @@ var shown_hp: float = Config.MAX_HP
 var base_color: Color = Color.WHITE
 var disc_only: bool = false            # mobs: skip the fighter sprite, render as a plain colored ball
 var disc_color: Color = Color.WHITE    # the ball's color when disc_only
+var prop: bool = false                 # NPCs: a labeled disc with no facing/HP bars (not a combatant)
 var body: AnimatedSprite2D = null     # null = no art found, draw the disc instead
 var overlay: AnimatedSprite2D = null  # one-shot effects drawn ON TOP (e.g. pivot)
 var _held: String = ""                # an animation frozen on its last frame until released (the raised guard)
@@ -303,6 +304,11 @@ func _draw() -> void:
 	var r := ViewConfig.TILE * 0.34
 	if body == null:
 		draw_circle(Vector2.ZERO, r, base_color)   # fallback when art is missing
+
+	if prop:                                       # NPC marker: just the disc + name, no combat bars
+		draw_string(ThemeDB.fallback_font, Vector2(-6, ViewConfig.TILE * 0.5 + 14), unit_id,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color.WHITE)
+		return
 
 	# Facing bar: sits on the tile edge in the facing direction (E=right,
 	# N=top, W=left, S=bottom) and swings around when the unit pivots.

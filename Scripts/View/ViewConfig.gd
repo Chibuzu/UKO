@@ -62,6 +62,8 @@ const COL_WIN_B := Color(1.0, 0.45, 0.45)
 const COL_DRAW := Color(0.90, 0.85, 0.35)
 const COL_GOLD := Color(1.0, 0.84, 0.30)   # gold reward / wallet readout
 const COL_REST_FILL := Color(1.0, 0.84, 0.30, 0.30)   # golden sanctuary tile (rest point)
+const COL_GEM := Color(0.66, 0.36, 0.92)              # gemstone node border (gatherable)
+const COL_GEM_FILL := Color(0.66, 0.36, 0.92, 0.55)   # gemstone node fill
 
 # Combat log panel (far right).
 const LOG_ORIGIN := Vector2(620, 40)
