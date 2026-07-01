@@ -12,8 +12,8 @@ class_name StoryController
 extends Node
 
 const TILE := ViewConfig.TILE
-const VIEW_TILES := 12
-const VIEW_RADIUS := 6            # initial window is player.pos +/- 6 -> the visible 12x12
+# The story window (VIEW_TILES / VIEW_RADIUS) lives in ViewConfig -- it's a layout number and
+# WorldBoard reads the same source, so the window size is defined once.
 const EDGE := 3                   # deadzone: the window only scrolls when you get this close to its edge
 const MENU_SCENE := "res://MainMenu.tscn"
 const DEATH_GOLD_PENALTY := 25
@@ -86,7 +86,7 @@ func _ready() -> void:
 	if resuming:
 		start = _v2i(save["player"]["pos"])
 	else:
-		start = omap.nearest_open(Vector2i(OverworldMap.SIZE / 2, OverworldMap.SIZE / 2))
+		start = omap.nearest_open(OverworldMap.village_center())
 	player = Combatant.new("A", start, Config.Facing.SOUTH)
 	player.equip(PlayerProfile.loadout())          # you carry your real equipped gear
 	if resuming:
@@ -181,7 +181,7 @@ func _spawn_mobs_procedural() -> void:
 	while placed < MOB_COUNT and guard < MOB_COUNT * 40:
 		guard += 1
 		var t := Vector2i(rng.randi_range(1, OverworldMap.SIZE - 2), rng.randi_range(1, OverworldMap.SIZE - 2))
-		if omap.is_solid(t) or _in_village(t) or taken.has(t):
+		if omap.is_solid(t) or OverworldMap.in_village(t) or taken.has(t):
 			continue
 		taken[t] = true
 		_add_mob(_roll_type(rng), t)
@@ -382,17 +382,17 @@ func _die() -> void:
 # ── windowing (edge-scroll follow, not constant re-centering) ─────────────────
 # Start centered on the player.
 func _init_window() -> void:
-	var lim := OverworldMap.SIZE - VIEW_TILES
+	var lim := OverworldMap.SIZE - ViewConfig.VIEW_TILES
 	_win = Vector2i(
-		clampi(player.pos.x - VIEW_RADIUS, 0, lim),
-		clampi(player.pos.y - VIEW_RADIUS, 0, lim))
+		clampi(player.pos.x - ViewConfig.VIEW_RADIUS, 0, lim),
+		clampi(player.pos.y - ViewConfig.VIEW_RADIUS, 0, lim))
 	_apply_window()
 
 # Keep the player inside a centered deadzone; the window slides ONLY when they push
 # within EDGE of a border. So on open ground you watch yourself walk across the board,
 # and the world scrolls only at the margins -- the standard tile-RPG camera feel.
 func _follow_window() -> void:
-	var lim := OverworldMap.SIZE - VIEW_TILES
+	var lim := OverworldMap.SIZE - ViewConfig.VIEW_TILES
 	_win = Vector2i(
 		_axis(player.pos.x, _win.x, lim),
 		_axis(player.pos.y, _win.y, lim))
@@ -400,7 +400,7 @@ func _follow_window() -> void:
 
 func _axis(p: int, cur: int, lim: int) -> int:
 	var lo := cur + EDGE
-	var hi := cur + VIEW_TILES - 1 - EDGE
+	var hi := cur + ViewConfig.VIEW_TILES - 1 - EDGE
 	var o := cur
 	if p < lo:
 		o = cur - (lo - p)
@@ -415,7 +415,7 @@ func _apply_window() -> void:
 		m["uv"].visible = _in_window(m["combatant"].pos, _win)
 
 func _in_window(p: Vector2i, o: Vector2i) -> bool:
-	return p.x >= o.x and p.x < o.x + VIEW_TILES and p.y >= o.y and p.y < o.y + VIEW_TILES
+	return p.x >= o.x and p.x < o.x + ViewConfig.VIEW_TILES and p.y >= o.y and p.y < o.y + ViewConfig.VIEW_TILES
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 # Engaged == visible in your window: exactly "fight what enters your view".
@@ -680,7 +680,7 @@ func _wander_step(pos: Vector2i, occ: Dictionary) -> Vector2i:
 			return pos                               # idle sometimes -> a calmer, natural drift
 	for d: Vector2i in dirs:
 		var t: Vector2i = pos + d
-		if grid.is_blocked(t) or _in_village(t) or occ.has(t) or t == player.pos:
+		if grid.is_blocked(t) or OverworldMap.in_village(t) or occ.has(t) or t == player.pos:
 			continue
 		return t
 	return pos
@@ -769,10 +769,7 @@ func _restore_player(pd: Dictionary) -> void:
 	player.statuses = _int_dict(pd.get("statuses", {}))
 
 # ── procedural helpers ─────────────────────────────────────────────────────────
-func _in_village(t: Vector2i) -> bool:
-	var c := OverworldMap.SIZE / 2
-	return absi(t.x - c) <= VIEW_RADIUS and absi(t.y - c) <= VIEW_RADIUS
-
+# (village membership now lives on OverworldMap.in_village -- one definition for the whole zone)
 func _roll_type(rng: RandomNumberGenerator) -> String:
 	var total := 0
 	for w in TYPE_WEIGHTS:

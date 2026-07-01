@@ -10,7 +10,6 @@
 class_name WorldBoard
 extends BoardView
 
-const VIEW_TILES := 12
 var window_origin: Vector2i = Vector2i.ZERO
 var rest_set: Dictionary = {}     # Vector2i sanctuary tiles -> true (set by the controller)
 var gem_set: Dictionary = {}      # Vector2i gemstone nodes -> true (set by the controller)
@@ -40,8 +39,8 @@ func _draw() -> void:
 		return
 	var T := ViewConfig.TILE
 	var w: int = grid.blocked.size()
-	for ly in range(VIEW_TILES):
-		for lx in range(VIEW_TILES):
+	for ly in range(ViewConfig.VIEW_TILES):
+		for lx in range(ViewConfig.VIEW_TILES):
 			var wx := window_origin.x + lx
 			var wy := window_origin.y + ly
 			var rect := Rect2(wx * T, wy * T, T, T)   # absolute world-local; node offset maps it on-screen
@@ -69,5 +68,5 @@ func _draw() -> void:
 		draw_rect(Rect2(pos.x * T, pos.y * T, T, T), highlight_color)
 	for pos in fx_tiles:
 		draw_rect(Rect2(pos.x * T, pos.y * T, T, T), fx_color)
-	var edge := Rect2(window_origin.x * T, window_origin.y * T, VIEW_TILES * T, VIEW_TILES * T)
+	var edge := Rect2(window_origin.x * T, window_origin.y * T, ViewConfig.VIEW_TILES * T, ViewConfig.VIEW_TILES * T)
 	draw_rect(edge, ViewConfig.COL_BOARD_EDGE, false, 2.0)

@@ -9,6 +9,12 @@ extends RefCounted
 const TILE := 32                          # pixel size of one grid tile (32x32 pixel-art)
 const BOARD_ORIGIN := Vector2(210, 40)    # board sits to the right of the menu
 
+# Story mode's moving window: how many tiles are shown per side (the board renders this many),
+# and the half-extent used to center the initial window on the player. Single source -- both
+# StoryController (windowing math) and WorldBoard (drawing) read these.
+const VIEW_TILES := 12
+const VIEW_RADIUS := VIEW_TILES / 2       # = 6
+
 # ── Colors ──────────────────────────────────────────────────
 const COL_OPEN := Color(0.20, 0.22, 0.26)
 const COL_BLOCKED := Color(0.10, 0.10, 0.12)

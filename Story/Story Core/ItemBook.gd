@@ -12,7 +12,7 @@ const ITEMS := {
 	"slime_gel":     { "name": "Slime Gel",     "color": Color(0.55, 1.00, 0.62) },
 	"serpent_scale": { "name": "Serpent Scale", "color": Color(0.90, 0.52, 0.55) },
 	"serpent_fang":  { "name": "Serpent Fang",  "color": Color(1.00, 0.85, 0.40) },
-	"gemstone":      { "name": "Gemstone",      "color": Color(0.72, 0.42, 0.95) },
+	"gemstone":      { "name": "Gemstone",      "color": Color(0.66, 0.36, 0.92) },   # mirrors ViewConfig.COL_GEM (temporary; gem -> sprite soon)
 }
 
 static func has(item_id: String) -> bool:
