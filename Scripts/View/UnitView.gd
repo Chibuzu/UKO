@@ -18,22 +18,26 @@ const TECH_DIR   := "res://Assets/Sprites/Tech Animations/"
 const LEGACY_DIR := "res://Assets/Sprites/Base Animation/"
 const PIVOT_DUR := 0.18    # how long the facing bar takes to swing to a new side
 const SPRITE_OFFSET_Y := -6.0   # nudge the FIGURE up so its feet seat on the tile (tune in-engine)
-# These animations are tile-CENTRED effects (the guard cube, the buff aura), not
-# feet-seated figures, so they skip the figure's vertical nudge and sit on the tile.
-const CENTERED_ANIMS := ["guard", "guard_up", "buff"]
+# These animations are tile-CENTRED effects (the guard shield cube), not feet-seated figures,
+# so they sit centered on the tile. Everything else uses its per-animation "offset" (below) or
+# the body's default seat. Buff is NOT here: its art has the aura in the lower half of a tall
+# canvas, so it's feet-anchored (offset) to sit in the tile, not centered.
+const CENTERED_ANIMS := ["guard", "guard_up"]
 
-# Animation table: name -> {dir, prefix, count, fps, loop}. Frames are
+# Animation table: name -> {dir, prefix, count, fps, loop, offset?}. Frames are
 # "<dir><prefix>_1.png".."_<count>.png" (missing numbers are skipped), or a single
 # "<prefix>.png" when count == 0. A row may instead carry an explicit "frames" list to use a
 # subset / re-ordering of one prefix's PNGs (e.g. the teleport strip split into a vanish half
-# and a reappear half). Adding an animation is one row here + dropping the PNGs in; trigger it
-# with play_anim("name").
+# and a reappear half). "offset" is the vertical nudge (px) that seats THIS animation in the
+# tile -- needed because the art has different canvas sizes: the 32x32 base figure sits at 0
+# (it fills the tile), the tall buff aura is pulled up so it lands in the tile, and the older
+# 40x46 / 56x56 art keeps the body's default seat. Adding an animation is one row here + PNGs.
 const ANIMS := {
-	"idle":     {"dir": BASE_DIR,   "prefix": "Idle",      "count": 4,  "fps": 3.0, "loop": true},
+	"idle":     {"dir": BASE_DIR,   "prefix": "Idle",      "count": 4,  "fps": 3.0, "loop": true,  "offset": 0.0},
 	"move":     {"dir": LEGACY_DIR, "prefix": "move",      "count": 6,  "fps": 6.0, "loop": false},
-	"rest":     {"dir": BASE_DIR,   "prefix": "Rest",      "count": 5,  "fps": 3.0, "loop": false},
-	"buff":     {"dir": TECH_DIR,   "prefix": "buff",      "count": 5,  "fps": 3.0, "loop": false},
-	"attack":   {"dir": BASE_DIR,   "prefix": "Melee",     "count": 5,  "fps": 6.0, "loop": false},
+	"rest":     {"dir": BASE_DIR,   "prefix": "Rest",      "count": 5,  "fps": 3.0, "loop": false, "offset": 0.0},
+	"buff":     {"dir": TECH_DIR,   "prefix": "buff",      "count": 5,  "fps": 3.0, "loop": false, "offset": -14.0},
+	"attack":   {"dir": BASE_DIR,   "prefix": "Melee",     "count": 5,  "fps": 6.0, "loop": false, "offset": 0.0},
 	"bolt":     {"dir": TECH_DIR,   "prefix": "dark_bolt", "count": 9,  "fps": 9.0, "loop": false},
 	"hurt":     {"dir": LEGACY_DIR, "prefix": "hurt",      "count": 9,  "fps": 16.0, "loop": false},  # no art yet -> no-op
 	"guard":    {"dir": LEGACY_DIR, "prefix": "guard",     "count": 11, "fps": 9.0, "loop": false},
@@ -64,6 +68,7 @@ var directional_art: bool = true
 var prop: bool = false                 # NPCs: a labeled disc with no facing/HP bars (not a combatant)
 var body: AnimatedSprite2D = null     # null = no art found, draw the disc instead
 var _body_offset_y: float = SPRITE_OFFSET_Y   # this body's seated offset (player -6; mobs from their set)
+var _anim_offset: Dictionary = {}     # per-animation vertical seat (player anims); mobs fall back to _body_offset_y
 var overlay: AnimatedSprite2D = null  # one-shot effects drawn ON TOP (e.g. pivot)
 var _held: String = ""                # an animation frozen on its last frame until released (the raised guard)
 var _gear_layers: Array = []          # AnimatedSprite2D overlays for equipped gear (idle-only for now)
@@ -196,7 +201,7 @@ func set_state(c: Combatant) -> void:
 	_held = ""                       # turn ended: drop any held guard cube
 	if body:
 		body.rotation = 0.0
-		body.offset.y = _body_offset_y
+		body.offset.y = float(_anim_offset.get("idle", _body_offset_y))
 		body.play("idle")
 	queue_redraw()
 
@@ -260,7 +265,7 @@ func play_anim(name: String, dir: Vector2 = Vector2.ZERO, rot_offset: float = PI
 			and body.sprite_frames.get_frame_count(name) > 0:
 		# Centred effects (guard cube, buff aura) sit ON the tile; figures get the
 		# feet-seating nudge. Set every play so we never inherit the wrong offset.
-		body.offset.y = 0.0 if name in CENTERED_ANIMS else _body_offset_y
+		body.offset.y = float(_anim_offset.get(name, 0.0 if name in CENTERED_ANIMS else _body_offset_y))
 		if directional_art and dir != Vector2.ZERO:
 			# Directional one-shot. `rot_offset` accounts for where the art's
 			# reference points by default: the move/attack figure points UP
@@ -313,7 +318,7 @@ func _on_anim_finished() -> void:
 	if _held != "" and body.animation == _held:
 		return                       # freeze on the last frame (held guard cube) until released
 	body.rotation = 0.0          # clear any move-direction rotation
-	body.offset.y = _body_offset_y   # back to a seated figure
+	body.offset.y = float(_anim_offset.get("idle", _body_offset_y))   # back to a seated figure
 	_apply_facing()              # restore idle facing (flip for west)
 	body.play("idle")            # one-shot anims return to idle
 
@@ -331,6 +336,9 @@ func _build_frames() -> SpriteFrames:
 			for i in range(1, int(a["count"]) + 1):
 				files.append("%s_%d.png" % [a["prefix"], i])
 		_add_anim(sf, String(a.get("dir", BASE_DIR)), name, files, float(a["fps"]), bool(a["loop"]))
+		# Per-animation seat: explicit "offset" wins; centered effects sit on the tile; everything
+		# else keeps the body's default feet nudge.
+		_anim_offset[name] = float(a.get("offset", 0.0 if name in CENTERED_ANIMS else SPRITE_OFFSET_Y))
 	return sf
 
 # Build frames from a SpriteBook set: each animation carries an explicit file list, fps, loop.
