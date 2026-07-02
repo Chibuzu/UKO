@@ -9,12 +9,12 @@ extends RefCounted
 
 const PROFILES := {
 	"bat": {
-		"name": "Bat", "hp": 45, "scale": 0.72, "tint": Color(0.62, 0.80, 1.00),
+		"name": "Bat", "hp": 45, "scale": 0.72, "tint": Color(0.62, 0.80, 1.00), "art": "bat",
 		"atk_range": 2, "dmg": 10,
 		"loot": [ { "item": "bat_wing", "chance": 0.55 } ],
 	},
 	"slime": {
-		"name": "Slime", "hp": 80, "scale": 0.90, "tint": Color(0.55, 1.00, 0.62),
+		"name": "Slime", "hp": 80, "scale": 0.90, "tint": Color(0.55, 1.00, 0.62), "art": "ooze",
 		"dmg": 15,
 		"loot": [ { "item": "slime_gel", "chance": 0.70 } ],
 	},

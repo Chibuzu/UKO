@@ -51,8 +51,13 @@ var shown_hp: float = Config.MAX_HP
 var base_color: Color = Color.WHITE
 var disc_only: bool = false            # mobs: skip the fighter sprite, render as a plain colored ball
 var disc_color: Color = Color.WHITE    # the ball's color when disc_only
+var art_key: String = ""               # non-empty -> build an animated body from SpriteBook.SETS[art_key] (a mob)
+# directional_art: player art points UP and is rotated onto the move/attack vector; mob art is
+# drawn facing its own way, so it plays upright and is only flipped left/right.
+var directional_art: bool = true
 var prop: bool = false                 # NPCs: a labeled disc with no facing/HP bars (not a combatant)
 var body: AnimatedSprite2D = null     # null = no art found, draw the disc instead
+var _body_offset_y: float = SPRITE_OFFSET_Y   # this body's seated offset (player -6; mobs from their set)
 var overlay: AnimatedSprite2D = null  # one-shot effects drawn ON TOP (e.g. pivot)
 var _held: String = ""                # an animation frozen on its last frame until released (the raised guard)
 var _gear_layers: Array = []          # AnimatedSprite2D overlays for equipped gear (idle-only for now)
@@ -64,30 +69,62 @@ const SHOW_GEAR_OVERLAYS := false
 func init_state(c: Combatant) -> void:
 	unit_id = c.id
 	base_color = disc_color if disc_only else (ViewConfig.COL_A if c.id == "A" else ViewConfig.COL_B)
-	if not disc_only and body == null and ResourceLoader.exists(SPRITE_DIR + "idle_1.png"):
-		body = AnimatedSprite2D.new()
-		body.sprite_frames = _build_frames()
-		body.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST   # crisp pixels
-		body.centered = true
-		body.offset = Vector2(0, SPRITE_OFFSET_Y)
-		body.show_behind_parent = true                           # behind HP bar, but ON TOP of board tiles
-		# No modulate tint: the sprite keeps its true colors, since block color
-		# will carry spell meaning later. Sides are told apart by the A/B label.
-		add_child(body)
-		body.animation_finished.connect(_on_anim_finished)
-		body.play("idle")
-		# Overlay: shares the body's frames, sits on top, hidden until used.
-		overlay = AnimatedSprite2D.new()
-		overlay.sprite_frames = body.sprite_frames
-		overlay.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-		overlay.centered = true
-		overlay.z_index = 1
-		overlay.visible = false
-		add_child(overlay)
-		overlay.animation_finished.connect(_on_overlay_finished)
+	if body == null:
+		if art_key != "" and SpriteBook.has(art_key):
+			_build_mob_body(SpriteBook.set_of(art_key))          # animated monster from its sprite set
+		elif not disc_only and ResourceLoader.exists(SPRITE_DIR + "idle_1.png"):
+			_build_player_body()                                 # the duelist sprite (+ effect overlay)
 	if SHOW_GEAR_OVERLAYS:
 		_build_gear_layers(c)
 	set_state(c)
+
+# The player's fighter sprite plus the shared effect overlay (pivot etc.). Unchanged behavior;
+# extracted so mobs can build their own body without this player-only overlay wiring.
+func _build_player_body() -> void:
+	body = AnimatedSprite2D.new()
+	body.sprite_frames = _build_frames()
+	body.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST   # crisp pixels
+	body.centered = true
+	_body_offset_y = SPRITE_OFFSET_Y
+	body.offset = Vector2(0, _body_offset_y)
+	body.show_behind_parent = true                           # behind HP bar, but ON TOP of board tiles
+	# No modulate tint: the sprite keeps its true colors, since block color
+	# will carry spell meaning later. Sides are told apart by the A/B label.
+	add_child(body)
+	body.animation_finished.connect(_on_anim_finished)
+	body.play("idle")
+	# Overlay: shares the body's frames, sits on top, hidden until used.
+	overlay = AnimatedSprite2D.new()
+	overlay.sprite_frames = body.sprite_frames
+	overlay.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	overlay.centered = true
+	overlay.z_index = 1
+	overlay.visible = false
+	add_child(overlay)
+	overlay.animation_finished.connect(_on_overlay_finished)
+
+# A story monster's animated body, built from its SpriteBook set. No effect overlay (mobs don't
+# pivot/cast); art plays upright (directional_art from the set). Falls back to a disc if the set
+# has no loadable frames.
+func _build_mob_body(art_set: Dictionary) -> void:
+	directional_art = bool(art_set.get("directional", false))
+	_body_offset_y = float(art_set.get("offset_y", 0.0))
+	var frames := _build_frames_set(art_set)
+	var loaded := 0
+	for a in frames.get_animation_names():
+		loaded += frames.get_frame_count(a)
+	if loaded == 0:
+		return                                               # no frames loaded -> leave body null (disc)
+	body = AnimatedSprite2D.new()
+	body.sprite_frames = frames
+	body.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	body.centered = true
+	body.offset = Vector2(0, _body_offset_y)
+	body.show_behind_parent = true
+	add_child(body)
+	body.animation_finished.connect(_on_anim_finished)
+	if body.sprite_frames.has_animation("idle"):
+		body.play("idle")
 
 # Equipped-gear overlays. Each equipped slot adds a sprite layer that plays its
 # idle-overlay frames on top of the white body; an empty slot shows nothing, so
@@ -153,7 +190,7 @@ func set_state(c: Combatant) -> void:
 	_held = ""                       # turn ended: drop any held guard cube
 	if body:
 		body.rotation = 0.0
-		body.offset.y = SPRITE_OFFSET_Y
+		body.offset.y = _body_offset_y
 		body.play("idle")
 	queue_redraw()
 
@@ -217,8 +254,8 @@ func play_anim(name: String, dir: Vector2 = Vector2.ZERO, rot_offset: float = PI
 			and body.sprite_frames.get_frame_count(name) > 0:
 		# Centred effects (guard cube, buff aura) sit ON the tile; figures get the
 		# feet-seating nudge. Set every play so we never inherit the wrong offset.
-		body.offset.y = 0.0 if name in CENTERED_ANIMS else SPRITE_OFFSET_Y
-		if dir != Vector2.ZERO:
+		body.offset.y = 0.0 if name in CENTERED_ANIMS else _body_offset_y
+		if directional_art and dir != Vector2.ZERO:
 			# Directional one-shot. `rot_offset` accounts for where the art's
 			# reference points by default: the move/attack figure points UP
 			# (+PI/2 turns UP onto `dir`); the guard shield's closed side points
@@ -226,7 +263,7 @@ func play_anim(name: String, dir: Vector2 = Vector2.ZERO, rot_offset: float = PI
 			body.flip_h = false
 			body.rotation = dir.angle() + rot_offset
 		else:
-			body.rotation = 0.0    # everything else plays upright
+			body.rotation = 0.0    # mob art (and non-directional plays) stay upright; facing via flip_h
 		body.play(name)
 
 # Play an animation and FREEZE on its last frame (no return to idle) until
@@ -270,7 +307,7 @@ func _on_anim_finished() -> void:
 	if _held != "" and body.animation == _held:
 		return                       # freeze on the last frame (held guard cube) until released
 	body.rotation = 0.0          # clear any move-direction rotation
-	body.offset.y = SPRITE_OFFSET_Y   # back to a seated figure
+	body.offset.y = _body_offset_y   # back to a seated figure
 	_apply_facing()              # restore idle facing (flip for west)
 	body.play("idle")            # one-shot anims return to idle
 
@@ -287,15 +324,28 @@ func _build_frames() -> SpriteFrames:
 		else:
 			for i in range(1, int(a["count"]) + 1):
 				files.append("%s_%d.png" % [a["prefix"], i])
-		_add_anim(sf, name, files, float(a["fps"]), bool(a["loop"]))
+		_add_anim(sf, SPRITE_DIR, name, files, float(a["fps"]), bool(a["loop"]))
 	return sf
 
-func _add_anim(sf: SpriteFrames, anim: String, files: Array, fps: float, loop: bool) -> void:
+# Build frames from a SpriteBook set: each animation carries an explicit file list, fps, loop.
+func _build_frames_set(art_set: Dictionary) -> SpriteFrames:
+	var sf := SpriteFrames.new()
+	var dir: String = String(art_set.get("dir", ""))
+	var anims: Dictionary = art_set.get("anims", {})
+	for name in anims:
+		var a: Dictionary = anims[name]
+		var files: Array = []
+		for fn in a.get("files", []):
+			files.append(String(fn))
+		_add_anim(sf, dir, name, files, float(a.get("fps", 5.0)), bool(a.get("loop", false)))
+	return sf
+
+func _add_anim(sf: SpriteFrames, dir: String, anim: String, files: Array, fps: float, loop: bool) -> void:
 	sf.add_animation(anim)
 	sf.set_animation_speed(anim, fps)
 	sf.set_animation_loop(anim, loop)
 	for f in files:
-		var path: String = SPRITE_DIR + f
+		var path: String = dir + f
 		if ResourceLoader.exists(path):
 			sf.add_frame(anim, load(path))
 

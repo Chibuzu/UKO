@@ -161,8 +161,12 @@ func _add_mob(type: String, tile: Vector2i) -> Dictionary:
 	c.energy = Config.MAX_ENERGY                    # ...and a full energy pool so moving never locks
 	var uv := UnitView.new()
 	board.add_child(uv)
-	uv.disc_only = true                            # mobs are colored balls, not your fighter
-	uv.disc_color = prof.get("tint", Color.WHITE)
+	var art := String(prof.get("art", ""))
+	if art != "":
+		uv.art_key = art                           # animated monster art (built from SpriteBook in init_state)
+	else:
+		uv.disc_only = true                        # no art yet -> a plain colored ball
+		uv.disc_color = prof.get("tint", Color.WHITE)
 	uv.init_state(c)
 	uv.unit_id = String(prof.get("name", "?"))
 	var sc: float = float(prof.get("scale", 1.0))
@@ -584,6 +588,7 @@ func spawn_split(parent: Dictionary, player_ref: Combatant) -> void:
 	var tile := _free_adjacent(player_ref.pos)
 	if tile == Vector2i(-1, -1):
 		return                                     # nowhere free -> skip the split this time
+	parent["uv"].play_anim("summon")               # the parent oozes out a copy (no-op if it has no summon art)
 	var pc: Combatant = parent["combatant"]
 	var e := _add_mob(String(parent["type"]), tile)
 	var c: Combatant = e["combatant"]
