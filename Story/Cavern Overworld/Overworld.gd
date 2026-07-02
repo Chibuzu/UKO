@@ -13,7 +13,7 @@ const VIEW_TILES := 12           # camera frames a 12-tile-tall window (battle-b
 const GAME_SCENE := "res://Game.tscn"
 const STORY_SCENE := "res://Overworld.tscn"
 const BG_PATH := "res://assets/sprites/map_bg.png"
-const BLOCKER_PATH := "res://assets/sprites/blocker.png"
+const BLOCKER_PATH := "res://Assets/Sprites/Blocker 2.png"
 
 # Two monster types + a boss, data-driven. They share the one character sprite, told
 # apart by tint + scale; per-type art later is a UnitView change, not a change here.

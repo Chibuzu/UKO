@@ -8,39 +8,45 @@
 class_name UnitView
 extends Node2D
 
-const SPRITE_DIR := "res://assets/sprites/"
+# Sprite folders. The player's art now lives in three folders; each animation names its own,
+# so a remade animation just points at a new folder. BASE_DIR is the unequipped white figure
+# (the foundation gear layers sit on top of); TECH_DIR holds spell/tech effects and the
+# gear-piece overlays; LEGACY_DIR is the older set, still the source for the animations not yet
+# remade in the base style (move, guard).
+const BASE_DIR   := "res://Assets/Sprites/Unarmed Base Animations/"
+const TECH_DIR   := "res://Assets/Sprites/Tech Animations/"
+const LEGACY_DIR := "res://Assets/Sprites/Base Animation/"
 const PIVOT_DUR := 0.18    # how long the facing bar takes to swing to a new side
 const SPRITE_OFFSET_Y := -6.0   # nudge the FIGURE up so its feet seat on the tile (tune in-engine)
 # These animations are tile-CENTRED effects (the guard cube, the buff aura), not
 # feet-seated figures, so they skip the figure's vertical nudge and sit on the tile.
 const CENTERED_ANIMS := ["guard", "guard_up", "buff"]
 
-# Animation table: name -> {prefix, count, fps, loop}. Frames are
-# "<prefix>_1.png".."<prefix>_<count>.png" (missing numbers are skipped),
-# or a single "<prefix>.png" when count == 0. A row may instead carry an
-# explicit "frames" list to use a subset / re-ordering of one prefix's PNGs
-# (e.g. the teleport strip split into a vanish half and a reappear half).
-# Adding an animation is one row here + dropping the PNGs in; trigger it
+# Animation table: name -> {dir, prefix, count, fps, loop}. Frames are
+# "<dir><prefix>_1.png".."_<count>.png" (missing numbers are skipped), or a single
+# "<prefix>.png" when count == 0. A row may instead carry an explicit "frames" list to use a
+# subset / re-ordering of one prefix's PNGs (e.g. the teleport strip split into a vanish half
+# and a reappear half). Adding an animation is one row here + dropping the PNGs in; trigger it
 # with play_anim("name").
 const ANIMS := {
-	"idle":     {"prefix": "idle",      "count": 4,  "fps": 3.0, "loop": true},
-	"move":     {"prefix": "move",      "count": 6,  "fps": 6.0, "loop": false},
-	"rest":     {"prefix": "rest",      "count": 5,  "fps": 3.0, "loop": false},
-	"buff":     {"prefix": "buff",      "count": 5,  "fps": 3.0, "loop": false},
-	"attack":   {"prefix": "melee",     "count": 8,  "fps": 6.0, "loop": false},
-	"bolt":     {"prefix": "dark_bolt", "count": 9,  "fps": 9.0, "loop": false},
-	"hurt":     {"prefix": "hurt",      "count": 9,  "fps": 16.0, "loop": false},  # not in the FPS table — left as-is
-	"guard":    {"prefix": "guard",     "count": 11, "fps": 9.0, "loop": false},
+	"idle":     {"dir": BASE_DIR,   "prefix": "Idle",      "count": 4,  "fps": 3.0, "loop": true},
+	"move":     {"dir": LEGACY_DIR, "prefix": "move",      "count": 6,  "fps": 6.0, "loop": false},
+	"rest":     {"dir": BASE_DIR,   "prefix": "Rest",      "count": 5,  "fps": 3.0, "loop": false},
+	"buff":     {"dir": TECH_DIR,   "prefix": "buff",      "count": 5,  "fps": 3.0, "loop": false},
+	"attack":   {"dir": BASE_DIR,   "prefix": "Melee",     "count": 5,  "fps": 6.0, "loop": false},
+	"bolt":     {"dir": TECH_DIR,   "prefix": "dark_bolt", "count": 9,  "fps": 9.0, "loop": false},
+	"hurt":     {"dir": LEGACY_DIR, "prefix": "hurt",      "count": 9,  "fps": 16.0, "loop": false},  # no art yet -> no-op
+	"guard":    {"dir": LEGACY_DIR, "prefix": "guard",     "count": 11, "fps": 9.0, "loop": false},
 	# Guard raise that ENDS on the shield cube (frames 1-9) and is held there for
 	# the whole duration the guard is up (see hold_anim / EventPlayer guard_raised);
 	# frames 10-11 (the lower) play on release via the normal idle return.
-	"guard_up": {"prefix": "guard", "frames": [1, 2, 3, 4, 5, 6, 7, 8, 9], "fps": 9.0, "loop": false},
-	"pivot":    {"prefix": "pivot",     "count": 7,  "fps": 18.0, "loop": false},  # not in the FPS table — left as-is
+	"guard_up": {"dir": LEGACY_DIR, "prefix": "guard", "frames": [1, 2, 3, 4, 5, 6, 7, 8, 9], "fps": 9.0, "loop": false},
+	"pivot":    {"dir": LEGACY_DIR, "prefix": "pivot",     "count": 7,  "fps": 18.0, "loop": false},  # no art yet -> no-op
 	# Teleport is ONE 9-frame strip: figure -> portal -> nothing -> portal ->
 	# figure. Split so the vanish plays at the origin (blink_depart) and the
 	# reappear plays at the destination (blink). Frame 5 (fully gone) is shared.
-	"teleport_out": {"prefix": "teleport", "frames": [1, 2, 3, 4, 5], "fps": 6.0, "loop": false},
-	"teleport_in":  {"prefix": "teleport", "frames": [5, 6, 7, 8, 9], "fps": 6.0, "loop": false},
+	"teleport_out": {"dir": TECH_DIR, "prefix": "teleport", "frames": [1, 2, 3, 4, 5], "fps": 6.0, "loop": false},
+	"teleport_in":  {"dir": TECH_DIR, "prefix": "teleport", "frames": [5, 6, 7, 8, 9], "fps": 6.0, "loop": false},
 }
 
 var unit_id: String = ""
@@ -72,7 +78,7 @@ func init_state(c: Combatant) -> void:
 	if body == null:
 		if art_key != "" and SpriteBook.has(art_key):
 			_build_mob_body(SpriteBook.set_of(art_key))          # animated monster from its sprite set
-		elif not disc_only and ResourceLoader.exists(SPRITE_DIR + "idle_1.png"):
+		elif not disc_only and ResourceLoader.exists(BASE_DIR + "Idle_1.png"):
 			_build_player_body()                                 # the duelist sprite (+ effect overlay)
 	if SHOW_GEAR_OVERLAYS:
 		_build_gear_layers(c)
@@ -161,7 +167,7 @@ func _overlay_frames(prefix: String) -> SpriteFrames:
 	sf.set_animation_loop("idle", true)
 	var any := false
 	for i in range(1, 5):
-		var path := SPRITE_DIR + "%s_%d.png" % [prefix, i]
+		var path := TECH_DIR + "%s_%d.png" % [prefix, i]
 		if ResourceLoader.exists(path):
 			sf.add_frame("idle", load(path)); any = true
 	return sf if any else null
@@ -324,7 +330,7 @@ func _build_frames() -> SpriteFrames:
 		else:
 			for i in range(1, int(a["count"]) + 1):
 				files.append("%s_%d.png" % [a["prefix"], i])
-		_add_anim(sf, SPRITE_DIR, name, files, float(a["fps"]), bool(a["loop"]))
+		_add_anim(sf, String(a.get("dir", BASE_DIR)), name, files, float(a["fps"]), bool(a["loop"]))
 	return sf
 
 # Build frames from a SpriteBook set: each animation carries an explicit file list, fps, loop.

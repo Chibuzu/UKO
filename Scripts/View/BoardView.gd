@@ -20,7 +20,7 @@ var _quake_t := 0.0                              # earthquake time remaining (se
 var _quake_amp := 0.0                            # current per-wall tremble amplitude (for _draw)
 const BG_PATH := "res://assets/sprites/map_bg.png"
 var bg_tex: Texture2D = null                     # decorative floor; live blockers draw on top
-const BLOCKER_PATH := "res://assets/sprites/blocker.png"
+const BLOCKER_PATH := "res://Assets/Sprites/Blocker 2.png"
 var blocker_tex: Texture2D = null                # wall tile art; rotated per-tile for variety
 
 func setup(g: Grid) -> void:
