@@ -61,7 +61,8 @@ func _on_action_chosen(id: String) -> void:
 		elif d.get("needs_tile", false):
 			pending = id
 			phase = "targeting"
-			board.set_highlights(_line_targets(int(d.get("range", 1))), ViewConfig.COL_HL_ATTACK)
+			var tt := _throw_targets(int(d.get("range", 1)), int(d.get("diag_range", 0))) if d.get("shape") == "throw" else _line_targets(int(d.get("range", 1)))
+			board.set_highlights(tt, ViewConfig.COL_HL_ATTACK)
 		else:
 			_add_action({"id": id})
 		return
@@ -102,6 +103,8 @@ func _on_tile_clicked(pos: Vector2i) -> void:
 				board.set_highlights(_blink_face_tiles(pos), ViewConfig.COL_HL_PIVOT)
 			return
 		if d.get("shape") == "line" and pos in _line_targets(int(d.get("range", 1))):
+			_add_action({"id": pending, "tile": pos})
+		elif d.get("shape") == "throw" and pos in _throw_targets(int(d.get("range", 1)), int(d.get("diag_range", 0))):
 			_add_action({"id": pending, "tile": pos})
 		return
 	match pending:
@@ -241,9 +244,11 @@ func _key_spell(id: String) -> void:
 		phase = "targeting"
 		board.set_highlights(_blink_targets(), ViewConfig.COL_HL_MOVE)
 	elif Config.def(id).get("needs_tile", false):
-		# Line spell: auto-aim at the enemy if they're on a clear line in range.
-		var rng: int = int(Config.def(id).get("range", 1))
-		if b.pos in _line_targets(rng):
+		# Line/throw spell: auto-aim at the enemy if they're a legal target in range.
+		var dd := Config.def(id)
+		var rng: int = int(dd.get("range", 1))
+		var tt := _throw_targets(rng, int(dd.get("diag_range", 0))) if dd.get("shape") == "throw" else _line_targets(rng)
+		if b.pos in tt:
 			_aim({"id": id, "tile": b.pos}, b.pos, ViewConfig.COL_HL_ATTACK)
 	else:
 		_add_action({"id": id})
@@ -344,6 +349,25 @@ func _line_targets(rng: int) -> Array:
 			if not grid.in_bounds(p) or grid.is_blocked(p):
 				break
 			out.append(p)
+	return out
+
+# Grenade throw reach: `rng` tiles in each cardinal + `drng` tiles diagonally. Blockers stop a ray.
+func _throw_targets(rng: int, drng: int) -> Array:
+	var out := []
+	for dv in Grid.DIRS:
+		var p: Vector2i = plan_c.pos
+		for _i in range(rng):
+			p += dv
+			if not grid.in_bounds(p) or grid.is_blocked(p):
+				break
+			out.append(p)
+	for dg in [Vector2i(1, 1), Vector2i(1, -1), Vector2i(-1, 1), Vector2i(-1, -1)]:
+		var q: Vector2i = plan_c.pos
+		for _i in range(drng):
+			q += dg
+			if not grid.in_bounds(q) or grid.is_blocked(q):
+				break
+			out.append(q)
 	return out
 
 func _facing_to(pos: Vector2i) -> int:

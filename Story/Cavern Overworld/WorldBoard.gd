@@ -15,9 +15,12 @@ var rest_set: Dictionary = {}     # Vector2i sanctuary tiles -> true (set by the
 var gem_set: Dictionary = {}      # Vector2i gemstone nodes -> true (set by the controller)
 const GEM_PATH := "res://Assets/Sprites/Gemstone_sprite.png"
 var gem_tex: Texture2D = null     # gemstone node art; falls back to the purple tile if absent
+const BORDER_BLOCKER_PATH := "res://Assets/Sprites/blocker.png"   # the ring that contours the world
+var border_tex: Texture2D = null
 
 func setup_world(g: Grid) -> void:
 	grid = g
+	scale = Vector2(ViewConfig.BOARD_SCALE, ViewConfig.BOARD_SCALE)   # match the duel board's scale
 	if bg_tex == null and ResourceLoader.exists(BG_PATH):
 		bg_tex = load(BG_PATH)
 		texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
@@ -27,6 +30,9 @@ func setup_world(g: Grid) -> void:
 	if gem_tex == null and ResourceLoader.exists(GEM_PATH):
 		gem_tex = load(GEM_PATH)
 		texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	if border_tex == null and ResourceLoader.exists(BORDER_BLOCKER_PATH):
+		border_tex = load(BORDER_BLOCKER_PATH)
+		texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	set_window(Vector2i.ZERO)
 
 # Move the visible window so it starts at world tile `origin`. Offsetting position by
@@ -34,7 +40,7 @@ func setup_world(g: Grid) -> void:
 # is updated too so BoardView's shake still works from the right rest position.
 func set_window(origin: Vector2i) -> void:
 	window_origin = origin
-	var p := ViewConfig.BOARD_ORIGIN - Vector2(origin.x * ViewConfig.TILE, origin.y * ViewConfig.TILE)
+	var p := ViewConfig.BOARD_ORIGIN - Vector2(origin.x * ViewConfig.TILE, origin.y * ViewConfig.TILE) * ViewConfig.BOARD_SCALE
 	position = p
 	_base_pos = p
 	queue_redraw()
@@ -53,8 +59,17 @@ func _draw() -> void:
 			if wx >= 0 and wy >= 0 and wx < w and wy < w:
 				solid = grid.blocked[wy][wx]
 			if solid:
-				if blocker_tex:
-					draw_texture_rect(blocker_tex, rect, false)
+				# The ring that contours the world uses blocker.png; interior walls use Blocker 2.png,
+				# rotated per-tile for the same purple weave as the duel board (a flat grid reads grey).
+				var is_border: bool = wx <= 0 or wy <= 0 or wx >= w - 1 or wy >= w - 1
+				if is_border and border_tex:
+					draw_texture_rect(border_tex, rect, false)
+				elif blocker_tex:
+					var c := rect.position + rect.size * 0.5
+					var rot := float((wx * 3 + wy * 5) % 4) * (PI / 2.0)
+					draw_set_transform(c, rot, Vector2.ONE)
+					draw_texture_rect(blocker_tex, Rect2(-T * 0.5, -T * 0.5, T, T), false)
+					draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 				else:
 					draw_rect(rect, ViewConfig.COL_BLOCKED)
 			else:
@@ -76,5 +91,4 @@ func _draw() -> void:
 		draw_rect(Rect2(pos.x * T, pos.y * T, T, T), highlight_color)
 	for pos in fx_tiles:
 		draw_rect(Rect2(pos.x * T, pos.y * T, T, T), fx_color)
-	var edge := Rect2(window_origin.x * T, window_origin.y * T, ViewConfig.VIEW_TILES * T, ViewConfig.VIEW_TILES * T)
-	draw_rect(edge, ViewConfig.COL_BOARD_EDGE, false, 2.0)
+	# window frame is drawn by UIFrame (crisp purple, screen-fixed) -- no per-board edge here

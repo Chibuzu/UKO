@@ -47,6 +47,7 @@ var selection: SelectionController
 
 var player: Combatant
 var player_uv: UnitView
+var res_hud: ResourceHUD          # player HP/MP/EP bars
 var mobs: Array = []              # [{combatant, uv, kind, type}]
 var turn_num: int = 0
 var _phase: int = Phase.ROAM
@@ -77,6 +78,10 @@ func _ready() -> void:
 	board = WorldBoard.new()
 	add_child(board)
 	board.setup_world(grid)
+	# Back chrome: grey background + full-height side panel frames, behind the board.
+	var frame_back := UIFrame.new()
+	add_child(frame_back)
+	frame_back.z_index = -10
 	board.rest_set = omap.rest_set                 # golden sanctuary tiles drawn on the board
 	if resuming and save.has("gems"):
 		omap.set_gems(save["gems"])                # gathered gemstone nodes stay gone across a save
@@ -95,6 +100,18 @@ func _ready() -> void:
 	board.add_child(player_uv)
 	player_uv.init_state(player)
 	player_uv.z_index = 1
+
+	# Player resource bars (HP/MP/EP). Added to the controller (screen space, not the board)
+	# so they don't scroll with the world window. Moves into the side panel with the framed layout.
+	# Front chrome: the inset board frame, on top of the board window.
+	var frame_front := UIFrame.new()
+	frame_front.front = true
+	add_child(frame_front)
+
+	res_hud = ResourceHUD.new()
+	add_child(res_hud)
+	res_hud.position = Vector2(ViewConfig.PANEL_LEFT.position.x + 40, ViewConfig.PANEL_LEFT.position.y + 28)
+	res_hud.bind(player)
 
 	if resuming:
 		_spawn_from_save(save.get("mobs", []))
@@ -365,6 +382,7 @@ func _combat_turn(engaged: Array) -> void:
 	# Commit state (resources persist), run per-mob post-turn hooks (splits etc.), clear/loot dead.
 	player = res["player"]
 	player_uv.set_display_hp(player.hp)
+	res_hud.refresh(player)
 	if int(res.get("guard_refund", 0)) > 0:
 		board.spawn_number(player_uv.position, "+%d EP" % int(res["guard_refund"]), ViewConfig.COL_HEAL)
 	for i in engaged.size():
@@ -374,8 +392,26 @@ func _combat_turn(engaged: Array) -> void:
 		_face_toward(e["combatant"], e["uv"], player.pos)   # end of turn: mobs turn to face you
 	_bump_actions(player_seq.size())   # your actions this turn feed the every-6 regen
 	_clear_dead()
-	combat_log.add_turn(turn_num, res["primary_events"])
+	# The mob strikes bypass the resolver, so synthesise a hit line for each so the log shows
+	# them too -- with the same directional flank tier that scaled the damage.
+	var log_events: Array = res["primary_events"].duplicate()
+	for i in engaged.size():
+		if int(dmg[i]) > 0:
+			var mc: Combatant = res["mobs"][i]
+			log_events.append({
+				"type": "attack_hit", "tick": 520,
+				"owner": _mob_label(engaged[i]), "target": "A",
+				"damage": int(dmg[i]),
+				"flank": Config.flank_tier(player.facing, player.pos, mc.pos),
+			})
+	combat_log.add_turn(turn_num, log_events)
 	_follow_window()                   # keep you in view; refresh mob visibility
+
+# Readable name for a mob entry (used in the combat log), from its profile.
+func _mob_label(entry: Dictionary) -> String:
+	var t := String(entry.get("type", "mob"))
+	var prof: Dictionary = MobBrain.PROFILES.get(t, {})
+	return String(prof.get("name", t.capitalize()))
 
 func _die() -> void:
 	# A setback: you forfeit some gold (that lives on your profile, so it persists) and return
@@ -715,6 +751,7 @@ func _bump_actions(n: int) -> void:
 
 func _regen_tick() -> void:
 	player.energy = mini(Config.MAX_ENERGY, player.energy + REGEN_EP)
+	res_hud.refresh(player)
 
 # Golden sanctuary tile (press R): if you're standing on one and no mob is within REST_SAFE
 # tiles, fully restore HP/MP/EP. Roam-only -- _unhandled_input already gates out combat.
@@ -728,6 +765,7 @@ func _try_rest_tile() -> void:
 	player.mp = Config.MAX_MP
 	player.energy = Config.MAX_ENERGY
 	player_uv.set_display_hp(player.hp)
+	res_hud.refresh(player)
 	board.spawn_number(player_uv.position, "Rested!", ViewConfig.COL_GOLD)
 
 func _mob_near(t: Vector2i, r: int) -> bool:

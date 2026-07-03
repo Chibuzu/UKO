@@ -12,7 +12,7 @@ signal action_chosen(id: String)
 const BTN_W := 188
 const BTN_H := 34
 const GAP := 6
-const HUD_H := 96
+const HUD_H := 0     # no header; buttons start at the top of the panel
 
 const BASIC := ["move", "attack", "pivot", "guard", "rest", "wait"]
 const BASIC_LABELS := {
@@ -29,6 +29,7 @@ const SPELL_SLOTS := [
 	{ "role": "aoe",  "label": "AoE" },
 	{ "role": "poke", "label": "Sp. Atk." },
 	{ "role": "blink", "label": "Mobility" },
+	{ "role": "item", "label": "Item" },
 ]
 
 var player: Combatant = null
@@ -138,9 +139,13 @@ func _usable(id: String) -> bool:
 			return false            # no gear fills this slot -> can't press
 		if int(player.cooldowns.get(sid, 0)) > 0:
 			return false
+		if Config.def(sid).get("once_per_match", false) and player.spent_once.has(sid):
+			return false        # single-use item already spent this match
 		return Config.can_afford(player.energy, player.mp, player.statuses, sid)
 	if id == "rest" and not player.rest_ready:
 		return false                # locked until a full turn passes without damage
+	if Config.def(id).get("once_per_match", false) and player.spent_once.has(id):
+		return false            # single-use item already spent this match
 	return Config.can_afford(player.energy, player.mp, player.statuses, id)
 
 func _label(id: String) -> String:
@@ -166,14 +171,7 @@ func _label(id: String) -> String:
 
 func _draw() -> void:
 	var font := ThemeDB.fallback_font
-	if player != null and enemy != null:
-		draw_string(font, Vector2(0, 16), "A  hp %d  mp %d  en %d" % [player.hp, player.mp, player.energy],
-			HORIZONTAL_ALIGNMENT_LEFT, -1, 14, ViewConfig.COL_WIN_A)
-		draw_string(font, Vector2(0, 38), "B  hp %d  mp %d  en %d" % [enemy.hp, enemy.mp, enemy.energy],
-			HORIZONTAL_ALIGNMENT_LEFT, -1, 14, ViewConfig.COL_WIN_B)
-		var status := "Your move" if enabled else ("Waiting for opponent..." if waiting else "...")
-		draw_string(font, Vector2(0, 66), status,
-			HORIZONTAL_ALIGNMENT_LEFT, -1, 13, ViewConfig.COL_TEXT)
+	# No header text: resources are in the ResourceHUD and the buttons start at the top.
 
 	var entries := _entries()
 	for i in range(entries.size()):

@@ -50,6 +50,20 @@ const SPELLS := {
 		"ai_role": "poke",
 		"vfx": { "style": "projectile", "cast_anim": "bolt", "projectile": "bolt_proj" },
 	},
+	"grenade": {
+		"name": "GRENADE", "category": "spell",
+		"band": Config.Band.ATTACK, "base_tick": 0,     # launches at the very start of the ATTACK band
+		"energy_cost": 0, "mp_cost": 0, "cooldown": 0,
+		"once_per_match": true,                          # a single use for the whole match (see _legalize)
+		"needs_tile": true,
+		"shape": "throw", "range": 3, "diag_range": 1,   # 3 tiles orthogonally, 1 tile diagonally
+		"projectile": true, "tick_per_tile": 180, "pierce": false,   # flies tile-by-tile; each tile a tick tax
+		# Disrupt, not damage: drains 20 energy and ROOTS the target (its next move is cancelled).
+		"effect": { "type": "disrupt", "energy_drain": 20, "status": "rooted" },
+		"no_guard_combo": true,
+		"ai_role": "item",
+		"vfx": { "style": "projectile", "cast_anim": "bolt", "projectile": "bolt_proj" },
+	},
 	"blink_step": {
 		"name": "BLINK", "category": "spell",
 		"band": Config.Band.PIVOT, "base_tick": 0,   # fast: resolves before the ATTACK band
@@ -67,4 +81,8 @@ const SPELLS := {
 # lasts after the turn it is applied.
 const STATUSES := {
 	"energy_discount": { "duration": 3, "energy_cost_reduction": 5 },   # lasts 3 full turns after cast (=6 actions @ 2/turn)
+	# ROOTED: the target's next MOVE is cancelled. duration 2 so it survives end-of-turn ageing
+	# and still blocks the FIRST move next turn if the grenade landed too late this turn. It is
+	# consumed the instant it blocks a move (erased in the resolver), so it never lingers.
+	"rooted": { "duration": 2, "blocks_move": true },
 }

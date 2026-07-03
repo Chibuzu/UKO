@@ -11,6 +11,7 @@ var board: BoardView
 var fx: Fx
 var units: Dictionary = {}   # "A" -> UnitView, "B" -> UnitView
 var _flights: Dictionary = {}   # owner -> {points, seg_durs, color}: a projectile's whole path, pre-planned
+var _bolt_tweens: Dictionary = {}   # owner -> active bolt tween, so a hit can wait for the bolt to ARRIVE
 
 func setup(p_board: BoardView, p_fx: Fx, unit_a: UnitView, unit_b: UnitView) -> void:
 	board = p_board
@@ -19,6 +20,7 @@ func setup(p_board: BoardView, p_fx: Fx, unit_a: UnitView, unit_b: UnitView) -> 
 
 func play(events: Array, final_a: Combatant, final_b: Combatant) -> void:
 	_flights = _plan_flights(events)   # gather each bolt's full path up front
+	_bolt_tweens = {}
 	var i := 0
 	while i < events.size():
 		var tick = events[i]["tick"]
@@ -26,6 +28,15 @@ func play(events: Array, final_a: Combatant, final_b: Combatant) -> void:
 		while i < events.size() and events[i]["tick"] == tick:
 			group.append(events[i])
 			i += 1
+
+		# If a projectile LANDS this tick, wait for the bolt to actually reach the tile before
+		# playing the impact -- so the damage number / flinch never shows before the bolt arrives.
+		var lands := false
+		for e in group:
+			if e["type"] == "spell_hit":
+				lands = true
+		if lands:
+			await _await_bolts()
 
 		var dur := 0.0
 		var had_hit := false
@@ -46,6 +57,15 @@ func play(events: Array, final_a: Combatant, final_b: Combatant) -> void:
 
 	units["A"].set_state(final_a)
 	units["B"].set_state(final_b)
+
+# Wait for every in-flight bolt to finish arriving. Called just before a projectile impact so the
+# hit lands only once the bolt has visually reached the tile. Returns at once if none are flying.
+func _await_bolts() -> void:
+	for owner in _bolt_tweens.keys():
+		var tw = _bolt_tweens[owner]
+		if is_instance_valid(tw) and tw.is_valid() and tw.is_running():
+			await tw.finished
+	_bolt_tweens.clear()
 
 func _visualize(e: Dictionary) -> float:
 	var owner: String = e.get("owner", "")
@@ -194,9 +214,11 @@ func _cast_visual(caster: UnitView, e: Dictionary) -> void:
 			# staying visible the entire time (paced to match the step ticks).
 			var fl: Dictionary = _flights.get(e.get("owner", ""), {})
 			if not fl.is_empty():
-				# Delay by the cast group's hold (FX_DUR) so the bolt reaches each
-				# tile exactly as the matching step is paced — arrival == impact.
-				fx.projectile_flight(fl["points"], fl["seg_durs"], fl["color"], ViewConfig.FX_DUR)
+				# One sprite flies caster -> ... -> impact, delayed by the cast hold so it launches
+				# after the muzzle. The tween is stored so the spell_hit waits for it to arrive.
+				var tw := fx.projectile_flight(fl["points"], fl["seg_durs"], fl["color"], ViewConfig.FX_DUR)
+				if tw != null:
+					_bolt_tweens[e.get("owner", "")] = tw
 		"aoe":
 			if not fx.aoe_anim(caster.position):
 				board.flash_tiles(tiles, color)            # fallback if art missing

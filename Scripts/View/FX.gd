@@ -5,6 +5,8 @@
 class_name Fx
 extends Node2D
 
+const SPELLS_DIR := "res://Assets/Sprites/Tech Animations/Tech Spells/"   # spell effect sprites
+
 # Radial spark burst at a point.
 func burst(local_pos: Vector2, color: Color, count: int = ViewConfig.BURST_COUNT) -> void:
 	var p := CPUParticles2D.new()
@@ -51,9 +53,9 @@ func beam(from_local: Vector2, to_local: Vector2, color: Color) -> void:
 # flight. `seg_durs[k]` is the real time for leg k (tick-derived upstream, so
 # the bolt's speed matches the sim). Uses bolt_proj.png if the artist made one,
 # otherwise a generated glow dot — so the bolt is ALWAYS visible either way.
-func projectile_flight(points: Array, seg_durs: Array, color: Color = ViewConfig.COL_FX_BOLT, delay: float = 0.0) -> void:
+func projectile_flight(points: Array, seg_durs: Array, color: Color = ViewConfig.COL_FX_BOLT, delay: float = 0.0) -> Tween:
 	if points.size() < 2:
-		return
+		return null
 	var node := _projectile_node(color)
 	add_child(node)
 	node.position = points[0]
@@ -65,6 +67,7 @@ func projectile_flight(points: Array, seg_durs: Array, color: Color = ViewConfig
 		var d: float = float(seg_durs[k - 1]) if (k - 1) < seg_durs.size() else 0.12
 		t.tween_property(node, "position", points[k], maxf(0.01, d))
 	t.finished.connect(node.queue_free)
+	return t
 
 # The traveling bolt's visual: the looping dark_bolt flight frames if present,
 # otherwise bolt_proj.png, otherwise a generated glow dot — always visible.
@@ -97,7 +100,7 @@ func _bolt_sf() -> SpriteFrames:
 	sf.set_animation_loop("bolt", true)
 	var any := false
 	for i in range(3, 8):
-		var path := "res://assets/sprites/dark_bolt_%d.png" % i
+		var path := SPELLS_DIR + "dark_bolt_%d.png" % i
 		if ResourceLoader.exists(path):
 			sf.add_frame("bolt", load(path)); any = true
 	_bolt_frames = sf if any else null
@@ -107,7 +110,7 @@ func _bolt_sf() -> SpriteFrames:
 # a projectile is never invisible just because the art has not been added yet.
 static var _dot_tex: Texture2D = null
 func _bolt_texture(color: Color) -> Texture2D:
-	var path := "res://assets/sprites/bolt_proj.png"
+	var path := SPELLS_DIR + "bolt_proj.png"
 	if ResourceLoader.exists(path):
 		return load(path)
 	if _dot_tex == null:
@@ -140,7 +143,7 @@ func _aoe_sf() -> SpriteFrames:
 	# Source frame 1 is the caster's pose, not the burst — the real caster is
 	# already drawn by its own UnitView, so the Fx burst starts at frame 2.
 	for i in range(2, 13):
-		var path := "res://assets/sprites/aoe_%d.png" % i
+		var path := SPELLS_DIR + "aoe_%d.png" % i
 		if ResourceLoader.exists(path):
 			sf.add_frame("aoe", load(path)); any = true
 	_aoe_frames = sf if any else null

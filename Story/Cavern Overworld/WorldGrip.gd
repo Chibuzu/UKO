@@ -10,13 +10,25 @@ extends Grid
 
 var world_size: int = OverworldMap.SIZE
 
+var world_size: int = OverworldMap.SIZE
+var gem_map: OverworldMap = null   # ungathered gemstone nodes are solid; gathering clears them
+
 # Adopt an overworld's wall layout as this grid's terrain.
 func build(map: OverworldMap) -> void:
 	world_size = OverworldMap.SIZE
+	gem_map = map
 	blocked = []
 	for y in world_size:
 		blocked.append(map.blocked[y].duplicate())
 	base_blocked = _copy(blocked)
+
+# A tile is solid if it's a wall OR still holds a gemstone node. Gems live in the map's gem_set
+# (not the blocked array), so they still DRAW as gems -- but you can't step onto one until it's
+# gathered, at which point remove_gem() clears it here too (shared reference).
+func is_blocked(p: Vector2i) -> bool:
+	if gem_map != null and gem_map.is_gem(p):
+		return true
+	return super.is_blocked(p)
 
 # Bounds follow the WORLD size, not the arena's const SIZE. is_blocked() (inherited)
 # is defined in terms of in_bounds() + blocked, so overriding this is enough for the

@@ -238,7 +238,25 @@ func _set_face_angle(a: float) -> void:
 
 func _apply_facing() -> void:
 	if body:
-		body.flip_h = (facing == 3)   # face WEST = mirror the front sprite
+		body.flip_h = _mob_facing_flip()
+		body.rotation = _mob_facing_rotation()
+
+# Resting body transform for the current facing. Bats are drawn pointing NORTH, so they
+# ROTATE to aim their head where they face. Oozes are drawn facing EAST, so they only mirror
+# left/right -- east for E/S, west (mirrored) for W/N. Anything else just mirrors when facing west.
+func _mob_facing_rotation() -> float:
+	if art_key == "bat":
+		return _facing_angle(facing) + PI / 2.0   # sprite points up; turn UP onto the facing vector
+	return 0.0
+
+func _mob_facing_flip() -> bool:
+	match art_key:
+		"ooze":
+			return facing == Config.Facing.WEST or facing == Config.Facing.NORTH
+		"bat":
+			return false                          # bat aims via rotation, never mirrored
+		_:
+			return facing == Config.Facing.WEST
 
 func set_display_hp(hp: int) -> void:
 	display_hp = maxi(0, hp)
@@ -274,7 +292,8 @@ func play_anim(name: String, dir: Vector2 = Vector2.ZERO, rot_offset: float = PI
 			body.flip_h = false
 			body.rotation = dir.angle() + rot_offset
 		else:
-			body.rotation = 0.0    # mob art (and non-directional plays) stay upright; facing via flip_h
+			body.rotation = _mob_facing_rotation()   # bats aim their head; oozes/others stay upright
+			body.flip_h = _mob_facing_flip()          # keep the facing mirror through the animation
 		body.play(name)
 
 # Play an animation and FREEZE on its last frame (no return to idle) until

@@ -14,6 +14,7 @@ const GAME_SCENE := "res://Game.tscn"
 const STORY_SCENE := "res://Overworld.tscn"
 const BG_PATH := "res://assets/sprites/map_bg.png"
 const BLOCKER_PATH := "res://Assets/Sprites/Blocker 2.png"
+const BORDER_BLOCKER_PATH := "res://Assets/Sprites/blocker.png"   # the ring that contours the world
 
 # Two monster types + a boss, data-driven. They share the one character sprite, told
 # apart by tint + scale; per-type art later is a UnitView change, not a change here.
@@ -39,6 +40,7 @@ var _cam: Camera2D
 var _move_cd: float = 0.0
 var _bg: Texture2D = null
 var _blocker: Texture2D = null
+var _border: Texture2D = null
 
 func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
@@ -46,6 +48,8 @@ func _ready() -> void:
 		_bg = load(BG_PATH)
 	if ResourceLoader.exists(BLOCKER_PATH):
 		_blocker = load(BLOCKER_PATH)
+	if ResourceLoader.exists(BORDER_BLOCKER_PATH):
+		_border = load(BORDER_BLOCKER_PATH)
 	_map = OverworldMap.new()
 	if OverworldState.active:
 		_restore()
@@ -188,8 +192,17 @@ func _draw() -> void:
 		for x in range(view.position.x, view.end.x):
 			var r := Rect2(x * TILE, y * TILE, TILE, TILE)
 			if _map.blocked[y][x]:
-				if _blocker:
-					draw_texture_rect(_blocker, r, false)
+				# Contour ring uses blocker.png; interior walls use Blocker 2.png, rotated per-tile
+				# for the same purple weave as the duel board (a flat grid reads grey).
+				var is_border: bool = x <= 0 or y <= 0 or x >= OverworldMap.SIZE - 1 or y >= OverworldMap.SIZE - 1
+				if is_border and _border:
+					draw_texture_rect(_border, r, false)
+				elif _blocker:
+					var c := r.position + r.size * 0.5
+					var rot := float((x * 3 + y * 5) % 4) * (PI / 2.0)
+					draw_set_transform(c, rot, Vector2.ONE)
+					draw_texture_rect(_blocker, Rect2(-TILE * 0.5, -TILE * 0.5, TILE, TILE), false)
+					draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 				else:
 					draw_rect(r, ViewConfig.COL_BLOCKED)
 			else:

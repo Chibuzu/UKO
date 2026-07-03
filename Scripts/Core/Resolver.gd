@@ -171,6 +171,9 @@ static func _legalize(c: Combatant, action: Dictionary, vpos: Vector2i, vfacing:
 	if Config.is_spell(id) and int(c.cooldowns.get(id, 0)) > 0:
 		events.append(_ev("illegal_action", -1, c.id, {"reason": "cooldown", "id": id}))
 		return {"id": "_noop"}
+	if d.get("once_per_match", false) and c.spent_once.has(id):
+		events.append(_ev("illegal_action", -1, c.id, {"reason": "spent", "id": id}))
+		return {"id": "_noop"}
 	if d.get("category", "") == "rest" and not c.rest_ready:
 		events.append(_ev("illegal_action", -1, c.id, {"reason": "rest_locked", "id": id}))
 		return {"id": "_noop"}
@@ -347,6 +350,18 @@ static func _can_move(grid: Grid, actor: Combatant, other: Combatant, tile: Vect
 # pulse, which is tallied from the planned actions, not from success.)
 static func _do_move(s: Dictionary, actor: Combatant, target: Combatant,
 		group: Array, grid: Grid, dead_tick: Dictionary, tick: int, events: Array) -> void:
+	# ROOTED (grenade): this move is cancelled and the root is spent. Covers "grenade lands before
+	# your move this turn -> cancelled" and "a root carried from last turn blocks your first move".
+	if actor.statuses.has("rooted"):
+		actor.statuses.erase("rooted")
+		events.append(_ev("move_blocked", tick, actor.id, {"reason": "rooted"}))
+		s["_resolved"] = true
+		actor.reroute_armed = true      # a following move this turn inherits THIS move's target
+		actor.reroute_tile = s["tile"]  # (grenade spec c: double-mover advances to the first tile)
+		return
+	if actor.reroute_armed:
+		actor.reroute_armed = false
+		s["tile"] = actor.reroute_tile  # the cancelled move's destination becomes this move's
 	var T: Vector2i = s["tile"]
 	var foe_move = _move_in_group(group, target.id)
 	var foe_unresolved := foe_move != null and not bool(foe_move.get("_resolved", false))
@@ -418,6 +433,8 @@ static func _cast_spell(grid: Grid, caster: Combatant, target: Combatant, s: Dic
 		fresh: Dictionary, events: Array) -> void:
 	var id: String = s["id"]
 	var d := Config.def(id)
+	if d.get("once_per_match", false):
+		caster.spent_once[id] = true   # burn the single use for the whole match
 
 	var tiles := _shape_tiles(grid, caster, d, s.get("tile", caster.pos))
 	events.append(_ev("spell_cast", tick, caster.id, {"spell": id, "tiles": tiles}))
@@ -478,6 +495,29 @@ static func _shape_tiles(grid: Grid, caster: Combatant, d: Dictionary, target_ti
 					break          # blockers stop the line
 				out2.append(p2)
 			return out2
+		"throw":
+			# Grenade: lobbed to a CHOSEN tile within `range` orthogonally or `diag_range`
+			# diagonally. Returns the path caster -> target (tile by tile) so it flies like a
+			# bolt, each tile adding the tick tax. Out-of-range targets return [] (a miss).
+			var gdx := target_tile.x - caster.pos.x
+			var gdy := target_tile.y - caster.pos.y
+			var gadx := absi(gdx)
+			var gady := absi(gdy)
+			var grng := int(d.get("range", 3))
+			var gdrng := int(d.get("diag_range", 1))
+			var is_ortho := (gdx == 0 or gdy == 0) and (gadx + gady) >= 1 and (gadx + gady) <= grng
+			var is_diag := gadx == gady and gadx >= 1 and gadx <= gdrng
+			if not (is_ortho or is_diag):
+				return []
+			var gstep := Vector2i(signi(gdx), signi(gdy))
+			var gout := []
+			var gp: Vector2i = caster.pos
+			while gp != target_tile:
+				gp += gstep
+				if not grid.in_bounds(gp) or grid.is_blocked(gp):
+					break          # blockers stop the throw
+				gout.append(gp)
+			return gout
 	return []
 
 static func _dir_from(a: Vector2i, b: Vector2i) -> Vector2i:
@@ -619,9 +659,20 @@ static func _projectile_step(s: Dictionary, actor: Combatant, target: Combatant,
 	var tile: Vector2i = s["tile"]
 	events.append(_ev("projectile_step", tick, actor.id, {"tile": tile, "from": s.get("from", tile), "step": int(s["step"]), "spell": s["id"]}))
 	if target.pos == tile and dead_tick[target.id] == -1:
-		var dmg := int(s["damage"])
-		_apply_damage(target, dmg, tick, damaged_tick, dead_tick)
-		events.append(_ev("spell_hit", tick, actor.id, {"target": target.id, "damage": dmg, "spell": s["id"]}))
+		var eff: Dictionary = Config.def(s["id"]).get("effect", {})
+		if String(eff.get("type", "")) == "disrupt":
+			# Grenade: no damage -- drain energy and ROOT (next move cancelled). Applied at the
+			# hit tick, so a move scheduled LATER this turn sees the root and is cancelled; a move
+			# that already resolved is caught next turn instead.
+			target.energy = maxi(0, target.energy - int(eff.get("energy_drain", 0)))
+			var st: String = String(eff.get("status", ""))
+			if st != "":
+				target.statuses[st] = int(Config.status_def(st).get("duration", 1))
+			events.append(_ev("spell_hit", tick, actor.id, {"target": target.id, "damage": 0, "spell": s["id"], "disrupt": true}))
+		else:
+			var dmg := int(s["damage"])
+			_apply_damage(target, dmg, tick, damaged_tick, dead_tick)
+			events.append(_ev("spell_hit", tick, actor.id, {"target": target.id, "damage": dmg, "spell": s["id"]}))
 		if not bool(s["pierce"]):
 			consumed[pid] = true
 

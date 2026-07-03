@@ -30,6 +30,7 @@ static func resolve_turn(grid: WorldGrid, player_in: Combatant, mobs: Array,
 		if i == 0:
 			player_final = r["a"].clone()        # includes any REST regen; mobs deal no resolver dmg
 			primary_events = r["events"]
+			occupied[player_final.pos] = true    # your landing tile is now a wall for every other mob
 
 	# Each mob's strike, guard-aware, against the player's final tile. A mob has 2 actions
 	# per turn and an ATTACK IS one of them, so a mob that spent both actions moving (2 moves)
@@ -87,6 +88,7 @@ static func _move_count(seq: Array) -> int:
 static func _grid_blocking_others(base: WorldGrid, mobs: Array, occupied: Dictionary, skip: int) -> WorldGrid:
 	var g: WorldGrid = WorldGrid.new()
 	g.world_size = base.world_size
+	g.gem_map = base.gem_map          # keep gemstone nodes solid inside combat too
 	g.blocked = []
 	for row in base.blocked:
 		g.blocked.append(row.duplicate())

@@ -25,6 +25,7 @@ var blocker_tex: Texture2D = null                # wall tile art; rotated per-ti
 
 func setup(g: Grid) -> void:
 	grid = g
+	scale = Vector2(ViewConfig.BOARD_SCALE, ViewConfig.BOARD_SCALE)   # board is the scaled-up centrepiece
 	position = ViewConfig.BOARD_ORIGIN
 	_base_pos = position
 	if bg_tex == null and ResourceLoader.exists(BG_PATH):
@@ -110,7 +111,7 @@ func _draw() -> void:
 		var gr := Rect2(pos.x * ViewConfig.TILE, pos.y * ViewConfig.TILE, ViewConfig.TILE, ViewConfig.TILE)
 		draw_rect(gr, ViewConfig.COL_GHOST_WALL)
 		draw_rect(gr, ViewConfig.COL_GHOST_EDGE, false, 2.0)
-	draw_rect(Rect2(0, 0, total, total), ViewConfig.COL_BOARD_EDGE, false, 2.0)
+	# board frame is drawn by UIFrame (crisp purple, screen-fixed) -- no per-board edge here
 
 # Briefly paint a set of tiles (a spell's footprint), then clear them.
 func flash_tiles(tiles: Array, color: Color) -> void:

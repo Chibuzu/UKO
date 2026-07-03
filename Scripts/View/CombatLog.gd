@@ -7,10 +7,33 @@ extends Node2D
 
 # Each entry: { "text": String, "color": Color }
 var lines: Array = []
+var scroll: int = 0      # lines scrolled UP from the newest (0 = pinned to the latest)
 
 func _ready() -> void:
 	position = ViewConfig.LOG_ORIGIN
 	queue_redraw()
+
+# How many lines fit in the panel body.
+func _fit() -> int:
+	var avail := ViewConfig.LOG_H - 48
+	return maxi(1, int(avail / ViewConfig.LOG_LINE_H))
+
+# Mouse wheel over the panel scrolls through history; clamps at both ends.
+func _input(event: InputEvent) -> void:
+	if not (event is InputEventMouseButton and event.pressed):
+		return
+	var local := get_local_mouse_position()
+	if not Rect2(0, 0, ViewConfig.LOG_W, ViewConfig.LOG_H).has_point(local):
+		return
+	var max_scroll := maxi(0, lines.size() - _fit())
+	if event.button_index == MOUSE_BUTTON_WHEEL_UP:
+		scroll = mini(scroll + 1, max_scroll)
+		get_viewport().set_input_as_handled()
+		queue_redraw()
+	elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+		scroll = maxi(scroll - 1, 0)
+		get_viewport().set_input_as_handled()
+		queue_redraw()
 
 # Feed one resolved turn's events. Call this after the turn animates.
 func add_turn(turn_num: int, events: Array) -> void:
@@ -24,6 +47,7 @@ func add_turn(turn_num: int, events: Array) -> void:
 		_push(prefix + text, _line_color(e))
 	if lines.size() > ViewConfig.LOG_MAX_LINES:
 		lines = lines.slice(lines.size() - ViewConfig.LOG_MAX_LINES, lines.size())
+	scroll = 0                          # a fresh turn snaps the view back to the newest lines
 	queue_redraw()
 
 func _push(text: String, color: Color) -> void:
@@ -108,18 +132,31 @@ func _result(r: String) -> String:
 # ── Draw the panel and the lines that fit (newest at the bottom) ────────
 func _draw() -> void:
 	draw_rect(Rect2(0, 0, ViewConfig.LOG_W, ViewConfig.LOG_H), ViewConfig.COL_LOG_BG)
-	draw_rect(Rect2(0, 0, ViewConfig.LOG_W, ViewConfig.LOG_H), ViewConfig.COL_BOARD_EDGE, false, 2.0)
+	draw_rect(Rect2(0, 0, ViewConfig.LOG_W, ViewConfig.LOG_H), ViewConfig.COL_FRAME, false, 2.0)
 
 	var font := ThemeDB.fallback_font
 	draw_string(font, Vector2(10, 22), "COMBAT LOG", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, ViewConfig.COL_TEXT)
 
 	var top := 40
-	var avail := ViewConfig.LOG_H - top - 8
-	var fit := int(avail / ViewConfig.LOG_LINE_H)
-	var start := maxi(0, lines.size() - fit)
+	var fit := _fit()
+	# Newest lines sit at the bottom; `scroll` slides the visible window up through history.
+	var end := lines.size() - scroll
+	var start := maxi(0, end - fit)
 	var y := top + ViewConfig.LOG_LINE_H
-	for i in range(start, lines.size()):
+	for i in range(start, end):
 		var entry: Dictionary = lines[i]
 		draw_string(font, Vector2(10, y), entry["text"], HORIZONTAL_ALIGNMENT_LEFT,
-			ViewConfig.LOG_W - 16, ViewConfig.LOG_FONT, entry["color"])
+			ViewConfig.LOG_W - 22, ViewConfig.LOG_FONT, entry["color"])
 		y += ViewConfig.LOG_LINE_H
+
+	# Scrollbar, only when the history overflows the panel.
+	var total := lines.size()
+	if total > fit:
+		var track_h := float(ViewConfig.LOG_H - top - 8)
+		var track_x := float(ViewConfig.LOG_W - 6)
+		draw_rect(Rect2(track_x, float(top), 3.0, track_h), Color(ViewConfig.COL_LOG_DIM, 0.35))
+		var thumb_h := maxf(18.0, track_h * float(fit) / float(total))
+		var max_scroll := maxi(1, total - fit)
+		var frac := float(max_scroll - scroll) / float(max_scroll)   # 1.0 = pinned to bottom
+		var thumb_y := float(top) + frac * (track_h - thumb_h)
+		draw_rect(Rect2(track_x, thumb_y, 3.0, thumb_h), ViewConfig.COL_TEXT)

@@ -23,6 +23,8 @@ var play: EventPlayer
 var fx: Fx
 var menu: ActionMenu
 var combat_log: CombatLog
+var hud_a: ResourceHUD          # your HP/MP/EP bars
+var hud_b: ResourceHUD          # opponent's HP/MP/EP bars
 var a: Combatant
 var b: Combatant
 var turn_num := 0
@@ -46,7 +48,28 @@ static var pending_b_gear: Array = []
 static var pending_return_scene: String = ""
 static var last_match_won: bool = false
 
+# Pin the base (1152x648) to a keep-aspect canvas so it's always centred in the window, then, if the
+# window is taller/wider than the usable screen (its bottom clipped by the title bar/taskbar -- which
+# reads as "more space above the board than below"), shrink it to the largest 16:9 that fits and
+# re-centre it on screen. Done in code so it applies even when project.godot isn't copied across.
+func _center_display() -> void:
+	var w := get_window()
+	w.content_scale_mode = Window.CONTENT_SCALE_MODE_CANVAS_ITEMS
+	w.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_KEEP
+	w.content_scale_size = Vector2i(1152, 648)
+	if w.mode != Window.MODE_WINDOWED:
+		return                              # maximised/fullscreen: the WM fits it; keep-aspect centres the base
+	# Windowed: if the window is taller/wider than the usable screen (title bar/taskbar would clip
+	# its bottom), shrink to the largest 16:9 that fits and re-centre it near the top of the screen.
+	var usable := DisplayServer.screen_get_usable_rect(w.current_screen)
+	var max_h := usable.size.y - 40         # leave headroom for the title bar
+	if w.size.y > max_h or w.size.x > usable.size.x:
+		var s: float = minf(float(usable.size.x) / 1152.0, float(max_h) / 648.0)
+		w.size = Vector2i(int(round(1152.0 * s)), int(round(648.0 * s)))
+	w.position = usable.position + Vector2i(int((usable.size.x - w.size.x) / 2), 24)
+
 func _ready() -> void:
+	_center_display()   # base is centred in the window regardless of project.godot / window size
 	difficulty = AI.selected_difficulty   # whatever the menu's difficulty page picked
 	# Lobby handoff (set before the scene change). Null -> single-player vs the AI.
 	match_config = pending_config
@@ -67,6 +90,11 @@ func _ready() -> void:
 	board = BoardView.new()
 	add_child(board)
 	board.setup(grid)
+	# Back chrome: grey background + the two full-height side panel frames. Added right after the
+	# board node but moved behind it so the board (added above) renders on top of the grey.
+	var frame_back := UIFrame.new()
+	add_child(frame_back)
+	frame_back.z_index = -10
 
 	# Sides are FIXED: a == A, b == B on every client, so the deterministic Resolver
 	# is always called in the same order. Which side the LOCAL player drives is
@@ -95,11 +123,27 @@ func _ready() -> void:
 	add_child(play)
 	play.setup(board, fx, ua, ub)
 
+	# Front chrome: the inset board frame, drawn on top of the board (a window it shakes within).
+	var frame_front := UIFrame.new()
+	frame_front.front = true
+	add_child(frame_front)
+
 	menu = ActionMenu.new()
 	add_child(menu)
 
 	combat_log = CombatLog.new()
 	add_child(combat_log)
+
+	# Resource bars: yours top-left, the opponent's above the log. (These sit at the top strip
+	# for now; they move into the side panels when the framed layout lands.)
+	hud_a = ResourceHUD.new()
+	add_child(hud_a)
+	hud_a.position = Vector2(ViewConfig.PANEL_LEFT.position.x + 40, ViewConfig.PANEL_LEFT.position.y + 12)
+	hud_a.bind(a if _local_is_a() else b)
+	hud_b = ResourceHUD.new()
+	add_child(hud_b)
+	hud_b.position = Vector2(ViewConfig.PANEL_RIGHT.position.x + 20, ViewConfig.PANEL_RIGHT.position.y + 12)
+	hud_b.bind(b if _local_is_a() else a)
 
 	# Systems: pure-logic controllers this orchestrator owns and wires.
 	selection = SelectionController.new()
@@ -160,6 +204,8 @@ func _game_loop() -> void:
 		await play.play(out["events"], out["a"], out["b"])
 		a = out["a"]
 		b = out["b"]
+		hud_a.refresh(a if _local_is_a() else b)
+		hud_b.refresh(b if _local_is_a() else a)
 		menu.set_state(_local(), _foe(), false, _local().spell_ids(), [], false)
 		combat_log.add_turn(turn_num, out["events"])
 

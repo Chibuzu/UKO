@@ -21,6 +21,12 @@ var rest_ready: bool = true     # may REST only after a full turn taking no dama
 var statuses: Dictionary = {}
 # Spell cooldowns: id -> turns remaining before it can be cast again.
 var cooldowns: Dictionary = {}
+var spent_once: Dictionary = {}   # once_per_match items already used this match (e.g. the grenade)
+# Transient (one turn only; deliberately NOT copied in clone()): when a rooted move is cancelled,
+# the actor's next move inherits the cancelled move's target -- a double-mover advances to the
+# FIRST tile they picked, not the second (grenade spec c).
+var reroute_armed: bool = false
+var reroute_tile: Vector2i = Vector2i.ZERO
 
 # Shared action tally (mirrored on both fighters): every ENERGY_PULSE_ACTIONS
 # non-Wait actions taken by either player, both regen energy.
@@ -48,6 +54,7 @@ func spell_ids() -> Array:
 		var sid := GearBook.spell_of(gid)
 		if sid != "":
 			out.append(sid)
+	out.append("grenade")   # universal once-per-match item, available to everyone (see _legalize)
 	return out
 
 # The spell in a specific block slot (0-3), or "" if empty. Used by slot-indexed
@@ -74,6 +81,7 @@ func clone() -> Combatant:
 	c.rest_ready = rest_ready
 	c.statuses = statuses.duplicate()
 	c.cooldowns = cooldowns.duplicate()
+	c.spent_once = spent_once.duplicate()
 	c.action_count = action_count
 	c.gear = gear.duplicate()
 	return c

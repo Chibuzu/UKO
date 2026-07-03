@@ -34,7 +34,11 @@ func attack_pattern(origin: Vector2i) -> Array:
 func attack_damage(mob: Combatant, player: Combatant, grid: Grid, guarded: bool) -> int:
 	if mob.is_dead() or not threatens(mob.pos, player.pos, grid):
 		return 0
-	return apply_guard(int(prof.get("dmg", 15)), player, mob.pos, guarded)
+	# Directional flanking, exactly like the duel: a strike into the player's side/back hurts
+	# more (side 1.5x, back 2x) based on where the mob stands relative to the player's facing.
+	var tier := Config.flank_tier(player.facing, player.pos, mob.pos)
+	var base := int(round(float(prof.get("dmg", 15)) * float(Config.FLANK_MULT.get(tier, 1.0))))
+	return apply_guard(base, player, mob.pos, guarded)
 
 # Fired after the turn's state is committed. Hook for thresholds / splits / on-hit logic.
 # `entry` is this mob's record {combatant, uv, kind, type, ...}; `ctx` is the StoryController.

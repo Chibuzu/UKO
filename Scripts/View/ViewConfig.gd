@@ -7,7 +7,19 @@ extends RefCounted
 
 # ── Layout ──────────────────────────────────────────────────
 const TILE := 32                          # pixel size of one grid tile (32x32 pixel-art)
-const BOARD_ORIGIN := Vector2(210, 40)    # board sits to the right of the menu
+const BOARD_SCALE := 1.375                # 12x12 board scaled to 44px tiles (528px) -- centred with clear margin
+const BOARD_ORIGIN := Vector2(312, 60)    # centred: (1152 - 384*1.375)/2 = 312, (648 - 384*1.375)/2 = 60 (60px space over/under)
+
+# Framed side columns (screen space). Grey fill + a hand-drawn purple border, drawn by UIFrame.
+# The board area BETWEEN them is left transparent -- the live board + figures render there.
+# Framed columns (screen space). The whole background is grey; these are hand-drawn purple
+# frames on it (UIFrame). Side panels are FULL height; the board frame is INSET (shorter), and
+# the live board renders inside it. Matches the reference frame exactly (4800x2700 * 0.24).
+const PANEL_LEFT := Rect2(6, 5, 273, 637)      # action buttons + your resources (full height)
+const PANEL_RIGHT := Rect2(873, 5, 273, 637)   # combat log + opponent resources (full height)
+const BOARD_FRAME := Rect2(310, 58, 532, 532)  # inset frame hugging the centred board (clear space top/bottom)
+const COL_PANEL := Color(0.737, 0.745, 0.749)  # uniform grey background / panel fill (#bcbebf)
+const COL_FRAME := Color(0.231, 0.188, 0.392)  # hand-drawn purple border (#3b3064)
 
 # Story mode's moving window: how many tiles are shown per side (the board renders this many),
 # and the half-extent used to center the initial window on the player. Single source -- both
@@ -27,6 +39,13 @@ const COL_FACING := Color(0.95, 0.92, 0.40)  # the facing nub
 
 const COL_HP_BG := Color(0.15, 0.15, 0.18)
 const COL_HP_FILL := Color(0.40, 0.85, 0.45)
+
+# Resource bars (HP / MP / EP HUD): thin stacked bars, coloured fill = current/max.
+const COL_RES_HP := Color(0.82, 0.28, 0.30)      # HP  red
+const COL_RES_MP := Color(0.30, 0.50, 0.92)      # MP  blue
+const COL_RES_EP := Color(0.42, 0.78, 0.42)      # EP  green
+const COL_RES_BG := Color(0.10, 0.10, 0.13)      # empty track
+const COL_RES_OUTLINE := Color(0.04, 0.04, 0.07, 0.85)
 
 # Flash tints (the piece briefly turns this color, then back to normal).
 const FLASH_HIT := Color(1.0, 0.4, 0.4)
@@ -57,7 +76,7 @@ const COL_GHOST_WALL := Color(0.95, 0.55, 0.20, 0.35)   # incoming-wall fill
 const COL_GHOST_EDGE := Color(0.95, 0.62, 0.28, 0.90)   # incoming-wall border
 
 # Action menu.
-const MENU_ORIGIN := Vector2(16, 60)
+const MENU_ORIGIN := Vector2(50, 96)   # inside the left panel
 const COL_BTN := Color(0.22, 0.25, 0.30)
 const COL_BTN_HOVER := Color(0.32, 0.37, 0.44)
 const COL_BTN_OFF := Color(0.14, 0.14, 0.16)
@@ -72,9 +91,9 @@ const COL_GEM := Color(0.66, 0.36, 0.92)              # gemstone node border (ga
 const COL_GEM_FILL := Color(0.66, 0.36, 0.92, 0.55)   # gemstone node fill
 
 # Combat log panel (far right).
-const LOG_ORIGIN := Vector2(620, 40)
-const LOG_W := 286
-const LOG_H := 384
+const LOG_ORIGIN := Vector2(888, 56)  # inside the right panel
+const LOG_W := 236
+const LOG_H := 512
 const LOG_FONT := 12
 const LOG_LINE_H := 16
 const LOG_MAX_LINES := 200
