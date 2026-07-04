@@ -595,29 +595,35 @@ func _gather_nearby() -> void:
 	_paused = true                                 # freeze roam while the mini-game is up
 	var mg                                         # untyped: either mini-game type shares the contract
 	if kind == "mushroom":
-		mg = OneStrokeRune.new()                   # one-stroke rune puzzle for the rare mushroom
+		mg = CleanCutMinigame.new()                # careful slice along the guide line
 	else:
-		mg = VeinDeduction.new()                   # mastermind deduction for gemstones
+		mg = MiningMinigame.new()                  # careful chipping around the gem
 	_gather_layer.add_child(mg)
 	mg.finished.connect(_on_gather_done.bind(kind, tile, mg))
 	mg.start("Gathering " + ItemBook.item_name(kind), 0.55 if kind == "mushroom" else 0.5)
 
-func _on_gather_done(success: bool, kind: String, tile: Vector2i, mg: Control) -> void:
+func _on_gather_done(quality: float, kind: String, tile: Vector2i, mg: Control) -> void:
 	mg.queue_free()
 	_paused = false
-	if success:
-		if kind == "mushroom":
-			omap.remove_mushroom(tile)
-		else:
-			omap.remove_gem(tile)
-		board.gem_set = omap.gem_set
-		board.mushroom_set = omap.mushroom_set
-		board.queue_redraw()
-		PlayerInventory.add(kind, 1)
-		board.spawn_number(player_uv.position, "+" + ItemBook.item_name(kind), ItemBook.item_color(kind))
-		_quest_event("gather", kind)
+	if quality <= 0.0:
+		board.spawn_number(player_uv.position, "ruined", ViewConfig.COL_TEXT_OFF)
+		_refresh_rest_prompt()
+		return
+	var amount := 1                                 # grade -> yield: clean work pays more
+	if quality > 0.85:
+		amount = 3
+	elif quality > 0.5:
+		amount = 2
+	if kind == "mushroom":
+		omap.remove_mushroom(tile)
 	else:
-		board.spawn_number(player_uv.position, "slipped", ViewConfig.COL_TEXT_OFF)
+		omap.remove_gem(tile)
+	board.gem_set = omap.gem_set
+	board.mushroom_set = omap.mushroom_set
+	board.queue_redraw()
+	PlayerInventory.add(kind, amount)
+	board.spawn_number(player_uv.position, "+%d %s" % [amount, ItemBook.item_name(kind)], ItemBook.item_color(kind))
+	_quest_event("gather", kind)
 	_refresh_rest_prompt()
 
 # Nearest mushroom within Chebyshev range r of the player (-1,-1 if none).
