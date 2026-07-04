@@ -72,6 +72,7 @@ func _ready() -> void:
 	_market = _load_village("Market.png")
 	_player_home = _load_village("Players_home_.png")
 	_map = OverworldMap.new()
+	_build_village()   # static building/belt sprite nodes; added before player/mobs so they sit under them
 	if OverworldState.active:
 		_restore()
 	else:
@@ -215,7 +216,7 @@ func _draw() -> void:
 			var r := Rect2(x * TILE, y * TILE, TILE, TILE)
 			if _map.blocked[y][x]:
 				if _map.is_building(Vector2i(x, y)):
-					# Building footprint: floor here; the building sprite is drawn over it in _draw_village.
+					# Building footprint: floor here; the building sprite (a child node from _build_village) sits on top.
 					if _bg:
 						draw_texture_rect(_bg, r, false)
 					else:
@@ -240,44 +241,75 @@ func _draw() -> void:
 				else:
 					draw_rect(r, ViewConfig.COL_OPEN)
 			draw_rect(r, ViewConfig.COL_GRID_LINE, false, 1.0)
-	_draw_village(view)
 
 func _load_village(fname: String) -> Texture2D:
 	var p := VILLAGE_DIR + fname
 	return load(p) if ResourceLoader.exists(p) else null
 
-# Draw the transport belt (on the floor, culled to view) and the buildings on top of the tiles.
-func _draw_village(view: Rect2i) -> void:
-	var frame := int(_anim_t * 4.0) % 4          # well + belt: 4 FPS
-	if _transport.size() == 4 and _transport[frame]:
+# Build the village as real child sprite nodes (drawn on top of the floor, under the player/mobs
+# which are added afterwards). AnimatedSprite2D for the well + belt (4 FPS); Sprite2D for the rest.
+func _build_village() -> void:
+	var belt_sf := _village_sf(_transport, 4.0)
+	if belt_sf != null:
 		for t in OverworldMap.transport_tiles():
-			if t.x >= view.position.x and t.x < view.end.x and t.y >= view.position.y and t.y < view.end.y:
-				draw_texture_rect(_transport[frame], Rect2(t.x * TILE, t.y * TILE, TILE, TILE), false)
+			_add_village_anim(belt_sf, Vector2(t.x * TILE, t.y * TILE))
 	for b in OverworldMap.village_buildings():
-		_draw_building(b, frame)
+		_add_building(b)
 
-func _draw_building(b: Dictionary, frame: int) -> void:
-	var tile: Vector2i = b["tile"]
-	var org := Vector2(tile.x * TILE, tile.y * TILE)
+func _village_sf(frames: Array, fps: float) -> SpriteFrames:
+	var sf := SpriteFrames.new()
+	sf.add_animation("a")
+	sf.set_animation_speed("a", fps)
+	sf.set_animation_loop("a", true)
+	var any := false
+	for t in frames:
+		if t != null:
+			sf.add_frame("a", t); any = true
+	return sf if any else null
+
+func _add_village_anim(sf: SpriteFrames, pos: Vector2) -> void:
+	var a := AnimatedSprite2D.new()
+	a.sprite_frames = sf
+	a.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	a.centered = false
+	a.position = pos
+	a.z_index = 0
+	a.play("a")
+	add_child(a)
+
+func _add_static(tex: Texture2D, pos: Vector2) -> void:
+	if tex == null:
+		return
+	var s := Sprite2D.new()
+	s.texture = tex
+	s.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	s.centered = false
+	s.position = pos
+	s.z_index = 0
+	add_child(s)
+
+func _add_building(b: Dictionary) -> void:
+	var org := Vector2(int(b["tile"].x) * TILE, int(b["tile"].y) * TILE)
 	match String(b["kind"]):
 		"house":
 			if not _houses.is_empty():
-				var tex: Texture2D = _houses[int(b["variant"]) % _houses.size()]
-				if tex:
-					draw_texture_rect(tex, Rect2(org, Vector2(TILE, TILE * 2)), false)   # 1x2
+				_add_static(_houses[int(b["variant"]) % _houses.size()], org)   # 1x2
 		"well":
-			if _well.size() == 4 and _well[frame]:
-				draw_texture_rect(_well[frame], Rect2(org, Vector2(TILE * 2, TILE * 2)), false)   # 2x2
+			var sf := _village_sf(_well, 4.0)
+			if sf != null:
+				_add_village_anim(sf, org)                                       # 2x2, 4 FPS
 		"market":
-			# 1x2 sprite rotated 90 degrees to sit horizontal across a 2x1 footprint.
-			if _market:
-				var center := org + Vector2(int(b["w"]) * TILE, int(b["h"]) * TILE) * 0.5
-				draw_set_transform(center, PI / 2.0, Vector2.ONE)
-				draw_texture_rect(_market, Rect2(-TILE * 0.5, -TILE, TILE, TILE * 2), false)
-				draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+			if _market != null:
+				var s := Sprite2D.new()
+				s.texture = _market
+				s.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+				s.centered = true
+				s.rotation = PI / 2.0                                            # 1x2 sprite -> horizontal 2x1
+				s.position = org + Vector2(int(b["w"]) * TILE, int(b["h"]) * TILE) * 0.5
+				s.z_index = 0
+				add_child(s)
 		"player_home":
-			if _player_home:
-				draw_texture_rect(_player_home, Rect2(org, Vector2(TILE, TILE)), false)   # 1x1
+			_add_static(_player_home, org)                                       # 1x1
 
 func _visible_range() -> Rect2i:
 	var z: float = _cam.zoom.x if _cam else 1.0

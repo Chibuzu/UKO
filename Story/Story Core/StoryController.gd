@@ -32,6 +32,16 @@ const MOB_AGGRO := 9
 # ENERGY comes back -- moving never heals. HP/MP are recovered by resting or a sanctuary tile.
 const REGEN_EVERY := 6
 const REGEN_EP := 10
+# ── day / night cycle ──────────────────────────────────────────────────────────
+# Time advances with the actions you take (roam steps + combat actions). After DAY_ACTIONS of
+# daylight, night falls: the NPCs sleep, the wilds shift (walls move) and fresh monsters, rest
+# spots and gemstones spawn. After NIGHT_ACTIONS more, dawn returns and the cycle repeats.
+const DAY_ACTIONS := 45
+const NIGHT_ACTIONS := 25
+const NIGHT_MOBS := 4          # new monsters spawned at nightfall
+const NIGHT_REST := 2          # new resonance spots (golden tiles)
+const NIGHT_GEMS := 4          # new gemstones
+const NIGHT_MUSH := 2          # new mushrooms (rare, so few)
 const REST_SAFE := 5             # a sanctuary tile only rests you if no mob is within this many tiles
 
 enum Phase { ROAM, COMBAT }
@@ -62,6 +72,11 @@ var _talk_npc: String = ""            # id of the NPC whose dialog is open (for 
 var _paused: bool = false
 var _mob_cd: float = 0.0              # countdown to the next world-wander step for all mobs
 var _actions: int = 0                 # your actions since the last passive-regen tick
+var _day_clock: int = 0               # actions elapsed in the current day/night cycle
+var _is_night: bool = false
+var _day_count: int = 1
+var _night_tint: ColorRect = null
+var _gather_layer: CanvasLayer = null
 
 func _ready() -> void:
 	var save: Dictionary = StorySave.read() if StorySave.has_save() else {}
@@ -86,6 +101,8 @@ func _ready() -> void:
 	if resuming and save.has("gems"):
 		omap.set_gems(save["gems"])                # gathered gemstone nodes stay gone across a save
 	board.gem_set = omap.gem_set                   # purple gemstone nodes drawn on the board
+	board.mushroom_set = omap.mushroom_set         # rare mushroom nodes drawn on the board
+	board.building_set = omap.building_set         # village building footprints -> floor + sprites
 
 	var start: Vector2i
 	if resuming:
@@ -161,6 +178,10 @@ func _ready() -> void:
 	add_child(dlg_layer)
 	quest_dialog = QuestDialog.new()
 	dlg_layer.add_child(quest_dialog)
+	# Gathering mini-game on its own layer, above the board (roam is paused while it plays).
+	_gather_layer = CanvasLayer.new()
+	_gather_layer.layer = 22
+	add_child(_gather_layer)
 	quest_dialog.visible = false
 	quest_dialog.quest_action.connect(_on_quest_action)
 	quest_dialog.closed.connect(_close_dialog)
@@ -271,7 +292,7 @@ func _refresh_rest_prompt() -> void:
 	menu.set_rest_prompt(ok)
 	var extras: Array = []
 	if roam:
-		if _nearest_gem(1) != Vector2i(-1, -1):
+		if _nearest_gem(1) != Vector2i(-1, -1) or _nearest_mushroom(1) != Vector2i(-1, -1):
 			extras.append({"id": "gather", "label": "GATHER"})
 		if _npc_near(1) != "":
 			extras.append({"id": "talk", "label": "TALK"})
@@ -556,15 +577,55 @@ func _npc_near(r: int) -> String:
 
 # GATHER button: mine the nearest gemstone -> a material in the bag + a gather quest tick.
 func _gather_nearby() -> void:
-	var g := _nearest_gem(1)
-	if g == Vector2i(-1, -1):
+	# Prefer an adjacent mushroom (rarer), else a gemstone. Gathering now plays a small skill
+	# mini-game; success removes the node and drops the material, a miss leaves it to retry.
+	var kind := ""
+	var tile := Vector2i(-1, -1)
+	var m := _nearest_mushroom(1)
+	if m != Vector2i(-1, -1):
+		kind = "mushroom"
+		tile = m
+	else:
+		var g := _nearest_gem(1)
+		if g != Vector2i(-1, -1):
+			kind = "gemstone"
+			tile = g
+	if kind == "":
 		return
-	omap.remove_gem(g)
-	board.queue_redraw()
-	PlayerInventory.add("gemstone", 1)
-	board.spawn_number(player_uv.position, "+" + ItemBook.item_name("gemstone"), ItemBook.item_color("gemstone"))
-	_quest_event("gather", "gemstone")
-	_refresh_rest_prompt()             # the node is gone -> the GATHER button may drop
+	_paused = true                                 # freeze roam while the mini-game is up
+	var mg := GatherMinigame.new()
+	_gather_layer.add_child(mg)
+	mg.finished.connect(_on_gather_done.bind(kind, tile, mg))
+	mg.start("Gathering " + ItemBook.item_name(kind), 0.16 if kind == "mushroom" else 0.24)
+
+func _on_gather_done(success: bool, kind: String, tile: Vector2i, mg: GatherMinigame) -> void:
+	mg.queue_free()
+	_paused = false
+	if success:
+		if kind == "mushroom":
+			omap.remove_mushroom(tile)
+		else:
+			omap.remove_gem(tile)
+		board.gem_set = omap.gem_set
+		board.mushroom_set = omap.mushroom_set
+		board.queue_redraw()
+		PlayerInventory.add(kind, 1)
+		board.spawn_number(player_uv.position, "+" + ItemBook.item_name(kind), ItemBook.item_color(kind))
+		_quest_event("gather", kind)
+	else:
+		board.spawn_number(player_uv.position, "slipped", ViewConfig.COL_TEXT_OFF)
+	_refresh_rest_prompt()
+
+# Nearest mushroom within Chebyshev range r of the player (-1,-1 if none).
+func _nearest_mushroom(r: int) -> Vector2i:
+	var best := Vector2i(-1, -1)
+	var best_d := r + 1
+	for t in omap.mushroom_tiles:
+		var d: int = maxi(absi(t.x - player.pos.x), absi(t.y - player.pos.y))
+		if d <= r and d < best_d:
+			best = t
+			best_d = d
+	return best
 
 # TALK button: open the nearest NPC's quest dialog (pauses roam while it's up).
 func _talk_nearby() -> void:
@@ -748,6 +809,73 @@ func _bump_actions(n: int) -> void:
 	while _actions >= REGEN_EVERY:
 		_actions -= REGEN_EVERY
 		_regen_tick()
+	_advance_time(n)
+
+# Day/night clock. Nightfall/dawn fire once as the clock crosses their thresholds.
+func _advance_time(n: int) -> void:
+	_day_clock += n
+	if not _is_night and _day_clock >= DAY_ACTIONS:
+		_nightfall()
+	elif _is_night and _day_clock >= DAY_ACTIONS + NIGHT_ACTIONS:
+		_dawn()
+
+func _nightfall() -> void:
+	_is_night = true
+	_set_npcs_asleep(true)
+	# Each night is seeded off the day count, so the wilds shift differently every time.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = _seed ^ (0x00C0FFEE + _day_count * 2654435761)
+	omap.reseed_walls(rng, _occupied_tiles())     # blockers move (player + mobs kept clear)
+	grid.build(omap)                              # grid follows the new wall layout
+	omap.add_rest(rng, NIGHT_REST)                # new resonance spots
+	omap.add_gems(rng, NIGHT_GEMS)                # new gemstones
+	omap.add_mushrooms(rng, NIGHT_MUSH)           # new mushrooms
+	board.rest_set = omap.rest_set
+	board.gem_set = omap.gem_set
+	board.mushroom_set = omap.mushroom_set
+	_spawn_night_mobs(rng, NIGHT_MOBS)            # new monsters
+	board.queue_redraw()
+	_show_night(true)
+	board.spawn_number(player_uv.position, "Night %d falls" % _day_count, ViewConfig.COL_TEXT)
+
+func _dawn() -> void:
+	_is_night = false
+	_day_clock = 0
+	_day_count += 1
+	_set_npcs_asleep(false)
+	_show_night(false)
+	board.spawn_number(player_uv.position, "Dawn", ViewConfig.COL_GOLD)
+
+# Player + every live mob tile, kept open when the walls re-scatter so nothing gets sealed in.
+# NPCs retire indoors at night (hidden) and reappear at dawn.
+func _set_npcs_asleep(asleep: bool) -> void:
+	for n in npcs:
+		if n["uv"] != null:
+			n["uv"].visible = not asleep
+
+func _spawn_night_mobs(rng: RandomNumberGenerator, count: int) -> void:
+	var placed := 0
+	var guard := 0
+	while placed < count and guard < count * 60:
+		guard += 1
+		var t := Vector2i(rng.randi_range(1, OverworldMap.SIZE - 2), rng.randi_range(1, OverworldMap.SIZE - 2))
+		if omap.is_solid(t) or OverworldMap.in_village(t):
+			continue
+		_add_mob(_roll_type(rng), t)
+		placed += 1
+
+# A deep-blue screen tint that fades in at night and out at dawn (kept mild so the UI stays legible).
+func _show_night(on: bool) -> void:
+	if _night_tint == null:
+		var layer := CanvasLayer.new()
+		layer.layer = 3
+		add_child(layer)
+		_night_tint = ColorRect.new()
+		_night_tint.color = Color(0.05, 0.07, 0.22, 0.0)
+		_night_tint.set_anchors_preset(Control.PRESET_FULL_RECT)
+		_night_tint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		layer.add_child(_night_tint)
+	create_tween().tween_property(_night_tint, "color:a", (0.40 if on else 0.0), 1.5)
 
 func _regen_tick() -> void:
 	player.energy = mini(Config.MAX_ENERGY, player.energy + REGEN_EP)

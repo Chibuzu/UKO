@@ -13,6 +13,7 @@ const ITEMS := {
 	"serpent_scale": { "name": "Serpent Scale", "color": Color(0.90, 0.52, 0.55) },
 	"serpent_fang":  { "name": "Serpent Fang",  "color": Color(1.00, 0.85, 0.40) },
 	"gemstone":      { "name": "Gemstone",      "color": Color(0.66, 0.36, 0.92) },   # mirrors ViewConfig.COL_GEM (temporary; gem -> sprite soon)
+	"mushroom":      { "name": "Mushroom",      "color": Color(0.90, 0.30, 0.32) },   # rare gatherable
 }
 
 static func has(item_id: String) -> bool:

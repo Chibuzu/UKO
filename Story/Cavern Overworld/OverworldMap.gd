@@ -8,6 +8,7 @@ extends RefCounted
 const SIZE := 60
 const REST_COUNT := 4            # golden sanctuary tiles: rare, scattered out in the wilds
 const GEM_COUNT := 16            # purple gemstone nodes: gatherable, scattered out in the wilds
+const MUSHROOM_COUNT := 8        # rare mushrooms: only a handful in the whole map
 const BORDER := 1                # the outer ring of tiles is always wall
 
 # The spawn VILLAGE: the mob-free safe zone at world center. This is a FOUNDING BLOCK -- one
@@ -22,6 +23,8 @@ var rest_tiles: Array = []       # Vector2i sanctuary tiles (for drawing + save-
 var rest_set: Dictionary = {}    # Vector2i -> true, for O(1) "is this a rest tile?" lookups
 var gem_tiles: Array = []        # Vector2i gemstone nodes (walkable overlay tiles, gatherable)
 var gem_set: Dictionary = {}     # Vector2i -> true, for O(1) "is this a gemstone?" lookups
+var mushroom_tiles: Array = []   # Vector2i mushroom nodes (rare, gatherable)
+var mushroom_set: Dictionary = {}
 var building_set: Dictionary = {}   # Vector2i -> true: village building footprints (solid; drawn as sprites)
 
 # ── village (single source of truth) ──────────────────────────────────────────
@@ -41,15 +44,21 @@ static func in_village(t: Vector2i) -> bool:
 # player's home set a bit apart. One empty tile between neighbours.
 static func village_buildings() -> Array:
 	return [
-		{"kind": "house", "tile": Vector2i(7, 45), "w": 1, "h": 2, "variant": 0},
-		{"kind": "house", "tile": Vector2i(9, 45), "w": 1, "h": 2, "variant": 1},
-		{"kind": "house", "tile": Vector2i(11, 45), "w": 1, "h": 2, "variant": 2},
+		# top row: 5 houses (2 extra: one further left, one further right)
+		{"kind": "house", "tile": Vector2i(5, 44), "w": 1, "h": 2, "variant": 0},
+		{"kind": "house", "tile": Vector2i(7, 44), "w": 1, "h": 2, "variant": 1},
+		{"kind": "house", "tile": Vector2i(9, 44), "w": 1, "h": 2, "variant": 2},
+		{"kind": "house", "tile": Vector2i(11, 44), "w": 1, "h": 2, "variant": 0},
+		{"kind": "house", "tile": Vector2i(13, 44), "w": 1, "h": 2, "variant": 1},
 		{"kind": "well",   "tile": Vector2i(8, 48), "w": 2, "h": 2, "variant": 0},
-		{"kind": "house", "tile": Vector2i(7, 51), "w": 1, "h": 2, "variant": 0},
-		{"kind": "house", "tile": Vector2i(9, 51), "w": 1, "h": 2, "variant": 1},
-		{"kind": "house", "tile": Vector2i(11, 51), "w": 1, "h": 2, "variant": 2},
+		# bottom row: 5 houses
+		{"kind": "house", "tile": Vector2i(5, 52), "w": 1, "h": 2, "variant": 2},
+		{"kind": "house", "tile": Vector2i(7, 52), "w": 1, "h": 2, "variant": 0},
+		{"kind": "house", "tile": Vector2i(9, 52), "w": 1, "h": 2, "variant": 1},
+		{"kind": "house", "tile": Vector2i(11, 52), "w": 1, "h": 2, "variant": 2},
+		{"kind": "house", "tile": Vector2i(13, 52), "w": 1, "h": 2, "variant": 0},
 		{"kind": "market", "tile": Vector2i(3, 48), "w": 2, "h": 1, "variant": 0},
-		{"kind": "player_home", "tile": Vector2i(14, 54), "w": 1, "h": 1, "variant": 0},
+		{"kind": "player_home", "tile": Vector2i(15, 55), "w": 1, "h": 1, "variant": 0},
 	]
 
 # The conveyor line: from just above the market straight up to the northern edge (the main
@@ -128,6 +137,17 @@ func generate(seed_value: int) -> void:
 		gtries += 1
 		_try_add_gem(_random_inner_tile(gr))
 
+	# Mushrooms: rare gatherable nodes -- only MUSHROOM_COUNT in the whole map. Same wilderness
+	# scatter as gems (never in the village), seeded off the map seed so a zone is consistent.
+	mushroom_tiles = []
+	mushroom_set = {}
+	var mr := RandomNumberGenerator.new()
+	mr.seed = seed_value ^ 0x1B873593
+	var mtries := 0
+	while mushroom_tiles.size() < MUSHROOM_COUNT and mtries < MUSHROOM_COUNT * 400:
+		mtries += 1
+		_try_add_mushroom(_random_inner_tile(mr))
+
 # A random open-range tile inside the playable border (never the outer wall ring). One helper
 # so every scatter pass draws from the same coordinate range.
 func _random_inner_tile(rng: RandomNumberGenerator) -> Vector2i:
@@ -142,6 +162,28 @@ func _try_add_gem(t: Vector2i) -> void:
 
 func is_gem(t: Vector2i) -> bool:
 	return gem_set.has(t)
+
+# ── mushrooms (rare gatherables) ──────────────────────────────────────────────
+func _try_add_mushroom(t: Vector2i) -> void:
+	if is_solid(t) or in_village(t) or gem_set.has(t) or rest_set.has(t) or mushroom_set.has(t):
+		return
+	mushroom_set[t] = true
+	mushroom_tiles.append(t)
+
+func is_mushroom(t: Vector2i) -> bool:
+	return mushroom_set.has(t)
+
+func remove_mushroom(t: Vector2i) -> void:
+	mushroom_set.erase(t)
+	mushroom_tiles.erase(t)
+
+# Scatter `count` MORE mushrooms (used by the night refresh).
+func add_mushrooms(rng: RandomNumberGenerator, count: int) -> void:
+	var target := mushroom_tiles.size() + count
+	var tries := 0
+	while mushroom_tiles.size() < target and tries < count * 400:
+		tries += 1
+		_try_add_mushroom(_random_inner_tile(rng))
 
 func is_building(t: Vector2i) -> bool:
 	return building_set.has(t)
@@ -178,6 +220,66 @@ func is_solid(t: Vector2i) -> bool:
 	if t.x < 0 or t.y < 0 or t.x >= SIZE or t.y >= SIZE:
 		return true
 	return blocked[t.y][t.x]
+
+# ── day/night refresh ─────────────────────────────────────────────────────────
+# Re-scatter the interior walls ("blockers move"). Border, village footprints and the belt are
+# preserved; gems, rest tiles, and the keep_clear tiles (+ their neighbours) stay open so nobody
+# gets walled in. Caller rebuilds the grid + redraws afterwards.
+func reseed_walls(rng: RandomNumberGenerator, keep_clear: Array) -> void:
+	var protect := {}
+	for t in keep_clear:
+		for dx in range(-1, 2):
+			for dy in range(-1, 2):
+				protect[t + Vector2i(dx, dy)] = true
+	blocked = []
+	for y in SIZE:
+		var row: Array = []
+		for x in SIZE:
+			row.append(false)
+		blocked.append(row)
+	for x in SIZE:
+		blocked[0][x] = true
+		blocked[SIZE - 1][x] = true
+	for y in SIZE:
+		blocked[y][0] = true
+		blocked[y][SIZE - 1] = true
+	for i in 80:
+		var cx := rng.randi_range(2, SIZE - 3)
+		var cy := rng.randi_range(2, SIZE - 3)
+		if in_village(Vector2i(cx, cy)):
+			continue
+		for j in rng.randi_range(1, 4):
+			var bx := clampi(cx + rng.randi_range(-1, 1), BORDER, SIZE - 1 - BORDER)
+			var by := clampi(cy + rng.randi_range(-1, 1), BORDER, SIZE - 1 - BORDER)
+			var bt := Vector2i(bx, by)
+			if in_village(bt) or protect.has(bt) or gem_set.has(bt) or rest_set.has(bt):
+				continue
+			blocked[by][bx] = true
+	for b in village_buildings():
+		for dx in range(int(b["w"])):
+			for dy in range(int(b["h"])):
+				var vt: Vector2i = b["tile"] + Vector2i(dx, dy)
+				if vt.x >= 0 and vt.y >= 0 and vt.x < SIZE and vt.y < SIZE:
+					blocked[vt.y][vt.x] = true
+	for tt in transport_tiles():
+		if tt.x > 0 and tt.y > 0 and tt.x < SIZE - 1 and tt.y < SIZE - 1:
+			blocked[tt.y][tt.x] = false
+
+# Scatter `count` MORE resonance spots (golden rest tiles) onto open wilderness ground.
+func add_rest(rng: RandomNumberGenerator, count: int) -> void:
+	var target := rest_tiles.size() + count
+	var tries := 0
+	while rest_tiles.size() < target and tries < count * 200:
+		tries += 1
+		_try_add_rest(_random_inner_tile(rng))
+
+# Scatter `count` MORE gemstone nodes onto open wilderness ground.
+func add_gems(rng: RandomNumberGenerator, count: int) -> void:
+	var target := gem_tiles.size() + count
+	var tries := 0
+	while gem_tiles.size() < target and tries < count * 200:
+		tries += 1
+		_try_add_gem(_random_inner_tile(rng))
 
 func nearest_open(t: Vector2i) -> Vector2i:
 	if not is_solid(t):

@@ -25,7 +25,7 @@ func build(map: OverworldMap) -> void:
 # (not the blocked array), so they still DRAW as gems -- but you can't step onto one until it's
 # gathered, at which point remove_gem() clears it here too (shared reference).
 func is_blocked(p: Vector2i) -> bool:
-	if gem_map != null and gem_map.is_gem(p):
+	if gem_map != null and (gem_map.is_gem(p) or gem_map.is_mushroom(p)):
 		return true
 	return super.is_blocked(p)
 

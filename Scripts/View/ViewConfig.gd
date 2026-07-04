@@ -89,6 +89,8 @@ const COL_GOLD := Color(1.0, 0.84, 0.30)   # gold reward / wallet readout
 const COL_REST_FILL := Color(1.0, 0.84, 0.30, 0.30)   # golden sanctuary tile (rest point)
 const COL_GEM := Color(0.66, 0.36, 0.92)              # gemstone node border (gatherable)
 const COL_GEM_FILL := Color(0.66, 0.36, 0.92, 0.55)   # gemstone node fill
+const COL_MUSH := Color(0.90, 0.30, 0.32)             # mushroom cap (gatherable, rare)
+const COL_MUSH_STEM := Color(0.93, 0.88, 0.80)        # mushroom stem
 
 # Combat log panel (far right).
 const LOG_ORIGIN := Vector2(888, 56)  # inside the right panel

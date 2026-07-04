@@ -13,8 +13,21 @@ extends BoardView
 var window_origin: Vector2i = Vector2i.ZERO
 var rest_set: Dictionary = {}     # Vector2i sanctuary tiles -> true (set by the controller)
 var gem_set: Dictionary = {}      # Vector2i gemstone nodes -> true (set by the controller)
+var mushroom_set: Dictionary = {} # Vector2i mushroom nodes -> true (rare gatherables)
+var building_set: Dictionary = {} # Vector2i village building footprints -> floor here + sprite on top
 const GEM_PATH := "res://Assets/Sprites/Gemstone_sprite.png"
 var gem_tex: Texture2D = null     # gemstone node art; falls back to the purple tile if absent
+# Village art (houses/market/player home static; well + belt are 4-frame animations at 4 FPS).
+const VILLAGE_DIR := "res://Assets/Sprites/Village/"
+const HOUSE_FILES := ["Double_home_1.png", "Double_home_2.png", "Double_home_3.png"]
+const WELL_FILES := ["Water_well_1.png", "Water_Well_2.png", "Water_Well_3.png", "Water_well_4.png"]
+const TRANSPORT_FILES := ["Transport_1.png", "Transport_2.png", "Transport_3.png", "Transport_4.png"]
+var _houses: Array = []
+var _well: Array = []
+var _transport: Array = []
+var _market: Texture2D = null
+var _player_home: Texture2D = null
+var _anim_t: float = 0.0
 # BORDER_BLOCKER_PATH / border_tex are inherited from BoardView (shared with the duel's shrink ring).
 
 func setup_world(g: Grid) -> void:
@@ -31,8 +44,26 @@ func setup_world(g: Grid) -> void:
 		texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	if border_tex == null and ResourceLoader.exists(BORDER_BLOCKER_PATH):
 		border_tex = load(BORDER_BLOCKER_PATH)
-		texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	if _houses.is_empty():
+		for f in HOUSE_FILES:
+			_houses.append(_load_village(f))
+		for f in WELL_FILES:
+			_well.append(_load_village(f))
+		for f in TRANSPORT_FILES:
+			_transport.append(_load_village(f))
+		_market = _load_village("Market.png")
+		_player_home = _load_village("Players_home_.png")
+		set_process(true)   # drive the well + belt animation
+	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	set_window(Vector2i.ZERO)
+
+func _load_village(fname: String) -> Texture2D:
+	var p := VILLAGE_DIR + fname
+	return load(p) if ResourceLoader.exists(p) else null
+
+func _process(delta: float) -> void:
+	_anim_t += delta
+	queue_redraw()
 
 # Move the visible window so it starts at world tile `origin`. Offsetting position by
 # -origin*TILE places the window onto the fixed board rect at BOARD_ORIGIN; _base_pos
@@ -64,19 +95,22 @@ func _draw() -> void:
 			if wx >= 0 and wy >= 0 and wx < w and wy < w:
 				solid = grid.blocked[wy][wx]
 			if solid:
-				# The ring that contours the world uses blocker.png; interior walls use Blocker 2.png,
-				# rotated per-tile for the same purple weave as the duel board (a flat grid reads grey).
-				var is_border: bool = wx <= 0 or wy <= 0 or wx >= w - 1 or wy >= w - 1
-				if is_border and border_tex:
-					draw_texture_rect(border_tex, rect, false)
-				elif blocker_tex:
-					var c := rect.position + rect.size * 0.5
-					var rot := float((wx * 3 + wy * 5) % 4) * (PI / 2.0)
-					draw_set_transform(c, rot, Vector2.ONE)
-					draw_texture_rect(blocker_tex, Rect2(-T * 0.5, -T * 0.5, T, T), false)
-					draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+				if building_set.has(Vector2i(wx, wy)):
+					pass   # village building footprint: keep the floor; the sprite is drawn after the loop
 				else:
-					draw_rect(rect, ViewConfig.COL_BLOCKED)
+					# The ring that contours the world uses blocker.png; interior walls use Blocker 2.png,
+					# rotated per-tile for the same purple weave as the duel board (a flat grid reads grey).
+					var is_border: bool = wx <= 0 or wy <= 0 or wx >= w - 1 or wy >= w - 1
+					if is_border and border_tex:
+						draw_texture_rect(border_tex, rect, false)
+					elif blocker_tex:
+						var c := rect.position + rect.size * 0.5
+						var rot := float((wx * 3 + wy * 5) % 4) * (PI / 2.0)
+						draw_set_transform(c, rot, Vector2.ONE)
+						draw_texture_rect(blocker_tex, Rect2(-T * 0.5, -T * 0.5, T, T), false)
+						draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+					else:
+						draw_rect(rect, ViewConfig.COL_BLOCKED)
 			else:
 				if bg_tex == null:
 					draw_rect(rect, ViewConfig.COL_OPEN)      # fallback floor only when art missing
@@ -89,9 +123,51 @@ func _draw() -> void:
 					else:
 						draw_rect(rect, ViewConfig.COL_GEM_FILL)
 						draw_rect(rect, ViewConfig.COL_GEM, false, 2.0)
+				elif mushroom_set.has(Vector2i(wx, wy)):  # mushroom node (rare): red cap + pale stem
+					var stem := Rect2(rect.position + Vector2(T * 0.40, T * 0.52), Vector2(T * 0.20, T * 0.30))
+					var cap := Rect2(rect.position + Vector2(T * 0.20, T * 0.22), Vector2(T * 0.60, T * 0.34))
+					draw_rect(stem, ViewConfig.COL_MUSH_STEM)
+					draw_rect(cap, ViewConfig.COL_MUSH)
 			draw_rect(rect, ViewConfig.COL_GRID_LINE, false, 1.0)
+	_draw_village(T)
 	for pos in highlights:
 		draw_rect(Rect2(pos.x * T, pos.y * T, T, T), highlight_color)
 	for pos in fx_tiles:
 		draw_rect(Rect2(pos.x * T, pos.y * T, T, T), fx_color)
 	# window frame is drawn by UIFrame (crisp purple, screen-fixed) -- no per-board edge here
+
+# ── village buildings ─────────────────────────────────────────────────────────
+func _in_window(t: Vector2i) -> bool:
+	var vt: int = ViewConfig.VIEW_TILES
+	return t.x >= window_origin.x and t.x < window_origin.x + vt and t.y >= window_origin.y and t.y < window_origin.y + vt
+
+# Buildings + transport belt, in world coords (the node offset maps them into the window).
+func _draw_village(T: float) -> void:
+	var frame := int(_anim_t * 4.0) % 4          # well + belt: 4 FPS
+	if _transport.size() == 4 and _transport[frame]:
+		for t in OverworldMap.transport_tiles():
+			if _in_window(t):
+				draw_texture_rect(_transport[frame], Rect2(t.x * T, t.y * T, T, T), false)
+	for b in OverworldMap.village_buildings():
+		_draw_building(b, T, frame)
+
+func _draw_building(b: Dictionary, T: float, frame: int) -> void:
+	var org := Vector2(int(b["tile"].x) * T, int(b["tile"].y) * T)
+	match String(b["kind"]):
+		"house":
+			if not _houses.is_empty():
+				var tex: Texture2D = _houses[int(b["variant"]) % _houses.size()]
+				if tex:
+					draw_texture_rect(tex, Rect2(org, Vector2(T, T * 2)), false)   # 1x2
+		"well":
+			if _well.size() == 4 and _well[frame]:
+				draw_texture_rect(_well[frame], Rect2(org, Vector2(T * 2, T * 2)), false)   # 2x2
+		"market":
+			if _market:
+				var center := org + Vector2(int(b["w"]) * T, int(b["h"]) * T) * 0.5
+				draw_set_transform(center, PI / 2.0, Vector2.ONE)                 # 1x2 sprite -> horizontal 2x1
+				draw_texture_rect(_market, Rect2(-T * 0.5, -T, T, T * 2), false)
+				draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		"player_home":
+			if _player_home:
+				draw_texture_rect(_player_home, Rect2(org, Vector2(T, T)), false)   # 1x1
