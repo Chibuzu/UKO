@@ -48,7 +48,7 @@ func _process(delta: float) -> void:
 func _input(event: InputEvent) -> void:
 	if not _running:
 		return
-	var press := (event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT) \
+	var press: bool = (event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT) \
 		or (event is InputEventKey and event.pressed and not event.echo and event.keycode in [KEY_SPACE, KEY_ENTER, KEY_KP_ENTER])
 	if press:
 		get_viewport().set_input_as_handled()

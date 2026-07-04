@@ -225,7 +225,7 @@ func is_solid(t: Vector2i) -> bool:
 # Re-scatter the interior walls ("blockers move"). Border, village footprints and the belt are
 # preserved; gems, rest tiles, and the keep_clear tiles (+ their neighbours) stay open so nobody
 # gets walled in. Caller rebuilds the grid + redraws afterwards.
-func reseed_walls(rng: RandomNumberGenerator, keep_clear: Array) -> void:
+func reseed_walls(rng: RandomNumberGenerator, keep_clear: Dictionary) -> void:
 	var protect := {}
 	for t in keep_clear:
 		for dx in range(-1, 2):

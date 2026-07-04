@@ -593,12 +593,16 @@ func _gather_nearby() -> void:
 	if kind == "":
 		return
 	_paused = true                                 # freeze roam while the mini-game is up
-	var mg := GatherMinigame.new()
+	var mg                                         # untyped: either mini-game type shares the contract
+	if kind == "mushroom":
+		mg = OneStrokeRune.new()                   # one-stroke rune puzzle for the rare mushroom
+	else:
+		mg = VeinDeduction.new()                   # mastermind deduction for gemstones
 	_gather_layer.add_child(mg)
 	mg.finished.connect(_on_gather_done.bind(kind, tile, mg))
-	mg.start("Gathering " + ItemBook.item_name(kind), 0.16 if kind == "mushroom" else 0.24)
+	mg.start("Gathering " + ItemBook.item_name(kind), 0.55 if kind == "mushroom" else 0.5)
 
-func _on_gather_done(success: bool, kind: String, tile: Vector2i, mg: GatherMinigame) -> void:
+func _on_gather_done(success: bool, kind: String, tile: Vector2i, mg: Control) -> void:
 	mg.queue_free()
 	_paused = false
 	if success:
@@ -888,6 +892,18 @@ func _try_rest_tile() -> void:
 		return
 	if _mob_near(player.pos, REST_SAFE):
 		board.spawn_number(player_uv.position, "not safe", ViewConfig.COL_TEXT_OFF)
+		return
+	_paused = true
+	var mg := AttunementWave.new()
+	_gather_layer.add_child(mg)
+	mg.finished.connect(_on_attune_done.bind(mg))
+	mg.start("Attune to the resonance", 0.5)
+
+func _on_attune_done(success: bool, mg: Control) -> void:
+	mg.queue_free()
+	_paused = false
+	if not success:
+		board.spawn_number(player_uv.position, "out of tune", ViewConfig.COL_TEXT_OFF)
 		return
 	player.hp = Config.MAX_HP
 	player.mp = Config.MAX_MP
