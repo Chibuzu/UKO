@@ -113,6 +113,12 @@ static func resolve(grid: Grid, in_a: Combatant, in_b: Combatant,
 				"noop":
 					pass
 
+			# The grenade root bites only the target's NEXT action. A move is cancelled inside
+			# _do_move (which clears the root); for any other action we clear it here -- so the
+			# root can never linger past that one action to block some later move.
+			if actor.statuses.has("rooted"):
+				actor.statuses.erase("rooted")
+
 	# Guard outcome. Use the LATCH, not the live shield (an offensive action may
 	# have dropped it): you still earn the refund if you blocked before striking.
 	for c in [a, b]:
@@ -138,9 +144,9 @@ static func resolve(grid: Grid, in_a: Combatant, in_b: Combatant,
 	for c in [a, b]:
 		_tick_down(c.statuses, fresh[c.id]["status"])
 
-	# Passive energy regen: a SHARED metronome. Every ENERGY_PULSE_ACTIONS
-	# non-Wait actions taken by EITHER fighter, both regain energy at once.
-	_tally_shared_energy(a, b, plan_a["actions"], plan_b["actions"], events)
+	# Passive energy regen: a PER-PLAYER metronome. Every ENERGY_PULSE_ACTIONS
+	# non-Wait actions a fighter takes, THAT fighter alone regains energy.
+	_tally_energy(a, b, plan_a["actions"], plan_b["actions"], events)
 
 	# Rest gate: you may only REST after a full turn without taking damage. Set the
 	# flag from THIS turn's damage so it gates NEXT turn's rest availability.
@@ -216,26 +222,23 @@ static func _is_offensive(s: Dictionary) -> bool:
 			return String(Config.def(s.get("id", "")).get("effect", {}).get("type", "")) == "damage"
 	return false
 
-# Shared metronome: count every real action by BOTH fighters into one tally
-# (mirrored on both combatants so it persists). Each full ENERGY_PULSE_ACTIONS
-# pulses BOTH players' energy at once.
-static func _tally_shared_energy(a: Combatant, b: Combatant,
+# Per-player metronome: each fighter counts ONLY their own real actions; every
+# ENERGY_PULSE_ACTIONS of them, THAT fighter alone regains energy.
+static func _tally_energy(a: Combatant, b: Combatant,
 		acts_a: Array, acts_b: Array, events: Array) -> void:
-	var shared: int = a.action_count
-	for act in acts_a:
+	_tally_one(a, acts_a, "A", events)
+	_tally_one(b, acts_b, "B", events)
+
+static func _tally_one(c: Combatant, acts: Array, id: String, events: Array) -> void:
+	var count: int = c.action_count
+	for act in acts:
 		if _real_action(act):
-			shared += 1
-	for act in acts_b:
-		if _real_action(act):
-			shared += 1
-	while shared >= Config.ENERGY_PULSE_ACTIONS:
-		shared -= Config.ENERGY_PULSE_ACTIONS
-		a.energy = mini(Config.MAX_ENERGY, a.energy + Config.ENERGY_REGEN)
-		b.energy = mini(Config.MAX_ENERGY, b.energy + Config.ENERGY_REGEN)
-		events.append(_ev("energy_pulse", -1, "A", {"amount": Config.ENERGY_REGEN}))
-		events.append(_ev("energy_pulse", -1, "B", {"amount": Config.ENERGY_REGEN}))
-	a.action_count = shared
-	b.action_count = shared
+			count += 1
+	while count >= Config.ENERGY_PULSE_ACTIONS:
+		count -= Config.ENERGY_PULSE_ACTIONS
+		c.energy = mini(Config.MAX_ENERGY, c.energy + Config.ENERGY_REGEN)
+		events.append(_ev("energy_pulse", -1, id, {"amount": Config.ENERGY_REGEN}))
+	c.action_count = count
 
 # Legalize, pay for, and schedule a player's whole sequence. Returns the
 # scheduled entries (with cumulative strike times) and the legalized actions.

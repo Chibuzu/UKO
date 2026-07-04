@@ -33,6 +33,7 @@ var _shift_notes: Array = []   # this turn's rotation/crush log lines, recorded 
 var selection: SelectionController   # player input / targeting system
 var replay: ReplayController         # record + replay system
 var end_screen: EndScreen
+var _pause_menu: PauseMenu       # Esc pause overlay (null when not paused)
 var opponent: OpponentSource         # AI or remote human -- swap this for online play
 var match_config: MatchConfig        # map seed + loadouts + which side is local
 
@@ -244,12 +245,17 @@ func _await_local_plan() -> Array:
 # fighter takes crush damage instead; the grid then repairs connectivity if the
 # rotation stranded them. Naive to the AI (it plans each turn's board, not ahead).
 func _rotate_map() -> void:
-	var crushed := grid.rotate_blockers([a.pos, b.pos])
-	for p in crushed:
-		var who: Combatant = a if p == a.pos else b
+	var res := grid.rotate_blockers([a.pos, b.pos])
+	a.pos = res["positions"][0]      # a fighter shoved out of the closing zone lands here
+	b.pos = res["positions"][1]
+	for idx in res["crushed_idx"]:
+		var who: Combatant = a if int(idx) == 0 else b
 		who.hp = maxi(1, who.hp - Config.MAP_CRUSH_DAMAGE)   # avoidable + telegraphed -> non-lethal cap
 		who.rest_ready = false                                # took damage -> no REST next turn
-		_log_shift("%s crushed by a shifting wall (-%d)" % [who.id, Config.MAP_CRUSH_DAMAGE], ViewConfig.COL_WIN_B)
+		_log_shift("%s crushed by the closing wall (-%d)" % [who.id, Config.MAP_CRUSH_DAMAGE], ViewConfig.COL_WIN_B)
+	if grid.shrink_level > 0:
+		var side: int = Grid.SIZE - 2 * grid.shrink_level
+		_log_shift("-- ZONE CLOSES (%dx%d) --" % [side, side], ViewConfig.COL_DRAW)
 	_log_shift("-- QUADRANTS SHIFT --", ViewConfig.COL_TEXT)
 	board.queue_redraw()   # walls moved; repaint the arena
 	board.earthquake()     # rumble + trembling walls to sell the shift
@@ -313,3 +319,37 @@ func _on_end_choice(which: String) -> void:
 			get_tree().change_scene_to_file(dest)
 		"replay":
 			replay.enter(end_screen)
+
+# Esc opens the pause overlay (unless the match already ended or it's already open).
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE:
+		if _pause_menu == null and end_screen == null:
+			_open_pause()
+			get_viewport().set_input_as_handled()
+
+func _open_pause() -> void:
+	var pm := PauseMenu.new()
+	pm.process_mode = Node.PROCESS_MODE_ALWAYS   # stays responsive while the tree is paused
+	add_child(pm)
+	pm.choice.connect(_on_pause_choice)
+	_pause_menu = pm
+	get_tree().paused = true
+
+func _close_pause() -> void:
+	get_tree().paused = false
+	if _pause_menu != null:
+		_pause_menu.queue_free()
+		_pause_menu = null
+
+func _on_pause_choice(which: String) -> void:
+	match which:
+		"resume":
+			_close_pause()
+		"restart":
+			get_tree().paused = false
+			get_tree().reload_current_scene()               # fresh match, same scene
+		"menu":
+			get_tree().paused = false
+			var dest := pending_return_scene if pending_return_scene != "" else MENU_SCENE
+			pending_return_scene = ""
+			get_tree().change_scene_to_file(dest)

@@ -10,7 +10,6 @@ extends Grid
 
 var world_size: int = OverworldMap.SIZE
 
-var world_size: int = OverworldMap.SIZE
 var gem_map: OverworldMap = null   # ungathered gemstone nodes are solid; gathering clears them
 
 # Adopt an overworld's wall layout as this grid's terrain.
@@ -37,8 +36,8 @@ func in_bounds(p: Vector2i) -> bool:
 	return p.x >= 0 and p.x < world_size and p.y >= 0 and p.y < world_size
 
 # The open world does not rotate, so these arena mechanics are no-ops here.
-func rotate_blockers(_occupants: Array) -> Array:
-	return []
+func rotate_blockers(occupants: Array) -> Dictionary:
+	return {"crushed_idx": [], "positions": occupants}   # story: no quadrant rotation, no shrinking zone
 
 func incoming_walls() -> Array:
 	return []

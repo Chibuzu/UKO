@@ -15,8 +15,7 @@ var rest_set: Dictionary = {}     # Vector2i sanctuary tiles -> true (set by the
 var gem_set: Dictionary = {}      # Vector2i gemstone nodes -> true (set by the controller)
 const GEM_PATH := "res://Assets/Sprites/Gemstone_sprite.png"
 var gem_tex: Texture2D = null     # gemstone node art; falls back to the purple tile if absent
-const BORDER_BLOCKER_PATH := "res://Assets/Sprites/blocker.png"   # the ring that contours the world
-var border_tex: Texture2D = null
+# BORDER_BLOCKER_PATH / border_tex are inherited from BoardView (shared with the duel's shrink ring).
 
 func setup_world(g: Grid) -> void:
 	grid = g
@@ -50,6 +49,12 @@ func _draw() -> void:
 		return
 	var T := ViewConfig.TILE
 	var w: int = grid.blocked.size()
+	# Floor: draw the 384x384 map_bg ONCE over the whole 12x12 window -- exactly like the duel board.
+	# (Drawing it per open tile squished the full image into every tile, so it read differently.)
+	if bg_tex:
+		var floor_rect := Rect2(window_origin.x * T, window_origin.y * T,
+			ViewConfig.VIEW_TILES * T, ViewConfig.VIEW_TILES * T)
+		draw_texture_rect(bg_tex, floor_rect, false)
 	for ly in range(ViewConfig.VIEW_TILES):
 		for lx in range(ViewConfig.VIEW_TILES):
 			var wx := window_origin.x + lx
@@ -73,10 +78,8 @@ func _draw() -> void:
 				else:
 					draw_rect(rect, ViewConfig.COL_BLOCKED)
 			else:
-				if bg_tex:
-					draw_texture_rect(bg_tex, rect, false)
-				else:
-					draw_rect(rect, ViewConfig.COL_OPEN)
+				if bg_tex == null:
+					draw_rect(rect, ViewConfig.COL_OPEN)      # fallback floor only when art missing
 				if rest_set.has(Vector2i(wx, wy)):        # golden sanctuary tile
 					draw_rect(rect, ViewConfig.COL_REST_FILL)
 					draw_rect(rect, ViewConfig.COL_GOLD, false, 2.0)

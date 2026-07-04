@@ -41,7 +41,7 @@ const MAX_HP := 100
 const MAX_MP := 100
 const MAX_ENERGY := 100
 const ENERGY_REGEN := 30
-const ENERGY_PULSE_ACTIONS := 6   # regen fires every 6 SHARED non-Wait actions (both fighters)
+const ENERGY_PULSE_ACTIONS := 6   # a fighter regains energy every 6 of their OWN non-Wait actions
 const ENERGY_PULSE_TURNS := 3     # legacy, unused (kept so any old harness still compiles)
 const WAIT_ENERGY := 10           # small personal energy top-up WAIT now grants (tunable)
 

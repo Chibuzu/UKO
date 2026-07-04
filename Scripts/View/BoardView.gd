@@ -21,7 +21,9 @@ var _quake_amp := 0.0                            # current per-wall tremble ampl
 const BG_PATH := "res://assets/sprites/map_bg.png"
 var bg_tex: Texture2D = null                     # decorative floor; live blockers draw on top
 const BLOCKER_PATH := "res://Assets/Sprites/Blocker 2.png"
-var blocker_tex: Texture2D = null                # wall tile art; rotated per-tile for variety
+var blocker_tex: Texture2D = null                # interior wall art; rotated per-tile for variety
+const BORDER_BLOCKER_PATH := "res://Assets/Sprites/blocker.png"   # shrinking-zone ring walls
+var border_tex: Texture2D = null
 
 func setup(g: Grid) -> void:
 	grid = g
@@ -33,6 +35,8 @@ func setup(g: Grid) -> void:
 		texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST   # crisp pixel floor
 	if blocker_tex == null and ResourceLoader.exists(BLOCKER_PATH):
 		blocker_tex = load(BLOCKER_PATH)
+	if border_tex == null and ResourceLoader.exists(BORDER_BLOCKER_PATH):
+		border_tex = load(BORDER_BLOCKER_PATH)
 		texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST   # crisp pixel walls
 	queue_redraw()
 
@@ -69,25 +73,47 @@ func _process(delta: float) -> void:
 	elif position != _base_pos:
 		position = _base_pos
 
+# How many complete outer rings are fully walled (the shrinking zone). Derived from `blocked`
+# so it's right live AND in replays (which restore each turn's wall layout).
+func _closed_rings() -> int:
+	if grid == null:
+		return 0
+	var d := 0
+	while d < Grid.SIZE / 2:
+		var full := true
+		for i in range(Grid.SIZE):
+			if not grid.blocked[d][i] or not grid.blocked[Grid.SIZE - 1 - d][i] or not grid.blocked[i][d] or not grid.blocked[i][Grid.SIZE - 1 - d]:
+				full = false
+				break
+		if not full:
+			return d
+		d += 1
+	return d
+
 func _draw() -> void:
 	if grid == null:
 		return
 	var total := Grid.SIZE * ViewConfig.TILE
 	var qtime := Time.get_ticks_msec() / 1000.0   # phase clock for the wall tremble
+	var rings := _closed_rings()                   # outer rings sealed by the shrinking zone
 	if bg_tex:
 		draw_texture_rect(bg_tex, Rect2(0, 0, total, total), false)   # decorative floor
 	for y in range(Grid.SIZE):
 		for x in range(Grid.SIZE):
 			var rect := Rect2(x * ViewConfig.TILE, y * ViewConfig.TILE, ViewConfig.TILE, ViewConfig.TILE)
 			if grid.blocked[y][x]:
-				if blocker_tex:
-					# Wall art, rotated 0/90/180/270 by a stable per-tile hash so the
-					# weave varies across the arena (square tile stays aligned).
-					var c := rect.position + rect.size * 0.5
-					if _quake_amp > 0.0:
-						# Each wall trembles on its own phase, settling as the quake fades.
-						var ph := float(x * 7 + y * 13)
-						c += Vector2(sin(qtime * 55.0 + ph), cos(qtime * 48.0 + ph * 1.3)) * _quake_amp
+				var depth := mini(mini(x, y), mini(Grid.SIZE - 1 - x, Grid.SIZE - 1 - y))
+				var c := rect.position + rect.size * 0.5
+				if _quake_amp > 0.0:
+					# Each wall trembles on its own phase, settling as the quake fades.
+					var ph := float(x * 7 + y * 13)
+					c += Vector2(sin(qtime * 55.0 + ph), cos(qtime * 48.0 + ph * 1.3)) * _quake_amp
+				if depth < rings and border_tex:
+					# Shrinking-zone ring wall: blocker.png, flat (a clean contour), no rotation.
+					draw_texture_rect(border_tex,
+						Rect2(c.x - ViewConfig.TILE * 0.5, c.y - ViewConfig.TILE * 0.5, ViewConfig.TILE, ViewConfig.TILE), false)
+				elif blocker_tex:
+					# Interior wall: Blocker 2.png, rotated 0/90/180/270 by a stable per-tile hash.
 					var rot := float((x * 3 + y * 5) % 4) * (PI / 2.0)
 					draw_set_transform(c, rot, Vector2.ONE)
 					draw_texture_rect(blocker_tex,

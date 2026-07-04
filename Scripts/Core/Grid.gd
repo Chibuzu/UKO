@@ -5,6 +5,7 @@ class_name Grid
 extends RefCounted
 
 const SIZE := 12
+const SHRINK_FLOOR := 4        # the shrinking zone stops here (4x4); never closes past it
 const DIRS := [Vector2i(0, -1), Vector2i(0, 1), Vector2i(-1, 0), Vector2i(1, 0)]
 const ROT_STEPS := 4           # quadrant cycle has 4 orientations; 4 shifts return to start
 const GEN_ATTEMPTS := 200      # max arena re-rolls to find a connected layout
@@ -16,6 +17,7 @@ var spawn_a: Vector2i
 var spawn_b: Vector2i
 var base_blocked: Array = []   # canonical layout; rotations derive from this so walls return
 var rot_step := 0              # 0-3: how many clockwise quadrant shifts from the canonical layout
+var shrink_level := 0          # rings closed by the shrinking zone (0 = full 12x12, 4 = 4x4 floor)
 
 func _init() -> void:
 	_clear()
@@ -105,17 +107,69 @@ func _connected(start: Vector2i, goal: Vector2i) -> bool:
 # -- those tiles are suppressed (cleared) and returned as "crushed". The connecting
 # corridor rotates with the walls while the fighters stay put, so they can be
 # stranded; we re-verify a path between them and carve one if rotation severed it.
-func rotate_blockers(occupants: Array) -> Array:
+func rotate_blockers(occupants: Array) -> Dictionary:
 	rot_step = (rot_step + 1) % ROT_STEPS
 	blocked = _cycled(base_blocked, rot_step)
-	var crushed: Array = []
-	for p in occupants:
-		if in_bounds(p) and blocked[p.y][p.x]:
-			blocked[p.y][p.x] = false   # suppress: never drop a wall onto a fighter
-			crushed.append(p)
-	if occupants.size() == 2 and not _connected(occupants[0], occupants[1]):
-		_carve(occupants[0], occupants[1])
-	return crushed
+	# Every rotation the zone closes one more ring, down to the SHRINK_FLOOR x SHRINK_FLOOR arena.
+	var max_shrink: int = (SIZE - SHRINK_FLOOR) / 2
+	if shrink_level < max_shrink:
+		shrink_level += 1
+	_apply_shrink_rings()   # ring walls override interior walls, so in-ring blockers simply vanish
+	var positions: Array = occupants.duplicate()
+	var crushed_idx: Array = []
+	for i in range(positions.size()):
+		var p: Vector2i = positions[i]
+		if not in_bounds(p):
+			continue
+		if _edge_depth(p.x, p.y) < shrink_level:
+			# Caught inside the closing zone -> shove to the nearest open live tile, and crush.
+			var np := _nearest_open(i, positions)
+			if blocked[np.y][np.x]:
+				blocked[np.y][np.x] = false   # last resort: nowhere open -> clear a spot to stand
+			positions[i] = np
+			crushed_idx.append(i)
+		elif blocked[p.y][p.x]:
+			blocked[p.y][p.x] = false          # an interior wall landed on them -> suppress + crush
+			crushed_idx.append(i)
+	if positions.size() == 2 and not _connected(positions[0], positions[1]):
+		_carve(positions[0], positions[1])
+	return {"crushed_idx": crushed_idx, "positions": positions}
+
+# Chebyshev depth of a tile from the nearest board edge (0 = outermost ring).
+func _edge_depth(x: int, y: int) -> int:
+	return mini(mini(x, y), mini(SIZE - 1 - x, SIZE - 1 - y))
+
+# Close the outer `shrink_level` rings: those tiles become permanent zone walls.
+func _apply_shrink_rings() -> void:
+	if shrink_level <= 0:
+		return
+	for y in range(SIZE):
+		for x in range(SIZE):
+			if _edge_depth(x, y) < shrink_level:
+				blocked[y][x] = true
+
+# BFS to the nearest open, unoccupied tile inside the live zone for a shoved fighter.
+func _nearest_open(idx: int, occupants: Array) -> Vector2i:
+	var start: Vector2i = occupants[idx]
+	var seen := {start: true}
+	var q: Array = [start]
+	while not q.is_empty():
+		var cur: Vector2i = q.pop_front()
+		if in_bounds(cur) and not blocked[cur.y][cur.x] and not _tile_taken(cur, idx, occupants):
+			return cur
+		for d in [Vector2i(0, -1), Vector2i(0, 1), Vector2i(-1, 0), Vector2i(1, 0),
+				Vector2i(-1, -1), Vector2i(1, -1), Vector2i(-1, 1), Vector2i(1, 1)]:
+			var np: Vector2i = cur + d
+			if in_bounds(np) and not seen.has(np):
+				seen[np] = true
+				q.append(np)
+	return start
+
+func _tile_taken(tile: Vector2i, idx: int, occupants: Array) -> bool:
+	for j in range(occupants.size()):
+		if j != idx and occupants[j] == tile:
+			return true
+	return false
 
 # Tiles that are open NOW but become blockers at the next quadrant shift -- the
 # telegraph's "incoming walls", so a fighter can step clear before it lands.
@@ -126,6 +180,13 @@ func incoming_walls() -> Array:
 		for x in range(SIZE):
 			if next_layout[y][x] and not blocked[y][x]:
 				out.append(Vector2i(x, y))
+	# Telegraph the next closing ring too, so a fighter can step clear before it seals.
+	var max_shrink: int = (SIZE - SHRINK_FLOOR) / 2
+	if shrink_level < max_shrink:
+		for y in range(SIZE):
+			for x in range(SIZE):
+				if _edge_depth(x, y) == shrink_level and not blocked[y][x] and not out.has(Vector2i(x, y)):
+					out.append(Vector2i(x, y))
 	return out
 
 func _copy(src: Array) -> Array:

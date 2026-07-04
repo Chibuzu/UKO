@@ -15,6 +15,7 @@ extends Node2D
 # remade in the base style (move, guard).
 const BASE_DIR   := "res://Assets/Sprites/Unarmed Base Animations/"
 const TECH_DIR   := "res://Assets/Sprites/Tech Animations/"
+const GEAR_DIR   := "res://Assets/Sprites/Tech Animations/Tech Gear/"   # per-piece gear overlays (hat_1..4 etc.)
 const LEGACY_DIR := "res://Assets/Sprites/Base Animation/"
 const PIVOT_DUR := 0.18    # how long the facing bar takes to swing to a new side
 const SPRITE_OFFSET_Y := -6.0   # nudge the FIGURE up so its feet seat on the tile (tune in-engine)
@@ -75,7 +76,7 @@ var _gear_layers: Array = []          # AnimatedSprite2D overlays for equipped g
 # Draw equipped gear ON the fighter sprite. OFF for now — the current overlay art
 # reads as messy in-engine; flip back to true once clean per-piece art is in.
 # (Gear still drives spells and the shop regardless of this flag.)
-const SHOW_GEAR_OVERLAYS := false
+const SHOW_GEAR_OVERLAYS := true
 
 func init_state(c: Combatant) -> void:
 	unit_id = c.id
@@ -158,7 +159,7 @@ func _build_gear_layers(c: Combatant) -> void:
 		lyr.sprite_frames = frames
 		lyr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 		lyr.centered = true
-		lyr.offset = Vector2(0, SPRITE_OFFSET_Y)   # seat with the body
+		lyr.offset = body.offset                   # seat exactly with the body's current frame
 		lyr.show_behind_parent = true              # above body, below the HP bar
 		add_child(lyr)
 		lyr.play("idle")
@@ -172,7 +173,7 @@ func _overlay_frames(prefix: String) -> SpriteFrames:
 	sf.set_animation_loop("idle", true)
 	var any := false
 	for i in range(1, 5):
-		var path := TECH_DIR + "%s_%d.png" % [prefix, i]
+		var path := GEAR_DIR + "%s_%d.png" % [prefix, i]
 		if ResourceLoader.exists(path):
 			sf.add_frame("idle", load(path)); any = true
 	return sf if any else null
@@ -188,6 +189,9 @@ func _process(_dt: float) -> void:
 		if show_gear:
 			lyr.frame = body.frame
 			lyr.flip_h = body.flip_h
+			lyr.offset = body.offset       # keep seated exactly on the body as its frame offset changes
+			lyr.scale = body.scale
+			lyr.rotation = body.rotation
 
 # Snap instantly to a combatant's state (start, and re-sync at turn end).
 func set_state(c: Combatant) -> void:
