@@ -42,6 +42,19 @@ var _bg: Texture2D = null
 var _blocker: Texture2D = null
 var _border: Texture2D = null
 
+# Village art. Houses (3 variants) + market + player home are static; the well and the transport
+# belt are 4-frame animations played at 4 FPS off a shared clock.
+const VILLAGE_DIR := "res://Assets/Sprites/Village/"
+const HOUSE_FILES := ["Double_home_1.png", "Double_home_2.png", "Double_home_3.png"]
+const WELL_FILES := ["Water_well_1.png", "Water_Well_2.png", "Water_Well_3.png", "Water_well_4.png"]
+const TRANSPORT_FILES := ["Transport_1.png", "Transport_2.png", "Transport_3.png", "Transport_4.png"]
+var _houses: Array = []
+var _well: Array = []
+var _transport: Array = []
+var _market: Texture2D = null
+var _player_home: Texture2D = null
+var _anim_t: float = 0.0
+
 func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	if ResourceLoader.exists(BG_PATH):
@@ -50,6 +63,14 @@ func _ready() -> void:
 		_blocker = load(BLOCKER_PATH)
 	if ResourceLoader.exists(BORDER_BLOCKER_PATH):
 		_border = load(BORDER_BLOCKER_PATH)
+	for f in HOUSE_FILES:
+		_houses.append(_load_village(f))
+	for f in WELL_FILES:
+		_well.append(_load_village(f))
+	for f in TRANSPORT_FILES:
+		_transport.append(_load_village(f))
+	_market = _load_village("Market.png")
+	_player_home = _load_village("Players_home_.png")
 	_map = OverworldMap.new()
 	if OverworldState.active:
 		_restore()
@@ -69,7 +90,7 @@ func _fresh() -> void:
 	OverworldState.fighting = -1
 	OverworldState.mobs = []
 	_map.generate(OverworldState.seed_value)
-	_player_tile = _map.nearest_open(Vector2i(OverworldMap.SIZE / 2, OverworldMap.SIZE / 2))
+	_player_tile = _map.nearest_open(OverworldMap.village_center())   # start in the village (bottom-left)
 	OverworldState.player_tile = _player_tile
 	_spawn_player()
 	for d in DEFAULT_MOBS:
@@ -120,6 +141,7 @@ func _process(delta: float) -> void:
 		return
 	_drive_player(delta)
 	_cam.global_position = _player.world_pos()
+	_anim_t += delta          # drives the well + transport-belt animations
 	queue_redraw()
 
 func _drive_player(delta: float) -> void:
@@ -192,25 +214,70 @@ func _draw() -> void:
 		for x in range(view.position.x, view.end.x):
 			var r := Rect2(x * TILE, y * TILE, TILE, TILE)
 			if _map.blocked[y][x]:
-				# Contour ring uses blocker.png; interior walls use Blocker 2.png, rotated per-tile
-				# for the same purple weave as the duel board (a flat grid reads grey).
-				var is_border: bool = x <= 0 or y <= 0 or x >= OverworldMap.SIZE - 1 or y >= OverworldMap.SIZE - 1
-				if is_border and _border:
-					draw_texture_rect(_border, r, false)
-				elif _blocker:
-					var c := r.position + r.size * 0.5
-					var rot := float((x * 3 + y * 5) % 4) * (PI / 2.0)
-					draw_set_transform(c, rot, Vector2.ONE)
-					draw_texture_rect(_blocker, Rect2(-TILE * 0.5, -TILE * 0.5, TILE, TILE), false)
-					draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+				if _map.is_building(Vector2i(x, y)):
+					# Building footprint: floor here; the building sprite is drawn over it in _draw_village.
+					if _bg:
+						draw_texture_rect(_bg, r, false)
+					else:
+						draw_rect(r, ViewConfig.COL_OPEN)
 				else:
-					draw_rect(r, ViewConfig.COL_BLOCKED)
+					# Contour ring uses blocker.png; interior walls use Blocker 2.png, rotated per-tile
+					# for the same purple weave as the duel board (a flat grid reads grey).
+					var is_border: bool = x <= 0 or y <= 0 or x >= OverworldMap.SIZE - 1 or y >= OverworldMap.SIZE - 1
+					if is_border and _border:
+						draw_texture_rect(_border, r, false)
+					elif _blocker:
+						var c := r.position + r.size * 0.5
+						var rot := float((x * 3 + y * 5) % 4) * (PI / 2.0)
+						draw_set_transform(c, rot, Vector2.ONE)
+						draw_texture_rect(_blocker, Rect2(-TILE * 0.5, -TILE * 0.5, TILE, TILE), false)
+						draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+					else:
+						draw_rect(r, ViewConfig.COL_BLOCKED)
 			else:
 				if _bg:
 					draw_texture_rect(_bg, r, false)
 				else:
 					draw_rect(r, ViewConfig.COL_OPEN)
 			draw_rect(r, ViewConfig.COL_GRID_LINE, false, 1.0)
+	_draw_village(view)
+
+func _load_village(fname: String) -> Texture2D:
+	var p := VILLAGE_DIR + fname
+	return load(p) if ResourceLoader.exists(p) else null
+
+# Draw the transport belt (on the floor, culled to view) and the buildings on top of the tiles.
+func _draw_village(view: Rect2i) -> void:
+	var frame := int(_anim_t * 4.0) % 4          # well + belt: 4 FPS
+	if _transport.size() == 4 and _transport[frame]:
+		for t in OverworldMap.transport_tiles():
+			if t.x >= view.position.x and t.x < view.end.x and t.y >= view.position.y and t.y < view.end.y:
+				draw_texture_rect(_transport[frame], Rect2(t.x * TILE, t.y * TILE, TILE, TILE), false)
+	for b in OverworldMap.village_buildings():
+		_draw_building(b, frame)
+
+func _draw_building(b: Dictionary, frame: int) -> void:
+	var tile: Vector2i = b["tile"]
+	var org := Vector2(tile.x * TILE, tile.y * TILE)
+	match String(b["kind"]):
+		"house":
+			if not _houses.is_empty():
+				var tex: Texture2D = _houses[int(b["variant"]) % _houses.size()]
+				if tex:
+					draw_texture_rect(tex, Rect2(org, Vector2(TILE, TILE * 2)), false)   # 1x2
+		"well":
+			if _well.size() == 4 and _well[frame]:
+				draw_texture_rect(_well[frame], Rect2(org, Vector2(TILE * 2, TILE * 2)), false)   # 2x2
+		"market":
+			# 1x2 sprite rotated 90 degrees to sit horizontal across a 2x1 footprint.
+			if _market:
+				var center := org + Vector2(int(b["w"]) * TILE, int(b["h"]) * TILE) * 0.5
+				draw_set_transform(center, PI / 2.0, Vector2.ONE)
+				draw_texture_rect(_market, Rect2(-TILE * 0.5, -TILE, TILE, TILE * 2), false)
+				draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		"player_home":
+			if _player_home:
+				draw_texture_rect(_player_home, Rect2(org, Vector2(TILE, TILE)), false)   # 1x1
 
 func _visible_range() -> Rect2i:
 	var z: float = _cam.zoom.x if _cam else 1.0

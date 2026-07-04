@@ -155,6 +155,10 @@ func _visualize(e: Dictionary) -> float:
 			return ViewConfig.FX_DUR
 		"spell_hit":
 			_impact(units.get(e["target"], null), int(e["damage"]), ViewConfig.FLASH_HIT, ViewConfig.SHAKE_SPELL)
+			if e.get("disrupt", false):                       # the grenade landed -> explode here
+				var tgt: UnitView = units.get(e["target"], null)
+				if tgt:
+					fx.grenade_burst(tgt.position)
 			return ViewConfig.HIT_DUR
 		"buff_applied":
 			if u:
@@ -216,7 +220,7 @@ func _cast_visual(caster: UnitView, e: Dictionary) -> void:
 			if not fl.is_empty():
 				# One sprite flies caster -> ... -> impact, delayed by the cast hold so it launches
 				# after the muzzle. The tween is stored so the spell_hit waits for it to arrive.
-				var tw := fx.projectile_flight(fl["points"], fl["seg_durs"], fl["color"], ViewConfig.FX_DUR)
+				var tw := fx.projectile_flight(fl["points"], fl["seg_durs"], fl["color"], ViewConfig.FX_DUR, fl.get("spell", ""))
 				if tw != null:
 					_bolt_tweens[e.get("owner", "")] = tw
 		"aoe":
@@ -262,6 +266,7 @@ func _plan_flights(events: Array) -> Dictionary:
 				"points": [ViewConfig.tile_center(e.get("from", e["tile"]))],
 				"seg_durs": [],
 				"color": _style_color("projectile"),
+				"spell": spell,
 			}
 		out[owner]["points"].append(ViewConfig.tile_center(e["tile"]))
 		out[owner]["seg_durs"].append(seg)

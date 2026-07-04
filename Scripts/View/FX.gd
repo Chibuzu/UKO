@@ -6,6 +6,7 @@ class_name Fx
 extends Node2D
 
 const SPELLS_DIR := "res://Assets/Sprites/Tech Animations/Tech Spells/"   # spell effect sprites
+const ITEMS_DIR := "res://Assets/Sprites/Items/"   # item projectile sprites (grenade, ...)
 
 # Radial spark burst at a point.
 func burst(local_pos: Vector2, color: Color, count: int = ViewConfig.BURST_COUNT) -> void:
@@ -53,10 +54,10 @@ func beam(from_local: Vector2, to_local: Vector2, color: Color) -> void:
 # flight. `seg_durs[k]` is the real time for leg k (tick-derived upstream, so
 # the bolt's speed matches the sim). Uses bolt_proj.png if the artist made one,
 # otherwise a generated glow dot — so the bolt is ALWAYS visible either way.
-func projectile_flight(points: Array, seg_durs: Array, color: Color = ViewConfig.COL_FX_BOLT, delay: float = 0.0) -> Tween:
+func projectile_flight(points: Array, seg_durs: Array, color: Color = ViewConfig.COL_FX_BOLT, delay: float = 0.0, spell_id: String = "") -> Tween:
 	if points.size() < 2:
 		return null
-	var node := _projectile_node(color)
+	var node := _projectile_node(color, spell_id)
 	add_child(node)
 	node.position = points[0]
 	node.rotation = (points[1] - points[0]).angle()   # bolt art points right; aim it down the path
@@ -71,7 +72,21 @@ func projectile_flight(points: Array, seg_durs: Array, color: Color = ViewConfig
 
 # The traveling bolt's visual: the looping dark_bolt flight frames if present,
 # otherwise bolt_proj.png, otherwise a generated glow dot — always visible.
-func _projectile_node(color: Color) -> Node2D:
+func _projectile_node(color: Color, spell_id: String = "") -> Node2D:
+	if spell_id == "grenade":
+		# Grenade FLIES looping frames 1-4; the explosion (5-6) plays on impact via grenade_burst.
+		var sf_fly := _grenade_fly_sf()
+		if sf_fly != null:
+			var a := AnimatedSprite2D.new()
+			a.sprite_frames = sf_fly
+			a.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+			a.centered = true
+			a.play("fly")
+			return a
+		var g := Sprite2D.new()
+		g.texture = _grenade_frame(1)
+		g.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		return g
 	var sf := _bolt_sf()
 	if sf != null:
 		var a := AnimatedSprite2D.new()
@@ -105,6 +120,65 @@ func _bolt_sf() -> SpriteFrames:
 			sf.add_frame("bolt", load(path)); any = true
 	_bolt_frames = sf if any else null
 	return _bolt_frames
+
+# Grenade flight frames (Items/Grenade_1..6) at 6 FPS. Same "bolt" anim name so the flier plays
+# it the same way. Built once and cached; null if the art isn't present.
+var _grenade_frames: SpriteFrames = null
+var _grenade_checked := false
+func _grenade_sf() -> SpriteFrames:
+	if _grenade_checked:
+		return _grenade_frames
+	_grenade_checked = true
+	_grenade_frames = _grenade_frames_sf("fly", 1, 4, true)   # legacy caller; travel loop
+	return _grenade_frames
+
+# Build a SpriteFrames from Grenade_<first..last>.png at 6 FPS. Cached by the callers below.
+func _grenade_frames_sf(anim: String, first: int, last: int, loop: bool) -> SpriteFrames:
+	var sf := SpriteFrames.new()
+	sf.add_animation(anim)
+	sf.set_animation_speed(anim, 6.0)   # grenade: 6 FPS
+	sf.set_animation_loop(anim, loop)
+	var any := false
+	for i in range(first, last + 1):
+		var path := ITEMS_DIR + "Grenade_%d.png" % i
+		if ResourceLoader.exists(path):
+			sf.add_frame(anim, load(path)); any = true
+	return sf if any else null
+
+# Travel loop (frames 1-4) and one-shot explosion (frames 5-6), each cached.
+var _gren_fly: SpriteFrames = null
+var _gren_fly_checked := false
+func _grenade_fly_sf() -> SpriteFrames:
+	if not _gren_fly_checked:
+		_gren_fly_checked = true
+		_gren_fly = _grenade_frames_sf("fly", 1, 4, true)
+	return _gren_fly
+
+var _gren_burst: SpriteFrames = null
+var _gren_burst_checked := false
+func _grenade_burst_sf() -> SpriteFrames:
+	if not _gren_burst_checked:
+		_gren_burst_checked = true
+		_gren_burst = _grenade_frames_sf("burst", 5, 6, false)
+	return _gren_burst
+
+func _grenade_frame(i: int) -> Texture2D:
+	var p := ITEMS_DIR + "Grenade_%d.png" % i
+	return load(p) if ResourceLoader.exists(p) else null
+
+# Play the grenade explosion (frames 5-6, 6 FPS, once) at a board position, then free it.
+func grenade_burst(pos: Vector2) -> void:
+	var sf := _grenade_burst_sf()
+	if sf == null:
+		return
+	var a := AnimatedSprite2D.new()
+	a.sprite_frames = sf
+	a.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	a.centered = true
+	a.position = pos
+	add_child(a)
+	a.play("burst")
+	a.animation_finished.connect(a.queue_free)
 
 # bolt_proj.png if present, else a small soft glow dot built once and cached, so
 # a projectile is never invisible just because the art has not been added yet.

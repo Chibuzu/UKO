@@ -22,17 +22,43 @@ var rest_tiles: Array = []       # Vector2i sanctuary tiles (for drawing + save-
 var rest_set: Dictionary = {}    # Vector2i -> true, for O(1) "is this a rest tile?" lookups
 var gem_tiles: Array = []        # Vector2i gemstone nodes (walkable overlay tiles, gatherable)
 var gem_set: Dictionary = {}     # Vector2i -> true, for O(1) "is this a gemstone?" lookups
+var building_set: Dictionary = {}   # Vector2i -> true: village building footprints (solid; drawn as sprites)
 
 # ── village (single source of truth) ──────────────────────────────────────────
 # Static: depends only on SIZE. If the village ever moves at runtime, promote these to
 # instance state (a stored center/radius) -- every caller already goes through them, so that
 # change stays local to this file.
 static func village_center() -> Vector2i:
-	return Vector2i(SIZE / 2, SIZE / 2)
+	return Vector2i(9, 50)   # bottom-left corner of the world
 
 static func in_village(t: Vector2i) -> bool:
 	var c := village_center()
 	return absi(t.x - c.x) <= VILLAGE_RADIUS and absi(t.y - c.y) <= VILLAGE_RADIUS
+
+# Building layout (single source of truth for placement + collision + rendering). Houses are
+# 1x2, the well 2x2, the market 2x1 (its 1x2 sprite rotated 90 to sit horizontal), player home
+# 1x1. Two rows of three houses with the well centred between them; market middle-left; the
+# player's home set a bit apart. One empty tile between neighbours.
+static func village_buildings() -> Array:
+	return [
+		{"kind": "house", "tile": Vector2i(7, 45), "w": 1, "h": 2, "variant": 0},
+		{"kind": "house", "tile": Vector2i(9, 45), "w": 1, "h": 2, "variant": 1},
+		{"kind": "house", "tile": Vector2i(11, 45), "w": 1, "h": 2, "variant": 2},
+		{"kind": "well",   "tile": Vector2i(8, 48), "w": 2, "h": 2, "variant": 0},
+		{"kind": "house", "tile": Vector2i(7, 51), "w": 1, "h": 2, "variant": 0},
+		{"kind": "house", "tile": Vector2i(9, 51), "w": 1, "h": 2, "variant": 1},
+		{"kind": "house", "tile": Vector2i(11, 51), "w": 1, "h": 2, "variant": 2},
+		{"kind": "market", "tile": Vector2i(3, 48), "w": 2, "h": 1, "variant": 0},
+		{"kind": "player_home", "tile": Vector2i(14, 54), "w": 1, "h": 1, "variant": 0},
+	]
+
+# The conveyor line: from just above the market straight up to the northern edge (the main
+# city, built later, will hook onto the top). These tiles are kept clear (walkable belt).
+static func transport_tiles() -> Array:
+	var out: Array = []
+	for y in range(1, 48):
+		out.append(Vector2i(3, y))
+	return out
 
 # ── generation ────────────────────────────────────────────────────────────────
 func generate(seed_value: int) -> void:
@@ -60,6 +86,20 @@ func generate(seed_value: int) -> void:
 			var by := clampi(cy + rng.randi_range(-1, 1), BORDER, SIZE - 1 - BORDER)
 			if not in_village(Vector2i(bx, by)):
 				blocked[by][bx] = true
+
+	# Village buildings are solid: their footprints become walls so you can't walk through them.
+	building_set = {}
+	for b in village_buildings():
+		for dx in range(int(b["w"])):
+			for dy in range(int(b["h"])):
+				var bt: Vector2i = b["tile"] + Vector2i(dx, dy)
+				if bt.x >= 0 and bt.y >= 0 and bt.x < SIZE and bt.y < SIZE:
+					blocked[bt.y][bt.x] = true
+					building_set[bt] = true
+	# The transport belt is a clear, walkable corridor from the market up to the north edge.
+	for tt in transport_tiles():
+		if tt.x > 0 and tt.y > 0 and tt.x < SIZE - 1 and tt.y < SIZE - 1:
+			blocked[tt.y][tt.x] = false
 
 	# Golden sanctuary tiles: a rare scattered few, all OUT in the wilds (never in the
 	# mob-free village), so mobs can always approach them -- they're a risk/reward rest, not a
@@ -102,6 +142,9 @@ func _try_add_gem(t: Vector2i) -> void:
 
 func is_gem(t: Vector2i) -> bool:
 	return gem_set.has(t)
+
+func is_building(t: Vector2i) -> bool:
+	return building_set.has(t)
 
 # Gathered -> the node is gone. Mutates the shared set/array IN PLACE so the WorldBoard's
 # reference (assigned once) still points at the live data and redraws without it.

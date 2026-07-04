@@ -41,11 +41,11 @@ const ANIMS := {
 	"attack":   {"dir": BASE_DIR,   "prefix": "Melee",     "count": 5,  "fps": 6.0, "loop": false, "offset": 0.0},
 	"bolt":     {"dir": TECH_DIR,   "prefix": "dark_bolt", "count": 9,  "fps": 9.0, "loop": false},
 	"hurt":     {"dir": LEGACY_DIR, "prefix": "hurt",      "count": 9,  "fps": 16.0, "loop": false},  # no art yet -> no-op
-	"guard":    {"dir": LEGACY_DIR, "prefix": "guard",     "count": 11, "fps": 9.0, "loop": false},
+	"guard":    {"dir": BASE_DIR, "prefix": "guard",     "count": 11, "fps": 9.0, "loop": false},
 	# Guard raise that ENDS on the shield cube (frames 1-9) and is held there for
 	# the whole duration the guard is up (see hold_anim / EventPlayer guard_raised);
 	# frames 10-11 (the lower) play on release via the normal idle return.
-	"guard_up": {"dir": LEGACY_DIR, "prefix": "guard", "frames": [1, 2, 3, 4, 5, 6, 7, 8, 9], "fps": 9.0, "loop": false},
+	"guard_up": {"dir": BASE_DIR, "prefix": "guard", "frames": [1, 2, 3, 4, 5, 6, 7, 8, 9], "fps": 9.0, "loop": false},
 	"pivot":    {"dir": LEGACY_DIR, "prefix": "pivot",     "count": 7,  "fps": 18.0, "loop": false},  # no art yet -> no-op
 	# Teleport is ONE 9-frame strip: figure -> portal -> nothing -> portal ->
 	# figure. Split so the vanish plays at the origin (blink_depart) and the
