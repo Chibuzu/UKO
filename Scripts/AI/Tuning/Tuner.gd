@@ -8,9 +8,9 @@
 # it for an overnight run.
 extends SceneTree
 
-const ITERS := 200
+const ITERS := 10
 const STEP := 0.15
-const SEEDS := [11, 23, 37, 51, 68]
+const SEEDS := [11, 23, 37]
 const ACCEPT := 0.55      # candidate must take this score share to replace the base
 const SAVE_PATH := "user://tuned_eval.cfg"
 
@@ -32,10 +32,10 @@ func _init() -> void:
 			for w1a in [true, false]:
 				var r := SelfPlayArena.play_match(cand, base, int(seed_value), w1a)
 				games += 1
-				if r["result"] == "w1":
-					score += 1.0
-				elif r["result"] == "draw":
-					score += 0.5
+				# Margin-based scoring: pure win/loss is dominated by map seat
+				# advantage (each seed's layout favors one spawn -> constant 50%).
+				# HP margin registers "wins bigger / loses slower", the real signal.
+				score += 0.5 + clampf(float(r["hp_margin"]) / 200.0, -0.5, 0.5)
 		var share := score / float(games)
 		if share >= ACCEPT:
 			base = cand

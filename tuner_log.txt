@@ -1,14 +1,7 @@
 Godot Engine v4.6.2.stable.official.71f334935 - https://godotengine.org
 
 [tuner] booted
-[tuner] start; 200 iters, 5 seeds, step 0.15
-ERROR: BUG: Unreferenced static string to 0: Variant
-   at: unref (core/string/string_name.cpp:116)
-WARNING: A Thread object is being destroyed without its completion having been realized.
-Please call wait_to_finish() on it to ensure correct cleanup.
-   at: ~Thread (core/os/thread.cpp:102)
-ERROR: 7 RID allocations of type '23NavMeshGeometryParser2D' were leaked at exit.
-ERROR: 6 RID allocations of type '23NavMeshGeometryParser3D' were leaked at exit.
-ERROR: Pages in use exist at exit in PagedAllocator: N7Variant5Pools11BucketLargeE
-   at: ~PagedAllocator (./core/templates/paged_allocator.h:169)
-^C
+[tuner] start; 10 iters, 3 seeds, step 0.15
+[tuner] iter 1: kept base (cand 47%)
+[tuner] iter 2: kept base (cand 55%)
+[tuner] iter 3: kept base (cand 54%)
