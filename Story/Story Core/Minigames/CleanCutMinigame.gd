@@ -1,39 +1,39 @@
-# CleanCutMinigame.gd  (mushrooms)
-# Slice the mushroom along the faint guide line in one smooth motion. Press at the start dot, drag
-# along the dashed line to the end, keeping close to it. A big lurch off the line, or lifting the
-# button before the end, crushes it. Reports finished(quality) = how cleanly you hugged the line.
+# CleanCutMinigame.gd  (mushrooms) -- ROUTE PLANNING (constrained one-stroke cut)
+# Slice through EVERY point in a single drag, moving only along OPEN edges. The board is an irregular
+# shape (some points missing) with WALLS blocking some connections (drawn red), so the easy "snake"
+# order dead-ends -- you must plan the route. Generated from a real Hamiltonian path (walls never
+# sever it) so a solution always exists. Press the glowing start, drag through all; drag back to undo.
+# Lift early = ruined. Reports finished(quality).
 class_name CleanCutMinigame
 extends Control
 
 signal finished(quality: float)
 
-const ART := "res://Assets/Sprites/Mining/mushroom.png"   # optional; a plain cap is drawn if absent
-var _tex: Texture2D = null
-var _shroom := Rect2()
-var _line: Array[Vector2] = []
+var _cols := 4
+var _rows := 4
+var _present: Dictionary = {}     # cell idx -> true
+var _pos: Dictionary = {}         # cell idx -> Vector2
+var _blocked: Dictionary = {}     # "a-b" (a<b) -> true
+var _sol: Array = []
+var _path: Array[int] = []
+var _start := 0
 var _cutting := false
-var _idx := 0
-var _dev_sum := 0.0
-var _dev_n := 0
+var _backtracks := 0
 var _done := false
 var _quality := 0.0
 var _label := ""
 var _leave_rect := Rect2()
-
-const N := 48
-const HUG := 26.0            # within this of the line = advancing
-const LURCH := 46.0          # nearest point farther than this = a lurch -> crushed
-const CLEAN := 20.0          # mean deviation this small ~ a perfect cut
+var _org := Vector2()
+const GAP := 78.0
 
 func start(label: String, difficulty: float = 0.5) -> void:
 	_label = label
-	if ResourceLoader.exists(ART):
-		_tex = load(ART)
-	_build(clampf(difficulty, 0.0, 1.0))
+	_cols = 4 + (1 if difficulty >= 0.6 else 0)
+	_rows = 4
+	_gen(clampf(difficulty, 0.0, 1.0))
+	_path = [_start]
 	_cutting = false
-	_idx = 0
-	_dev_sum = 0.0
-	_dev_n = 0
+	_backtracks = 0
 	_done = false
 	_quality = 0.0
 	set_anchors_preset(PRESET_FULL_RECT)
@@ -42,20 +42,111 @@ func start(label: String, difficulty: float = 0.5) -> void:
 	visible = true
 	queue_redraw()
 
-func _build(diff: float) -> void:
+func _key(a: int, b: int) -> String: return "%d-%d" % [mini(a, b), maxi(a, b)]
+func _cx(i: int) -> int: return i % _cols
+func _cy(i: int) -> int: return int(i / _cols)
+
+func _grid_nbrs(i: int) -> Array:
+	var out: Array = []
+	var c := _cx(i)
+	var r := _cy(i)
+	if c > 0: out.append(i - 1)
+	if c < _cols - 1: out.append(i + 1)
+	if r > 0: out.append(i - _cols)
+	if r < _rows - 1: out.append(i + _cols)
+	return out
+
+func _present_nbrs(i: int) -> Array:
+	var out: Array = []
+	for nb in _grid_nbrs(i):
+		if _present.has(nb):
+			out.append(nb)
+	return out
+
+func _passable(a: int, b: int) -> bool:
+	return _present.has(a) and _present.has(b) and _grid_nbrs(a).has(b) and not _blocked.has(_key(a, b))
+
+# ── generation ──
+func _gen(diff: float) -> void:
+	var total := _cols * _rows
+	var target := clampi(int(total * 0.80), 7, total)
+	for _attempt in range(120):
+		_present = _random_shape(target)
+		var p := _ham_shape()
+		if not p.is_empty():
+			_sol = p
+			break
+	if _sol.is_empty():                              # fallback: full grid always has a path
+		_present = {}
+		for i in range(total):
+			_present[i] = true
+		_sol = _ham_shape()
+	# walls: block non-solution edges (keeps the solution path open)
+	var sol_edges := {}
+	for i in range(_sol.size() - 1):
+		sol_edges[_key(_sol[i], _sol[i + 1])] = true
+	_blocked = {}
+	var block_p := lerpf(0.40, 0.68, diff)
+	for a in _present.keys():
+		for b in _present_nbrs(a):
+			if a < b and not sol_edges.has(_key(a, b)) and randf() < block_p:
+				_blocked[_key(a, b)] = true
+	_start = _sol[0]
+	# layout
 	var vp := get_viewport_rect().size
-	var s := 224.0
-	_shroom = Rect2(vp.x * 0.5 - s * 0.5, vp.y * 0.5 - s * 0.5 + 6, s, s)
-	var y0 := _shroom.position.y + s * 0.44
-	var amp := lerpf(16.0, 42.0, diff)       # curvier line at higher difficulty
-	var f := randf_range(1.0, 1.8)
-	var ph := randf() * TAU
-	_line = []
-	for i in range(N):
-		var t := float(i) / float(N - 1)
-		var x := lerpf(_shroom.position.x + s * 0.12, _shroom.end.x - s * 0.12, t)
-		var y := y0 + amp * sin(t * PI * f + ph)
-		_line.append(Vector2(x, y))
+	_org = Vector2(vp.x * 0.5 - (_cols - 1) * GAP * 0.5, vp.y * 0.5 - (_rows - 1) * GAP * 0.5 + 10.0)
+	_pos = {}
+	for i in _present.keys():
+		_pos[i] = _org + Vector2(_cx(i) * GAP, _cy(i) * GAP)
+
+func _random_shape(target: int) -> Dictionary:
+	var total := _cols * _rows
+	var s := randi() % total
+	var chosen := {s: true}
+	var frontier: Array = _grid_nbrs(s)
+	while chosen.size() < target and not frontier.is_empty():
+		var k := randi() % frontier.size()
+		var c: int = frontier[k]
+		frontier.remove_at(k)
+		if chosen.has(c):
+			continue
+		chosen[c] = true
+		for nb in _grid_nbrs(c):
+			if not chosen.has(nb):
+				frontier.append(nb)
+	return chosen
+
+func _ham_shape() -> Array:
+	var cells := _present.keys()
+	var total := cells.size()
+	for _attempt in range(200):
+		var s: int = cells[randi() % total]
+		var visited := {s: true}
+		var path: Array = [s]
+		if _dfs(s, visited, path, total):
+			return path
+	return []
+
+func _dfs(node: int, visited: Dictionary, path: Array, total: int) -> bool:
+	if path.size() == total:
+		return true
+	var nbrs := _present_nbrs(node)
+	nbrs.shuffle()
+	for nb in nbrs:
+		if not visited.has(nb):
+			visited[nb] = true
+			path.append(nb)
+			if _dfs(nb, visited, path, total):
+				return true
+			path.pop_back()
+			visited.erase(nb)
+	return false
+
+func _cell_near(m: Vector2) -> int:
+	for i in _present.keys():
+		if m.distance_to(_pos[i]) <= 22.0:
+			return i
+	return -1
 
 func _input(event: InputEvent) -> void:
 	if _done:
@@ -67,42 +158,39 @@ func _input(event: InputEvent) -> void:
 			if _leave_rect.has_point(m):
 				_finish(0.0)
 				return
-			if m.distance_to(_line[0]) < 34.0:
+			if m.distance_to(_pos[_start]) < 24.0:
 				_cutting = true
+				_path = [_start]
+				queue_redraw()
 		elif _cutting:
-			if _idx < _line.size() - 4:
-				_finish(0.0)                 # lifted before the end -> crushed
 			_cutting = false
+			if _path.size() == _present.size():
+				_finish(clampf(1.0 - _backtracks * 0.10, 0.35, 1.0))
+			else:
+				_finish(0.0)                          # lifted before finishing -> ruined
 	elif event is InputEventMouseMotion and _cutting:
-		_track(get_global_mouse_position())
+		_drag(get_global_mouse_position())
 
-func _track(m: Vector2) -> void:
-	var last := _line.size() - 1
-	var top := mini(_idx + 5, last)
-	var adv := _idx
-	var near := 1.0e9
-	for j in range(_idx, top + 1):
-		var d := m.distance_to(_line[j])
-		if d < near:
-			near = d
-		if d <= HUG and j > adv:
-			adv = j
-	_idx = adv
-	_dev_sum += near
-	_dev_n += 1
-	if near > LURCH:
-		_finish(0.0)                          # a lurch off the line -> crushed
-	elif _idx >= last:
-		var avg := _dev_sum / maxf(1.0, float(_dev_n))
-		_finish(clampf(1.0 - avg / CLEAN, 0.0, 1.0))
-	else:
+func _drag(m: Vector2) -> void:
+	var hit := _cell_near(m)
+	if hit == -1:
+		return
+	var cur: int = _path[_path.size() - 1]
+	if _path.size() >= 2 and hit == _path[_path.size() - 2]:
+		_path.pop_back()
+		_backtracks += 1
+		queue_redraw()
+	elif not _path.has(hit) and _passable(cur, hit):
+		_path.append(hit)
+		if _path.size() == _present.size():
+			_finish(clampf(1.0 - _backtracks * 0.10, 0.35, 1.0))
 		queue_redraw()
 
 func _finish(q: float) -> void:
 	_done = true
 	_quality = q
 	queue_redraw()
-	await get_tree().create_timer(0.7).timeout
+	await get_tree().create_timer(0.6).timeout
 	visible = false
 	finished.emit(_quality)
 
@@ -110,26 +198,39 @@ func _draw() -> void:
 	var vp := get_viewport_rect().size
 	draw_rect(Rect2(Vector2.ZERO, vp), Color(0, 0, 0, 0.58))
 	var font := ThemeDB.fallback_font
-	draw_string(font, Vector2(0, _shroom.position.y - 46), _label, HORIZONTAL_ALIGNMENT_CENTER, vp.x, 20, ViewConfig.COL_TEXT)
-	draw_string(font, Vector2(0, _shroom.position.y - 24), "Press the dot, then drag along the line in one smooth cut",
+	draw_string(font, Vector2(0, _org.y - 74), _label, HORIZONTAL_ALIGNMENT_CENTER, vp.x, 20, ViewConfig.COL_TEXT)
+	draw_string(font, Vector2(0, _org.y - 50), "One cut through every point. Red walls block the way -- plan your route.",
 		HORIZONTAL_ALIGNMENT_CENTER, vp.x, 14, ViewConfig.COL_TEXT_OFF)
-	if _tex != null:
-		draw_texture_rect(_tex, _shroom, false)
-	else:
-		draw_rect(Rect2(_shroom.position.x + 40, _shroom.position.y + 40, _shroom.size.x - 80, _shroom.size.y * 0.4), Color(0.90, 0.30, 0.32))
-	# guide line (dashed): cut part solid green, the rest faint dashes
-	for i in range(_line.size() - 1):
-		if i < _idx:
-			draw_line(_line[i], _line[i + 1], Color(0.40, 0.85, 0.50), 4.0)
-		elif i % 2 == 0:
-			draw_line(_line[i], _line[i + 1], Color(0.85, 0.85, 0.92, 0.55), 2.0)
-	draw_circle(_line[0], 8.0, Color(0.95, 0.80, 0.35))
-	draw_circle(_line[_line.size() - 1], 6.0, ViewConfig.COL_GOLD)
-	# buttons + result
-	_leave_rect = _button(font, vp.x * 0.5 - 59, _shroom.end.y + 22, "LEAVE")
+	# edges: open (faint) vs walls (red bar across the gap)
+	for a in _present.keys():
+		for b in _present_nbrs(a):
+			if a >= b:
+				continue
+			var pa: Vector2 = _pos[a]
+			var pb: Vector2 = _pos[b]
+			if _blocked.has(_key(a, b)):
+				var mid := (pa + pb) * 0.5
+				var perp := (pb - pa).orthogonal().normalized() * 12.0
+				draw_line(mid - perp, mid + perp, Color(0.90, 0.35, 0.38), 3.0)
+			else:
+				draw_line(pa, pb, Color(0.45, 0.47, 0.56, 0.5), 2.0)
+	# the cut so far
+	for i in range(_path.size() - 1):
+		draw_line(_pos[_path[i]], _pos[_path[i + 1]], Color(0.90, 0.35, 0.38), 6.0)
+	# points
+	for i in _present.keys():
+		var col := Color(0.80, 0.82, 0.90)
+		if i == _start:
+			col = Color(0.95, 0.80, 0.35)
+		elif _path.has(i):
+			col = Color(0.95, 0.55, 0.55)
+		draw_circle(_pos[i], 8.0, col)
+	if _path.size() > 0:
+		draw_arc(_pos[_path[_path.size() - 1]], 13.0, 0, TAU, 24, Color(1, 1, 1), 2.0)
+	_leave_rect = _button(font, vp.x * 0.5 - 59, _org.y + (_rows - 1) * GAP + 54, "LEAVE")
 	if _done:
-		var txt := ("Clean slice!" if _quality > 0.85 else ("Decent cut" if _quality > 0.5 else "Ragged cut")) if _quality > 0.0 else "Crushed"
-		draw_string(font, Vector2(0, _shroom.end.y + 72), txt, HORIZONTAL_ALIGNMENT_CENTER, vp.x,
+		var txt := ("Clean slice!" if _quality > 0.85 else ("Decent cut" if _quality > 0.5 else "Ragged cut")) if _quality > 0.0 else "Ruined"
+		draw_string(font, Vector2(0, _org.y + (_rows - 1) * GAP + 104), txt, HORIZONTAL_ALIGNMENT_CENTER, vp.x,
 			22, ViewConfig.COL_GOLD if _quality > 0.0 else ViewConfig.COL_TEXT_OFF)
 
 func _button(font: Font, x: float, y: float, label: String) -> Rect2:

@@ -11,23 +11,26 @@ class_name Eval
 extends RefCounted
 
 # ── Transition weights (the raw outcome of the turn) ──────────────────────
-const W_DEAL := 1.0      # value of damage dealt to the foe
-const W_TAKE := 1.25     # cost of damage taken (slightly > dealt: prefer not trading down)
+static var W_DEAL := 1.0      # value of damage dealt to the foe
+static var W_TAKE := 1.25     # cost of damage taken (slightly > dealt: prefer not trading down)
 const W_WIN := 1000.0    # winning / losing the duel dominates everything
 
 # ── Situational weights (what raw damage can't see: exposure, threat, the ──
 # resource race, tempo, space). [all tunable]
-const W_ENERGY := 0.08         # own-minus-foe energy
-const W_MP     := 0.05         # own-minus-foe mp (gates spells)
-const W_LOCK   := 0.25         # ramp per energy point below the lockout threshold
+static var W_ENERGY := 0.08         # own-minus-foe energy
+static var W_MP     := 0.05         # own-minus-foe mp (gates spells)
+static var W_LOCK   := 0.25         # ramp per energy point below the lockout threshold
 const LOCK_THRESH := 30        # below this you can't even guard (30) -- options-starved
-const W_DANGER_MELEE := 0.5    # penalty per pt of BLOCKABLE (melee) damage I'm exposed to next turn
-const W_DANGER_SPELL := 0.6    # per pt of UNBLOCKABLE (spell) damage -- scarier; a guard can't help
-const W_PRESSURE     := 0.45   # reward per pt of damage I can actually threaten on the foe from here
-const W_ATTRITION    := 8.0    # foe can't even attack (energy < cost) while I can -> winning the war
-const W_TEMPO  := 0.3          # carried speed boost (successful guard)
-const W_MOBILITY := 1.5        # free escape tiles, mine minus the foe's (don't get cornered)
-const W_PRESS  := 0.2          # when I'm HP-ahead, reward closing in to convert the lead
+static var W_DANGER_MELEE := 0.5    # penalty per pt of BLOCKABLE (melee) damage I'm exposed to next turn
+static var W_DANGER_SPELL := 0.6    # per pt of UNBLOCKABLE (spell) damage -- scarier; a guard can't help
+static var W_PRESSURE     := 0.45   # reward per pt of damage I can actually threaten on the foe from here
+static var W_ATTRITION    := 8.0    # foe can't even attack (energy < cost) while I can -> winning the war
+static var W_TEMPO  := 0.3          # carried speed boost (successful guard)
+static var W_MOBILITY := 1.5        # free escape tiles, mine minus the foe's (don't get cornered)
+static var W_PRESS  := 0.2          # when I'm HP-ahead, reward closing in to convert the lead
+static var W_INCOMING := 6.0        # standing where the telegraph says a wall / zone ring lands next
+static var W_CENTER   := 0.5        # per ring of edge-depth advantage once the zone is closing
+static var W_ITEM     := 2.0        # an unspent grenade is a standing threat (option value)
 
 # ── Lookahead (EXTREME's depth-2 search) [all tunable] ────────────────────
 const LOOKAHEAD_DEPTH := 2   # turns EXTREME sees: 1 = shallow (this turn + heuristic);
@@ -35,7 +38,49 @@ const LOOKAHEAD_DEPTH := 2   # turns EXTREME sees: 1 = shallow (this turn + heur
 const DEEP_CANDS := 3        # per-side candidate cap INSIDE a subgame node, so the
 							 #   matrix-of-matrices stays bounded (the root never caps).
 const DEEP_ITERS := 64       # regret iterations for subgame solves (tiny matrices converge fast)
-const DISCOUNT   := 0.9      # a future turn is worth slightly less than damage now
+static var DISCOUNT   := 0.9      # a future turn is worth slightly less than damage now
+
+# ── Tunable-weights API (self-play tuner) + subgame cache ──────────────────
+# The weights above are `static var` so the tuning harness can adjust them at
+# runtime; the defaults reproduce shipped behaviour exactly.
+const TUNABLE := ["W_DEAL", "W_TAKE", "W_ENERGY", "W_MP", "W_LOCK", "W_DANGER_MELEE",
+	"W_DANGER_SPELL", "W_PRESSURE", "W_ATTRITION", "W_TEMPO", "W_MOBILITY", "W_PRESS",
+	"W_INCOMING", "W_CENTER", "W_ITEM", "DISCOUNT"]
+
+static func get_weights() -> Dictionary:
+	return {"W_DEAL": W_DEAL, "W_TAKE": W_TAKE, "W_ENERGY": W_ENERGY, "W_MP": W_MP,
+		"W_LOCK": W_LOCK, "W_DANGER_MELEE": W_DANGER_MELEE, "W_DANGER_SPELL": W_DANGER_SPELL,
+		"W_PRESSURE": W_PRESSURE, "W_ATTRITION": W_ATTRITION, "W_TEMPO": W_TEMPO,
+		"W_MOBILITY": W_MOBILITY, "W_PRESS": W_PRESS, "W_INCOMING": W_INCOMING,
+		"W_CENTER": W_CENTER, "W_ITEM": W_ITEM, "DISCOUNT": DISCOUNT}
+
+static func set_weights(w: Dictionary) -> void:
+	for k in w:
+		var v := float(w[k])
+		match String(k):
+			"W_DEAL": W_DEAL = v
+			"W_TAKE": W_TAKE = v
+			"W_ENERGY": W_ENERGY = v
+			"W_MP": W_MP = v
+			"W_LOCK": W_LOCK = v
+			"W_DANGER_MELEE": W_DANGER_MELEE = v
+			"W_DANGER_SPELL": W_DANGER_SPELL = v
+			"W_PRESSURE": W_PRESSURE = v
+			"W_ATTRITION": W_ATTRITION = v
+			"W_TEMPO": W_TEMPO = v
+			"W_MOBILITY": W_MOBILITY = v
+			"W_PRESS": W_PRESS = v
+			"W_INCOMING": W_INCOMING = v
+			"W_CENTER": W_CENTER = v
+			"W_ITEM": W_ITEM = v
+			"DISCOUNT": DISCOUNT = v
+
+# Per-decision transposition cache for solved subgame values. The same state is
+# reached by many action orders inside one root decision, so caching its solved
+# value multiplies how far a time budget reaches. Cleared by the brain per choice.
+static var _sub_cache: Dictionary = {}
+static func clear_cache() -> void:
+	_sub_cache.clear()
 
 # Transition + situation for my_seq vs one foe reply, MY perspective. Same
 # A=foe / B=me resolve order as the live game so tie-breaks stay correct.
@@ -63,9 +108,18 @@ static func score_deep(me: Combatant, foe: Combatant, grid: Grid, my_seq: Array,
 	# Deeper: the value of this position IS the equilibrium value of the next turn.
 	return s + DISCOUNT * _subgame_value(me_after, foe_after, grid, depth)
 
-# Maximin value of the next turn from this position: both sides pick fresh candidate
-# sequences, we solve that small (capped) matrix, and return what `me` can guarantee.
+# Maximin value of the next turn from this position, cached by state fingerprint.
 static func _subgame_value(me: Combatant, foe: Combatant, grid: Grid, depth: int) -> float:
+	var key := _state_key(me, foe, grid, depth)
+	if _sub_cache.has(key):
+		return float(_sub_cache[key])
+	var v := _subgame_value_raw(me, foe, grid, depth)
+	_sub_cache[key] = v
+	return v
+
+# Both sides pick fresh candidate sequences, we solve that small (capped) matrix,
+# and return what `me` can guarantee.
+static func _subgame_value_raw(me: Combatant, foe: Combatant, grid: Grid, depth: int) -> float:
 	var my_c := _capped_cands(me, foe, grid)
 	if my_c.is_empty():
 		return _eval_situation(me, foe, grid)
@@ -120,14 +174,11 @@ static func _eval_situation(me: Combatant, foe: Combatant, grid: Grid) -> float:
 	# lockout when the shared regen pulse is imminent (both refill soon).
 	v += W_ENERGY * float(me.energy - foe.energy)
 	v += W_MP * float(me.mp - foe.mp)
-	var to_pulse: int = Config.ENERGY_PULSE_ACTIONS - (me.action_count % Config.ENERGY_PULSE_ACTIONS)
-	var relief: float = 1.0
-	if to_pulse <= 1:
-		relief = 0.45
-	elif to_pulse <= 2:
-		relief = 0.7
-	v -= W_LOCK * float(maxi(0, LOCK_THRESH - me.energy)) * relief
-	v += W_LOCK * float(maxi(0, LOCK_THRESH - foe.energy)) * relief
+	# Regen is PER-PLAYER: each side's lockout pain is discounted only when ITS OWN pulse
+	# is imminent. The metronome is public (action counts), so the search prices dry
+	# spells correctly on both sides -- and times aggression into the foe's.
+	v -= W_LOCK * float(maxi(0, LOCK_THRESH - me.energy)) * _pulse_relief(me)
+	v += W_LOCK * float(maxi(0, LOCK_THRESH - foe.energy)) * _pulse_relief(foe)
 
 	# Threat, both ways. danger = what the foe can land on me from here (split by
 	# whether a guard could stop it); pressure = what I can land on the foe. This
@@ -147,6 +198,23 @@ static func _eval_situation(me: Combatant, foe: Combatant, grid: Grid) -> float:
 		v += W_ATTRITION
 	elif me_starved and not foe_starved:
 		v -= W_ATTRITION
+
+	# The arena clock. Ending the turn where the amber telegraph says a wall or the
+	# next zone ring lands is priced as real danger (crush + a forced move); and once
+	# the zone is closing, depth toward the never-closing centre is worth fighting for.
+	var iw := _incoming_set(grid)
+	if iw.has(me.pos):
+		v -= W_INCOMING
+	if iw.has(foe.pos):
+		v += W_INCOMING
+	if grid.shrink_level > 0:
+		v += W_CENTER * float(grid.shrink_level) * float(_edge_depth(me.pos) - _edge_depth(foe.pos))
+
+	# Item option value: an unspent grenade poisons the foe's movement decisions all
+	# game -- holding it is worth something even before it's thrown.
+	var me_g := 0.0 if me.spent_once.has("grenade") else 1.0
+	var foe_g := 0.0 if foe.spent_once.has("grenade") else 1.0
+	v += W_ITEM * (me_g - foe_g)
 
 	# Convert a lead: when I'm ahead on HP, reward closing the distance so I press a
 	# hurt foe toward the kill instead of sitting safe and letting it rest back. This
@@ -173,3 +241,43 @@ static func _mobility(c: Combatant, other: Combatant, grid: Grid) -> int:
 		if grid.in_bounds(p) and not grid.is_blocked(p) and other.pos != p:
 			n += 1
 	return n
+
+# Lockout relief by a fighter's OWN metronome (per-player regen): pain is discounted
+# only when that fighter's next pulse is 1-2 actions away.
+static func _pulse_relief(c: Combatant) -> float:
+	var to_pulse: int = Config.ENERGY_PULSE_ACTIONS - (c.action_count % Config.ENERGY_PULSE_ACTIONS)
+	if to_pulse <= 1:
+		return 0.45
+	if to_pulse <= 2:
+		return 0.7
+	return 1.0
+
+# The telegraphed next walls + next zone ring, as a Vector2i set. incoming_walls() is
+# O(board) and this runs per matrix cell, so it's cached per (grid, rotation, shrink)
+# -- all constant while one turn is being chosen. WorldGrip returns [], so story mobs
+# simply see an empty set.
+static var _iw_key := ""
+static var _iw_set: Dictionary = {}
+static func _incoming_set(grid: Grid) -> Dictionary:
+	var key := "%d|%d|%d" % [grid.get_instance_id(), grid.rot_step, grid.shrink_level]
+	if key != _iw_key:
+		_iw_key = key
+		_iw_set = {}
+		for t in grid.incoming_walls():
+			_iw_set[t] = true
+	return _iw_set
+
+# Chebyshev depth from the nearest board edge (0 = outermost ring): the zone closes
+# from the outside, so higher depth = safer for longer.
+static func _edge_depth(p: Vector2i) -> int:
+	return mini(mini(p.x, p.y), mini(Grid.SIZE - 1 - p.x, Grid.SIZE - 1 - p.y))
+
+# Compact state fingerprint for the subgame cache. Equal strings imply equal states;
+# differing dictionary orderings only ever cost a cache MISS, never a wrong hit.
+static func _state_key(me: Combatant, foe: Combatant, grid: Grid, depth: int) -> String:
+	return "%d|%d|%d|%s|%s" % [depth, grid.rot_step, grid.shrink_level, _c_key(me), _c_key(foe)]
+
+static func _c_key(c: Combatant) -> String:
+	return "%d,%d,%d,%d,%d,%d,%d,%d,%d,%s,%s,%s" % [c.pos.x, c.pos.y, c.facing, c.hp, c.mp,
+		c.energy, c.action_count, int(c.rest_ready), int(c.speed_boost),
+		str(c.cooldowns), str(c.statuses), str(c.spent_once)]

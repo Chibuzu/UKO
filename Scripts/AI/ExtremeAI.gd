@@ -11,6 +11,11 @@
 #     With a read (OpponentModel warm) it tilts -- by a bounded amount -- toward the
 #     move that best answers the foe's observed habits, keeping the equilibrium mix
 #     underneath so a sharp opponent still can't find a repeatable exploit.
+#   * PRUNING: iterated elimination of strictly dominated moves (both sides) before
+#     the solve -- the human skill of collapsing the foe's reachable set, made exact.
+#   * THE CLOCK: Eval prices the telegraphed walls / zone ring and centre depth, and
+#     in the squeezed endgame (shrink >= 2) the deep look widens -- it sees furthest
+#     exactly when the arena is small enough to afford it.
 #
 # Per-pair scoring + candidate generation are the shared AIToolkit / Eval modules
 # (same game HARD reasons about); EXTREME owns only the SELECTION rule below. Setting
@@ -20,6 +25,11 @@ extends RefCounted
 
 const ROOT_ROWS      := 3     # how many of MY near-best moves get the deep (2-turn) look
 const ROOT_COLS      := 6     # ...each deepened only vs the foe's most threatening replies
+const ROOT_ROWS_END  := 5     # once the zone has squeezed the arena (shrink >= 2), moves are
+const ROOT_COLS_END  := 9     #   few and lethal: see further exactly when it's cheap to.
+const DOM_EPS        := 0.001 # strict-dominance margin for pruning the matrix
+const BUDGET_MS      := 250   # think budget: after the baseline deep look, keep deepening
+							  #   the next most decision-relevant cells until this runs out
 const EXPLOIT_LAMBDA := 0.4   # 0 = pure equilibrium (unexploitable); 1 = pure best-response
 							  #   to the read. Bounded, so a sharp human can't re-exploit the tilt.
 const EXPLOIT_TEMP   := 3.0   # softmax temp over my EV vs the predicted foe (lower = greedier)
@@ -31,6 +41,8 @@ static func choose_sequence(me: Combatant, foe: Combatant, grid: Grid, spells: A
 		return [{"id": "rest"}]
 	if foe_cands.is_empty():
 		foe_cands = [[{"id": "rest"}]]
+	var t0 := Time.get_ticks_msec()
+	Eval.clear_cache()   # per-decision transposition cache for subgame values
 
 	# Shallow payoff matrix: MY score for (my move i, foe reply j) -- one turn + heuristic.
 	var M: Array = []
@@ -40,21 +52,48 @@ static func choose_sequence(me: Combatant, foe: Combatant, grid: Grid, spells: A
 			row.append(Eval.score_rich(me, foe, grid, my_seq, foe_seq))
 		M.append(row)
 
-	# DEPTH: deepening every cell is a matrix-of-matrices blow-up, so deepen only the
-	# handful of moves I'd actually consider (selective deepening) -- recompute those
-	# rows with the full two-turn lookahead.
+	# DEPTH -- baseline selective deepening, then BUDGETED: the strongest rows vs the
+	# most threatening replies get the full deep look first; whatever time remains
+	# upgrades the next most decision-relevant shallow cells. In the squeezed endgame
+	# branching collapses and the subgame cache bites, so the same budget reaches much
+	# further -- and the leaves look one ply deeper (functionally: perfect endgames).
 	if Eval.LOOKAHEAD_DEPTH >= 2:
-		for i in _top_rows(M, ROOT_ROWS):
-			for j in _worst_cols(M[i], ROOT_COLS):
-				M[i][j] = Eval.score_deep(me, foe, grid, my_cands[i], foe_cands[j], Eval.LOOKAHEAD_DEPTH - 1)
+		var deep_rows := ROOT_ROWS_END if grid.shrink_level >= 2 else ROOT_ROWS
+		var deep_cols := ROOT_COLS_END if grid.shrink_level >= 2 else ROOT_COLS
+		var leaf := Eval.LOOKAHEAD_DEPTH - 1
+		if grid.shrink_level >= 3:
+			leaf = Eval.LOOKAHEAD_DEPTH
+		var done := {}
+		for i in _top_rows(M, deep_rows):
+			for j in _worst_cols(M[i], deep_cols):
+				M[i][j] = Eval.score_deep(me, foe, grid, my_cands[i], foe_cands[j], leaf)
+				done["%d,%d" % [i, j]] = true
+		for cell in _deepen_order(M):
+			if Time.get_ticks_msec() - t0 >= BUDGET_MS:
+				break
+			var ci: int = cell["i"]
+			var cj: int = cell["j"]
+			if done.has("%d,%d" % [ci, cj]):
+				continue
+			M[ci][cj] = Eval.score_deep(me, foe, grid, my_cands[ci], foe_cands[cj], leaf)
 
-	# Unexploitable equilibrium mix over my moves -- the floor.
-	var mix: Array = NashSolver.solve(M)
+	# PRUNE: iterated elimination of strictly dominated moves -- mine (rows) and the
+	# foe's (columns). A move that is worse than another against EVERYTHING is not
+	# part of any sane mix; the human skill of "pruning the reachable set", made
+	# exact. Solving the reduced game sharpens the equilibrium and speeds the solve.
+	var dom := _dominance_filter(M)
+	var reduced := _submatrix(M, dom["rows"], dom["cols"])
 
-	# EXPLOITATION: tilt the mix toward punishing the foe's observed habits, bounded by
-	# EXPLOIT_LAMBDA, only once the model is warm. The equilibrium stays underneath.
+	# Unexploitable equilibrium mix over my surviving moves -- the floor. Expanded
+	# back to full candidate indexing (eliminated moves get probability 0).
+	var mix: Array = _expand(NashSolver.solve(reduced), dom["rows"], my_cands.size())
+
+	# EXPLOITATION: tilt the mix toward punishing the foe's observed habits IN THIS
+	# SITUATION, scaled by how much history backs the read (confidence) and bounded
+	# by EXPLOIT_LAMBDA. The equilibrium stays underneath.
 	if opp_model != null and EXPLOIT_LAMBDA > 0.0 and opp_model.is_warm():
-		var q: Array = _predict(opp_model, foe_cands)
+		var sit: String = OpponentModel.situation_of(foe, me, grid)
+		var q: Array = _predict(opp_model, foe_cands, sit)
 		var ev: Array = []
 		for i in my_cands.size():
 			var e := 0.0
@@ -62,8 +101,9 @@ static func choose_sequence(me: Combatant, foe: Combatant, grid: Grid, spells: A
 				e += float(M[i][j]) * float(q[j])
 			ev.append(e)
 		var exploit: Array = _softmax(ev, EXPLOIT_TEMP)
+		var lam: float = EXPLOIT_LAMBDA * opp_model.confidence()
 		for i in mix.size():
-			mix[i] = (1.0 - EXPLOIT_LAMBDA) * float(mix[i]) + EXPLOIT_LAMBDA * float(exploit[i])
+			mix[i] = (1.0 - lam) * float(mix[i]) + lam * float(exploit[i])
 
 	return my_cands[_sample(mix)]
 
@@ -73,6 +113,82 @@ static func _clean(cands: Array) -> Array:
 	for s in cands:
 		if not s.is_empty():
 			out.append(s)
+	return out
+
+# Iterated elimination of strictly dominated moves. Rows are MY moves (I maximise M):
+# row i dies if some row k beats it against EVERY live column by at least DOM_EPS.
+# Columns are the FOE's (it minimises M): column j dies if some column l is lower
+# against every live row. Repeats until stable; at least one row and column always
+# survive (a maximal move can't be strictly dominated).
+static func _dominance_filter(M: Array) -> Dictionary:
+	var rows: Array = []
+	for i in M.size():
+		rows.append(i)
+	var cols: Array = []
+	for j in (M[0] as Array).size():
+		cols.append(j)
+	var changed := true
+	while changed:
+		changed = false
+		var keep_r: Array = []
+		for i in rows:
+			var dominated := false
+			for k in rows:
+				if k == i:
+					continue
+				var beats_all := true
+				for j in cols:
+					if float(M[k][j]) < float(M[i][j]) + DOM_EPS:
+						beats_all = false
+						break
+				if beats_all:
+					dominated = true
+					break
+			if dominated:
+				changed = true
+			else:
+				keep_r.append(i)
+		if not keep_r.is_empty():
+			rows = keep_r
+		var keep_c: Array = []
+		for j in cols:
+			var dominated2 := false
+			for l in cols:
+				if l == j:
+					continue
+				var lower_all := true
+				for i in rows:
+					if float(M[i][l]) > float(M[i][j]) - DOM_EPS:
+						lower_all = false
+						break
+				if lower_all:
+					dominated2 = true
+					break
+			if dominated2:
+				changed = true
+			else:
+				keep_c.append(j)
+		if not keep_c.is_empty():
+			cols = keep_c
+	return {"rows": rows, "cols": cols}
+
+static func _submatrix(M: Array, rows: Array, cols: Array) -> Array:
+	var out: Array = []
+	for i in rows:
+		var r: Array = []
+		for j in cols:
+			r.append(M[i][j])
+		out.append(r)
+	return out
+
+# Expand a mix over surviving rows back to the full candidate list (zeros elsewhere).
+static func _expand(mix: Array, rows: Array, n: int) -> Array:
+	var out: Array = []
+	for _i in n:
+		out.append(0.0)
+	for k in rows.size():
+		var idx: int = rows[k]
+		out[idx] = float(mix[k])
 	return out
 
 # Indices of the rows with the best WORST-CASE value -- the moves worth deepening.
@@ -101,12 +217,22 @@ static func _worst_cols(row: Array, k: int) -> Array:
 		out.append(int(cols[n]["j"]))
 	return out
 
+# Priority order for BUDGETED deepening over the whole matrix: rows by best
+# worst-case first (the moves the mix will actually weight), and within a row the
+# foe's most threatening replies first. The budget loop walks this list.
+static func _deepen_order(M: Array) -> Array:
+	var out: Array = []
+	for i in _top_rows(M, M.size()):
+		for j in _worst_cols(M[i], (M[i] as Array).size()):
+			out.append({"i": int(i), "j": int(j)})
+	return out
+
 # Predicted foe-reply distribution from observed tendencies (normalized weights).
-static func _predict(opp_model, foe_cands: Array) -> Array:
+static func _predict(opp_model, foe_cands: Array, sit: String = "") -> Array:
 	var w: Array = []
 	var tot := 0.0
 	for fc in foe_cands:
-		var x: float = opp_model.weight_of(fc)
+		var x: float = opp_model.weight_of(fc, sit)
 		w.append(x)
 		tot += x
 	if tot <= 0.0:

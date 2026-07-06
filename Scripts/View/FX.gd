@@ -58,35 +58,66 @@ func projectile_flight(points: Array, seg_durs: Array, color: Color = ViewConfig
 	if points.size() < 2:
 		return null
 	var node := _projectile_node(color, spell_id)
+	if spell_id == "grenade" and node is AnimatedSprite2D:
+		var total := 0.0
+		for k in range(1, points.size()):
+			total += float(seg_durs[k - 1]) if (k - 1) < seg_durs.size() else 0.12
+		_config_grenade_fly(node, points.size() - 1, total)
 	add_child(node)
 	node.position = points[0]
 	node.rotation = (points[1] - points[0]).angle()   # bolt art points right; aim it down the path
 	var t := create_tween()
 	if delay > 0.0:
 		t.tween_interval(delay)   # sit at the muzzle while the cast group holds, then launch in sync
+	t.tween_callback(_kick_anim.bind(node))   # start a one-shot flight anim exactly at launch
 	for k in range(1, points.size()):
 		var d: float = float(seg_durs[k - 1]) if (k - 1) < seg_durs.size() else 0.12
 		t.tween_property(node, "position", points[k], maxf(0.01, d))
 	t.finished.connect(node.queue_free)
 	return t
 
+# Grenade: the fly frames are drawn as a PROGRESSION across a 3-tile throw, so they
+# play ONCE (never loop -- looping made the grenade visually jump backward). Shorter
+# throws use fewer frames: 1 tile -> frames 1-2, 2 tiles -> 1-3, 3+ -> all four.
+# Speed is set so the last fly frame lands exactly as the sprite reaches the impact
+# tile; the explosion (frames 5-6) then plays there via grenade_burst.
+func _config_grenade_fly(a: AnimatedSprite2D, tiles: int, dur: float) -> void:
+	var count := clampi(tiles + 1, 2, 4)
+	var sf := SpriteFrames.new()
+	sf.add_animation("fly")
+	sf.set_animation_speed("fly", 1.0)
+	sf.set_animation_loop("fly", false)
+	var any := false
+	for i in range(1, count + 1):
+		var tex := _grenade_frame(i)
+		if tex != null:
+			sf.add_frame("fly", tex)
+			any = true
+	if not any:
+		return
+	a.sprite_frames = sf
+	a.speed_scale = float(count) / maxf(0.05, dur)
+
+# Start a not-yet-playing flight animation (the grenade waits for launch; the bolt
+# is already looping, so this is a no-op for it).
+func _kick_anim(node: Node2D) -> void:
+	if node is AnimatedSprite2D and not node.is_playing():
+		node.play("fly")
+
 # The traveling bolt's visual: the looping dark_bolt flight frames if present,
 # otherwise bolt_proj.png, otherwise a generated glow dot — always visible.
 func _projectile_node(color: Color, spell_id: String = "") -> Node2D:
 	if spell_id == "grenade":
-		# Grenade FLIES looping frames 1-4; the explosion (5-6) plays on impact via grenade_burst.
-		var sf_fly := _grenade_fly_sf()
-		if sf_fly != null:
-			var a := AnimatedSprite2D.new()
-			a.sprite_frames = sf_fly
-			a.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-			a.centered = true
-			a.play("fly")
-			return a
-		var g := Sprite2D.new()
-		g.texture = _grenade_frame(1)
-		g.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-		return g
+		# Grenade: a one-shot flight anim configured per throw distance by projectile_flight
+		# (_config_grenade_fly); the explosion (frames 5-6) plays on impact via grenade_burst.
+		if _grenade_frame(1) == null:
+			var g := Sprite2D.new()
+			g.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+			return g
+		var a := AnimatedSprite2D.new()
+		a.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		a.centered = true
+		return a
 	var sf := _bolt_sf()
 	if sf != null:
 		var a := AnimatedSprite2D.new()

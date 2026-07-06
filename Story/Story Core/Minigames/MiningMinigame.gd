@@ -1,117 +1,218 @@
-# MiningMinigame.gd  (gemstones)
-# Chip the rock without shattering the embedded gem. Each strike is aim + force: press a fracture
-# spot, HOLD to charge the force meter, RELEASE to strike. Every spot shows its needed force (green)
-# and a danger line (red) -- spots near the gem need a gentle tap and crack it if you overswing.
-# Clear all spots before the gem's integrity breaks. Reports finished(quality) = integrity left.
+# MiningMinigame.gd  (gemstones) -- DEDUCTION (Minesweeper of the rock)
+# The rock hides fragile facets of the gem. LEFT-click a cell to chip it: safe rock reveals a NUMBER
+# (how many of its 8 neighbours are fragile); a fragile cell cracks the gem. RIGHT-click flags a cell
+# you've deduced is fragile (leave it be). Clear ALL the safe rock to extract the gem. Boards are
+# generated to be solvable by pure reasoning from the free opening -- no guessing. Reports
+# finished(quality) = gem integrity left (fewer bad chips = better gem).
 class_name MiningMinigame
 extends Control
 
 signal finished(quality: float)
 
-const ART := "res://Assets/Sprites/Mining/rock_gem.png"   # optional; a plain rock is drawn if absent
-var _tex: Texture2D = null
-var _rock := Rect2()
-var _gem := Vector2()
-var _spots: Array = []        # [{pos, target, danger, prox, cleared}]
+var _cols := 5
+var _rows := 5
+var _fragile: Array = []      # bool per cell
+var _num: Array = []          # fragile-neighbour count per cell
+var _revealed: Array = []
+var _flagged: Array = []
 var _integrity := 1.0
-var _aim := -1
-var _charging := false
-var _force := 0.0
 var _done := false
 var _quality := 0.0
 var _label := ""
-var _meter := Rect2()
+var _cell := 48.0
+var _org := Vector2()
 var _leave_rect := Rect2()
 
-const CHARGE := 1.1           # seconds to fill the meter to full
+const HIT := 0.26             # integrity lost per fragile chip
 
 func start(label: String, difficulty: float = 0.5) -> void:
 	_label = label
-	if ResourceLoader.exists(ART):
-		_tex = load(ART)
+	_cols = 5 + int(difficulty * 2.0)      # 5..7
+	_rows = 5
 	_integrity = 1.0
 	_done = false
-	_aim = -1
-	_charging = false
-	_force = 0.0
+	_quality = 0.0
 	set_anchors_preset(PRESET_FULL_RECT)
 	size = get_viewport_rect().size
 	mouse_filter = Control.MOUSE_FILTER_STOP
-	_layout(clampf(difficulty, 0.0, 1.0))
+	_gen(clampf(difficulty, 0.0, 1.0))
+	var vp := get_viewport_rect().size
+	_org = Vector2(vp.x * 0.5 - _cols * _cell * 0.5, vp.y * 0.5 - _rows * _cell * 0.5 + 6)
 	visible = true
-	set_process(true)
 	queue_redraw()
 
-func _layout(diff: float) -> void:
-	var vp := get_viewport_rect().size
-	var rs := 210.0
-	_rock = Rect2(vp.x * 0.5 - rs * 0.5 - 46, vp.y * 0.5 - rs * 0.5 + 6, rs, rs)
-	_gem = _rock.get_center()
-	_meter = Rect2(_rock.end.x + 46, _rock.position.y + 16, 28, rs - 32)
-	_spots = []
-	var n := 4 + int(diff * 3.0)             # 4..7 spots
-	for i in range(n):
-		var ang := TAU * float(i) / float(n) + randf() * 0.5
-		var rad := randf_range(rs * 0.26, rs * 0.44)
-		var pos := _gem + Vector2(cos(ang), sin(ang)) * rad
-		var prox := clampf(1.0 - rad / (rs * 0.44), 0.0, 1.0)   # 1 = right by the gem
-		var target := lerpf(0.72, 0.36, prox)                   # near the gem -> gentle
-		var danger := target + lerpf(0.26, 0.12, prox)          # near the gem -> tighter window
-		_spots.append({"pos": pos, "target": target, "danger": danger, "prox": prox, "cleared": false})
+# ── geometry ──
+func _idx(c: int, r: int) -> int: return r * _cols + c
+func _cx(i: int) -> int: return i % _cols
+func _cy(i: int) -> int: return int(i / _cols)
+func _nbrs(i: int) -> Array:
+	var out: Array = []
+	var c := _cx(i)
+	var r := _cy(i)
+	for dr in [-1, 0, 1]:
+		for dc in [-1, 0, 1]:
+			if dc == 0 and dr == 0:
+				continue
+			var nc: int = c + dc
+			var nr: int = r + dr
+			if nc >= 0 and nc < _cols and nr >= 0 and nr < _rows:
+				out.append(_idx(nc, nr))
+	return out
 
-func _spot_at(m: Vector2) -> int:
-	for i in range(_spots.size()):
-		if not _spots[i]["cleared"] and m.distance_to(_spots[i]["pos"]) <= 18.0:
-			return i
-	return -1
+# ── generation with a deducibility guarantee ──
+func _gen(diff: float) -> void:
+	var total := _cols * _rows
+	var mines := int(total * lerpf(0.19, 0.26, diff))
+	for _attempt in range(240):
+		_fragile = []
+		for i in range(total):
+			_fragile.append(false)
+		var placed := 0
+		while placed < mines:
+			var k := randi() % total
+			if not _fragile[k]:
+				_fragile[k] = true
+				placed += 1
+		_compute_numbers()
+		var opening := _a_zero_cell()
+		if opening == -1:
+			continue                     # need a free opening (a 0-cell) to start deducing
+		if _deducible(opening):
+			_revealed = []
+			_flagged = []
+			for i in range(total):
+				_revealed.append(false)
+				_flagged.append(false)
+			_flood(opening)
+			return
+	# fallback (rare): use last board + open a zero if any
+	_revealed = []
+	_flagged = []
+	for i in range(total):
+		_revealed.append(false)
+		_flagged.append(false)
+	var o := _a_zero_cell()
+	if o != -1:
+		_flood(o)
 
-func _all_cleared() -> bool:
-	for s in _spots:
-		if not s["cleared"]:
+func _compute_numbers() -> void:
+	_num = []
+	for i in range(_cols * _rows):
+		var n := 0
+		for nb in _nbrs(i):
+			if _fragile[nb]:
+				n += 1
+		_num.append(n)
+
+func _a_zero_cell() -> int:
+	var zeros: Array = []
+	for i in range(_cols * _rows):
+		if not _fragile[i] and _num[i] == 0:
+			zeros.append(i)
+	if zeros.is_empty():
+		return -1
+	return zeros[randi() % zeros.size()]
+
+# Simulate the basic Minesweeper solver from `opening`; true if every safe cell can be deduced.
+func _deducible(opening: int) -> bool:
+	var rev := {}
+	var flg := {}
+	_sim_flood(opening, rev)
+	var changed := true
+	while changed:
+		changed = false
+		for c in rev.keys():
+			var unrev: Array = []
+			var flagged := 0
+			for nb in _nbrs(c):
+				if flg.has(nb):
+					flagged += 1
+				elif not rev.has(nb):
+					unrev.append(nb)
+			if unrev.is_empty():
+				continue
+			if _num[c] == flagged:                       # rest are SAFE
+				for u in unrev:
+					if _fragile[u]:
+						return false
+					_sim_flood(u, rev)
+					changed = true
+			elif _num[c] - flagged == unrev.size():       # rest are FRAGILE
+				for u in unrev:
+					if not flg.has(u):
+						flg[u] = true
+						changed = true
+	for i in range(_cols * _rows):
+		if not _fragile[i] and not rev.has(i):
 			return false
 	return true
+
+func _sim_flood(c: int, rev: Dictionary) -> void:
+	if rev.has(c):
+		return
+	rev[c] = true
+	if _num[c] == 0:
+		for nb in _nbrs(c):
+			if not _fragile[nb]:
+				_sim_flood(nb, rev)
+
+# ── live reveal ──
+func _flood(c: int) -> void:
+	if _revealed[c] or _flagged[c]:
+		return
+	_revealed[c] = true
+	if _num[c] == 0:
+		for nb in _nbrs(c):
+			if not _fragile[nb]:
+				_flood(nb)
+
+func _won() -> bool:
+	for i in range(_cols * _rows):
+		if not _fragile[i] and not _revealed[i]:
+			return false
+	return true
+
+func _cell_at(m: Vector2) -> int:
+	var c := int((m.x - _org.x) / _cell)
+	var r := int((m.y - _org.y) / _cell)
+	if c < 0 or c >= _cols or r < 0 or r >= _rows:
+		return -1
+	if m.x < _org.x or m.y < _org.y:
+		return -1
+	return _idx(c, r)
 
 func _input(event: InputEvent) -> void:
 	if _done:
 		return
-	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+	if event is InputEventMouseButton and event.pressed:
 		var m := get_global_mouse_position()
-		if event.pressed:
-			get_viewport().set_input_as_handled()
-			if _leave_rect.has_point(m):
-				_finish(0.0)
+		if event.button_index == MOUSE_BUTTON_LEFT and _leave_rect.has_point(m):
+			_finish(0.0)
+			return
+		var i := _cell_at(m)
+		if i == -1:
+			return
+		get_viewport().set_input_as_handled()
+		if event.button_index == MOUSE_BUTTON_RIGHT:
+			if not _revealed[i]:
+				_flagged[i] = not _flagged[i]
+				queue_redraw()
+			return
+		if event.button_index == MOUSE_BUTTON_LEFT:
+			if _revealed[i] or _flagged[i]:
 				return
-			var s := _spot_at(m)
-			if s != -1:
-				_aim = s
-				_charging = true
-				_force = 0.0
-		elif _charging:
-			_strike()
-			_charging = false
-
-func _process(delta: float) -> void:
-	if _charging and not _done:
-		_force = minf(_force + delta / CHARGE, 1.2)   # allow overshoot past 1.0
-		queue_redraw()
-
-func _strike() -> void:
-	if _aim < 0:
-		return
-	var sp: Dictionary = _spots[_aim]
-	if _force >= float(sp["target"]) - 0.10:          # enough force to chip it
-		sp["cleared"] = true
-		if _force > float(sp["danger"]):               # overswing -> crack the gem
-			var over := _force - float(sp["danger"])
-			_integrity = maxf(0.0, _integrity - over * lerpf(1.1, 2.4, float(sp["prox"])))
-	_aim = -1
-	_force = 0.0
-	if _integrity <= 0.0:
-		_finish(0.0)
-	elif _all_cleared():
-		_finish(_integrity)                            # quality = how intact the gem is
-	else:
-		queue_redraw()
+			if _fragile[i]:
+				_revealed[i] = true                       # chipped a fragile facet -> crack
+				_integrity = maxf(0.0, _integrity - HIT)
+				if _integrity <= 0.0:
+					_finish(0.0)
+					return
+			else:
+				_flood(i)
+			if _won():
+				_finish(_integrity)
+			else:
+				queue_redraw()
 
 func _finish(q: float) -> void:
 	_done = true
@@ -125,46 +226,41 @@ func _draw() -> void:
 	var vp := get_viewport_rect().size
 	draw_rect(Rect2(Vector2.ZERO, vp), Color(0, 0, 0, 0.58))
 	var font := ThemeDB.fallback_font
-	draw_string(font, Vector2(0, _rock.position.y - 64), _label, HORIZONTAL_ALIGNMENT_CENTER, vp.x, 20, ViewConfig.COL_TEXT)
-	draw_string(font, Vector2(0, _rock.position.y - 42), "Aim a spot, HOLD to build force, RELEASE -- ease off near the gem",
-		HORIZONTAL_ALIGNMENT_CENTER, vp.x, 14, ViewConfig.COL_TEXT_OFF)
-	# rock (art if present, else a plain faceted stand-in)
-	if _tex != null:
-		draw_texture_rect(_tex, _rock, false)
-	else:
-		draw_rect(_rock.grow(-14), Color(0.63, 0.56, 0.69))
-		draw_rect(Rect2(_gem.x - 20, _gem.y - 20, 40, 40), Color(0.50, 0.38, 0.72))
+	draw_string(font, Vector2(0, _org.y - 64), _label, HORIZONTAL_ALIGNMENT_CENTER, vp.x, 20, ViewConfig.COL_TEXT)
+	draw_string(font, Vector2(0, _org.y - 42), "Left-click chips rock (number = fragile neighbours). Right-click flags a fragile spot.",
+		HORIZONTAL_ALIGNMENT_CENTER, vp.x, 13, ViewConfig.COL_TEXT_OFF)
 	# integrity bar
-	var ib := Rect2(_rock.position.x, _rock.position.y - 22, _rock.size.x, 10)
+	var ib := Rect2(_org.x, _org.y - 22, _cols * _cell, 10)
 	draw_rect(ib, Color(0.16, 0.17, 0.22))
 	draw_rect(Rect2(ib.position, Vector2(ib.size.x * _integrity, ib.size.y)),
 		Color(0.55, 0.42, 0.90) if _integrity > 0.35 else Color(0.90, 0.35, 0.38))
-	# spots
-	for i in range(_spots.size()):
-		var s: Dictionary = _spots[i]
-		if s["cleared"]:
-			continue
-		var aimed: bool = i == _aim
-		draw_arc(s["pos"], 10.0, 0, TAU, 20, Color(1, 1, 1) if aimed else Color(0.85, 0.80, 0.55), 2.0)
-		draw_line(s["pos"] + Vector2(-5, 0), s["pos"] + Vector2(5, 0), Color(0.9, 0.85, 0.6), 2.0)
-		draw_line(s["pos"] + Vector2(0, -5), s["pos"] + Vector2(0, 5), Color(0.9, 0.85, 0.6), 2.0)
-	# force meter (with the aimed spot's target + danger markers)
-	draw_rect(_meter, Color(0.14, 0.15, 0.20))
-	draw_rect(_meter, ViewConfig.COL_FRAME, false, 2.0)
-	var fh := clampf(_force / 1.2, 0.0, 1.0) * _meter.size.y
-	draw_rect(Rect2(_meter.position.x, _meter.end.y - fh, _meter.size.x, fh), Color(0.90, 0.70, 0.35))
-	if _aim >= 0:
-		var sp: Dictionary = _spots[_aim]
-		var ty := _meter.end.y - float(sp["target"]) / 1.2 * _meter.size.y
-		var dy := _meter.end.y - float(sp["danger"]) / 1.2 * _meter.size.y
-		draw_line(Vector2(_meter.position.x - 4, ty), Vector2(_meter.end.x + 4, ty), Color(0.45, 0.85, 0.52), 2.0)
-		draw_line(Vector2(_meter.position.x - 4, dy), Vector2(_meter.end.x + 4, dy), Color(0.90, 0.35, 0.38), 2.0)
-	# buttons + result
-	_leave_rect = _button(font, vp.x * 0.5 - 59, _rock.end.y + 30, "LEAVE")
+	# grid
+	for i in range(_cols * _rows):
+		var r := Rect2(_org.x + _cx(i) * _cell + 2, _org.y + _cy(i) * _cell + 2, _cell - 4, _cell - 4)
+		if _revealed[i] and _fragile[i]:
+			draw_rect(r, Color(0.50, 0.30, 0.62))
+			draw_string(font, Vector2(r.position.x, r.position.y + r.size.y * 0.72), "!", HORIZONTAL_ALIGNMENT_CENTER, r.size.x, 20, Color(1, 0.8, 0.85))
+		elif _revealed[i]:
+			draw_rect(r, Color(0.24, 0.22, 0.30))
+			if _num[i] > 0:
+				draw_string(font, Vector2(r.position.x, r.position.y + r.size.y * 0.72), str(_num[i]), HORIZONTAL_ALIGNMENT_CENTER, r.size.x, 20, _num_color(_num[i]))
+		else:
+			draw_rect(r, Color(0.60, 0.54, 0.66))       # unchipped rock
+			draw_rect(r, Color(0.70, 0.64, 0.76), false, 1.0)
+			if _flagged[i]:
+				draw_rect(Rect2(r.get_center() - Vector2(6, 6), Vector2(12, 12)), Color(0.90, 0.35, 0.38))
+	_leave_rect = _button(font, vp.x * 0.5 - 59, _org.y + _rows * _cell + 16, "LEAVE")
 	if _done:
 		var txt := ("Prized gem!" if _quality > 0.85 else ("Good haul" if _quality > 0.5 else "Chipped through")) if _quality > 0.0 else "Shattered"
-		draw_string(font, Vector2(0, _rock.end.y + 80), txt, HORIZONTAL_ALIGNMENT_CENTER, vp.x,
+		draw_string(font, Vector2(0, _org.y + _rows * _cell + 66), txt, HORIZONTAL_ALIGNMENT_CENTER, vp.x,
 			22, ViewConfig.COL_GOLD if _quality > 0.0 else ViewConfig.COL_TEXT_OFF)
+
+func _num_color(n: int) -> Color:
+	match n:
+		1: return Color(0.55, 0.80, 0.95)
+		2: return Color(0.55, 0.90, 0.55)
+		3: return Color(0.95, 0.70, 0.45)
+		_: return Color(0.95, 0.55, 0.60)
 
 func _button(font: Font, x: float, y: float, label: String) -> Rect2:
 	var r := Rect2(x, y, 118, 34)

@@ -76,6 +76,19 @@ func _on_replay_action(which: String) -> void:
 		"exit":
 			_exit_replay()
 
+# Arrow keys step between turns while the replay is open (LEFT = prev, RIGHT = next).
+# Ignored while a turn is animating (the bar is disabled) so a keypress can't desync.
+func _unhandled_input(event: InputEvent) -> void:
+	if replay_bar == null or not replay_bar._enabled:
+		return
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == KEY_LEFT:
+			get_viewport().set_input_as_handled()
+			_replay_show(replay_idx - 1)
+		elif event.keycode == KEY_RIGHT:
+			get_viewport().set_input_as_handled()
+			_replay_show(replay_idx + 1)
+
 # Jump to a turn: snap the board to its END state and show the log through it.
 func _replay_show(idx: int) -> void:
 	replay_idx = clampi(idx, 0, match_record.size() - 1)
@@ -86,6 +99,7 @@ func _replay_show(idx: int) -> void:
 	ub.set_state(t["post_b"])
 	_rebuild_log_through(replay_idx)
 	replay_bar.set_label("TURN %d / %d" % [t["turn"], match_record.size()])
+	replay_bar.set_stats(t["post_a"], t["post_b"])   # resources as of this turn's end
 
 # Re-animate the current turn from its START state, so you watch the actual plays.
 func _replay_play_current() -> void:
@@ -95,7 +109,9 @@ func _replay_play_current() -> void:
 	board.clear_highlights()
 	ua.set_state(t["pre_a"])
 	ub.set_state(t["pre_b"])
+	replay_bar.set_stats(t["pre_a"], t["pre_b"])     # resources entering the turn
 	await play.play(t["events"], t["post_a"], t["post_b"])
+	replay_bar.set_stats(t["post_a"], t["post_b"])   # ...and after it resolves
 	replay_bar.set_enabled(true)
 
 func _exit_replay() -> void:

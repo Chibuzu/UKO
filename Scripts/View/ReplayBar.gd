@@ -12,6 +12,7 @@ const BTN_H := 48
 const GAP := 12
 
 var _label := "TURN 1 / 1"
+var _stats := ""            # per-turn resource readout (HP / MP / EN for both fighters)
 var _buttons := [
 	{"id": "prev", "label": "< PREV"},
 	{"id": "play", "label": "PLAY"},
@@ -23,6 +24,13 @@ var _enabled := true
 
 func set_label(t: String) -> void:
 	_label = t
+	queue_redraw()
+
+# Live resource readout for the shown moment of the replay (updated by the controller
+# on every step and around each animated turn).
+func set_stats(a: Combatant, b: Combatant) -> void:
+	_stats = "A   HP %d   MP %d   EN %d        B   HP %d   MP %d   EN %d" % [
+		a.hp, a.mp, a.energy, b.hp, b.mp, b.energy]
 	queue_redraw()
 
 # Disable while a turn animates so a stray click can't desync the view.
@@ -41,6 +49,9 @@ func _btn_rect(i: int, vp: Vector2) -> Rect2:
 func _draw() -> void:
 	var vp := get_viewport_rect().size
 	var font := ThemeDB.fallback_font
+	if _stats != "":
+		draw_string(font, Vector2(0, vp.y - BTN_H - 64), _stats,
+			HORIZONTAL_ALIGNMENT_CENTER, vp.x, 15, ViewConfig.COL_TEXT_OFF)
 	draw_string(font, Vector2(0, vp.y - BTN_H - 42), _label,
 		HORIZONTAL_ALIGNMENT_CENTER, vp.x, 18, ViewConfig.COL_TEXT)
 	for i in range(_buttons.size()):

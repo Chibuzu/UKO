@@ -155,10 +155,18 @@ func _visualize(e: Dictionary) -> float:
 			return ViewConfig.FX_DUR
 		"spell_hit":
 			_impact(units.get(e["target"], null), int(e["damage"]), ViewConfig.FLASH_HIT, ViewConfig.SHAKE_SPELL)
-			if e.get("disrupt", false):                       # the grenade landed -> explode here
-				var tgt: UnitView = units.get(e["target"], null)
-				if tgt:
-					fx.grenade_burst(tgt.position)
+			if e.get("disrupt", false):                       # the grenade landed -> explode where it FELL
+				var fl: Dictionary = {}
+				for k in _flights:
+					if String(_flights[k].get("spell", "")) == "grenade":
+						fl = _flights[k]
+						break
+				if not fl.is_empty():
+					fx.grenade_burst(fl["points"].back())      # the thrown tile, even if the target moved
+				else:
+					var tgt: UnitView = units.get(e["target"], null)
+					if tgt:
+						fx.grenade_burst(tgt.position)
 			return ViewConfig.HIT_DUR
 		"buff_applied":
 			if u:
@@ -216,13 +224,13 @@ func _cast_visual(caster: UnitView, e: Dictionary) -> void:
 			board.shake(ViewConfig.SHAKE_HIT * 0.5)   # muzzle kick
 			# Fire the whole flight now: one sprite travels caster -> ... -> impact,
 			# staying visible the entire time (paced to match the step ticks).
-			var fl: Dictionary = _flights.get(e.get("owner", ""), {})
+			var fl: Dictionary = _flights.get("%s|%s" % [e.get("owner", ""), String(e.get("spell", ""))], {})
 			if not fl.is_empty():
 				# One sprite flies caster -> ... -> impact, delayed by the cast hold so it launches
 				# after the muzzle. The tween is stored so the spell_hit waits for it to arrive.
 				var tw := fx.projectile_flight(fl["points"], fl["seg_durs"], fl["color"], ViewConfig.FX_DUR, fl.get("spell", ""))
 				if tw != null:
-					_bolt_tweens[e.get("owner", "")] = tw
+					_bolt_tweens["%s|%s" % [e.get("owner", ""), String(e.get("spell", ""))]] = tw
 		"aoe":
 			if not fx.aoe_anim(caster.position):
 				board.flash_tiles(tiles, color)            # fallback if art missing
@@ -259,15 +267,16 @@ func _plan_flights(events: Array) -> Dictionary:
 			continue
 		var owner: String = e.get("owner", "")
 		var spell: String = e.get("spell", "")
+		var key := "%s|%s" % [owner, spell]   # per owner AND spell: grenade + bolt in one turn stay separate
 		var tpt := int(Config.def(spell).get("tick_per_tile", 0))
 		var seg := clampf(float(tpt) * ViewConfig.SEC_PER_TICK, ViewConfig.GAP_MIN, ViewConfig.GAP_MAX)
-		if not out.has(owner):
-			out[owner] = {
+		if not out.has(key):
+			out[key] = {
 				"points": [ViewConfig.tile_center(e.get("from", e["tile"]))],
 				"seg_durs": [],
 				"color": _style_color("projectile"),
 				"spell": spell,
 			}
-		out[owner]["points"].append(ViewConfig.tile_center(e["tile"]))
-		out[owner]["seg_durs"].append(seg)
+		out[key]["points"].append(ViewConfig.tile_center(e["tile"]))
+		out[key]["seg_durs"].append(seg)
 	return out
