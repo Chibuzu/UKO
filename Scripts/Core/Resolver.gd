@@ -77,8 +77,13 @@ static func resolve(grid: Grid, in_a: Combatant, in_b: Combatant,
 					guarded[actor.id] = true
 					events.append(_ev("guard_raised", tick, actor.id))
 				"pivot":
-					actor.facing = s["facing"]
-					events.append(_ev("pivot", tick, actor.id, {"facing": s["facing"]}))
+					# Rooted (grenade): feet stuck -- the pivot is blocked too, so the landed
+					# root guarantees a one-action facing lock (a flank-conversion window).
+					if actor.statuses.has("rooted"):
+						events.append(_ev("illegal_action", tick, actor.id, {"id": "pivot", "reason": "rooted"}))
+					else:
+						actor.facing = s["facing"]
+						events.append(_ev("pivot", tick, actor.id, {"facing": s["facing"]}))
 				"move":
 					if not bool(s.get("_resolved", false)):
 						var a_was: Vector2i = actor.pos
@@ -671,7 +676,10 @@ static func _projectile_step(s: Dictionary, actor: Combatant, target: Combatant,
 			var st: String = String(eff.get("status", ""))
 			if st != "":
 				target.statuses[st] = int(Config.status_def(st).get("duration", 1))
-			events.append(_ev("spell_hit", tick, actor.id, {"target": target.id, "damage": 0, "spell": s["id"], "disrupt": true}))
+			var drain := int(eff.get("energy_drain", 0))   # the shock saps the target (grenade: 20)
+			if drain > 0:
+				target.energy = maxi(0, target.energy - drain)
+			events.append(_ev("spell_hit", tick, actor.id, {"target": target.id, "damage": 0, "spell": s["id"], "disrupt": true, "drain": drain}))
 		else:
 			var dmg := int(s["damage"])
 			_apply_damage(target, dmg, tick, damaged_tick, dead_tick)

@@ -11,9 +11,11 @@ const SAMPLES := 21
 var _fails := 0
 
 func _init() -> void:
+	print("[positions] booted -- running 4 tests (~84 AI decisions; a couple of minutes is normal)")
 	_test_flee_not_wait()
 	_test_hold_grenade()
 	_test_safe_rest()
+	_test_critical_rest()
 	print("[positions] %s" % ("ALL PASS" if _fails == 0 else "%d FAILED" % _fails))
 	quit(0 if _fails == 0 else 1)
 
@@ -50,6 +52,7 @@ func _test_flee_not_wait() -> void:
 	var atk := _mk("A", Vector2i(8, 6), Config.Facing.WEST, 100, 100)
 	var run := _mk("B", Vector2i(6, 6), Config.Facing.WEST, 22, 60)
 	var kill: Array = [{"id": "move", "tile": Vector2i(7, 6)}, {"id": "attack", "tile": Vector2i(6, 6)}]
+	print("[positions] 1/3 flee-not-wait...")
 	var alive := 0
 	for _i in range(SAMPLES):
 		var seq := ExtremeAI.choose_sequence(run, atk, g, run.spell_ids())
@@ -64,6 +67,7 @@ func _test_hold_grenade() -> void:
 	var g := _blank_grid()
 	var me := _mk("B", Vector2i(8, 6), Config.Facing.WEST, 100, 100)
 	var foe := _mk("A", Vector2i(3, 6), Config.Facing.EAST, 100, 100)
+	print("[positions] 2/3 hold-grenade...")
 	var thrown := 0
 	for _i in range(SAMPLES):
 		var seq := ExtremeAI.choose_sequence(me, foe, g, me.spell_ids())
@@ -79,6 +83,7 @@ func _test_safe_rest() -> void:
 	var me := _mk("B", Vector2i(10, 10), Config.Facing.WEST, 40, 60)
 	me.mp = 40
 	var foe := _mk("A", Vector2i(1, 1), Config.Facing.EAST, 100, 10)
+	print("[positions] 3/3 safe-rest...")
 	var rested := 0
 	for _i in range(SAMPLES):
 		var seq := ExtremeAI.choose_sequence(me, foe, g, me.spell_ids())
@@ -87,3 +92,21 @@ func _test_safe_rest() -> void:
 				rested += 1
 				break
 	_check("safe-rest: heals when unpunishable", float(rested) / SAMPLES, 0.5)
+
+# 4) YOUR backstab scenario, generalized: one hit from death, foe ADJACENT but at
+# zero energy (harmless this turn). Resting on the spot is legal, safe, and the
+# survival play -- the brain must take it far more often than any stylish setup.
+func _test_critical_rest() -> void:
+	print("[positions] 4/4 critical-rest...")
+	var g := _blank_grid()
+	var me := _mk("B", Vector2i(6, 6), Config.Facing.EAST, 15, 60)
+	me.mp = 60
+	var foe := _mk("A", Vector2i(7, 6), Config.Facing.WEST, 100, 0)
+	var rested := 0
+	for _i in range(SAMPLES):
+		var seq := ExtremeAI.choose_sequence(me, foe, g, me.spell_ids())
+		for act in seq:
+			if String(act.get("id", "")) == "rest":
+				rested += 1
+				break
+	_check("critical-rest: heals at death's door vs a spent foe", float(rested) / SAMPLES, 0.6)

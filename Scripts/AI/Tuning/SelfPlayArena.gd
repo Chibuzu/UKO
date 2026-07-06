@@ -7,9 +7,11 @@ extends RefCounted
 
 const DEFAULT_KIT := ["dark_bolt", "aoe_burst", "energy_discount", "blink_step"]
 
+# Fixed mirror kit. Deliberately NOT PlayerProfile.loadout(): autoloads don't exist
+# yet when a --script run boots (touching one hangs the whole run), and a fixed kit
+# makes tuning reproducible instead of dependent on whatever the save file holds.
 static func kit() -> Array:
-	var k: Array = PlayerProfile.loadout()
-	return k if not k.is_empty() else DEFAULT_KIT
+	return DEFAULT_KIT
 
 # Play one match: w1 vs w2 (Eval weight dicts), w1 seated as A when w1_is_a.
 # Returns {"result": "w1"|"w2"|"draw", "turns": int, "hp_margin": int (w1 - w2)}.

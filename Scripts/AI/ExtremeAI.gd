@@ -28,6 +28,8 @@ const ROOT_COLS      := 6     # ...each deepened only vs the foe's most threaten
 const ROOT_ROWS_END  := 5     # once the zone has squeezed the arena (shrink >= 2), moves are
 const ROOT_COLS_END  := 9     #   few and lethal: see further exactly when it's cheap to.
 const DOM_EPS        := 0.001 # strict-dominance margin for pruning the matrix
+const MIN_MIX        := 0.05  # support pruning: drop mix entries below this and renormalize --
+							  #   a 2-3% sampled row reads as a blunder even when the math is right
 const BUDGET_MS      := 250   # think budget: after the baseline deep look, keep deepening
 							  #   the next most decision-relevant cells until this runs out
 const EXPLOIT_LAMBDA := 0.4   # 0 = pure equilibrium (unexploitable); 1 = pure best-response
@@ -88,6 +90,27 @@ static func choose_sequence(me: Combatant, foe: Combatant, grid: Grid, spells: A
 	# back to full candidate indexing (eliminated moves get probability 0).
 	var mix: Array = _expand(NashSolver.solve(reduced), dom["rows"], my_cands.size())
 
+	# DEPTH 3 (selective): the solved mix now says which of MY lines actually carry
+	# weight. Re-score those rows' most threatening cells ONE PLY DEEPER (their
+	# leaves become solved depth-2 subgames -> 3-ply total) inside the remaining
+	# budget, then re-solve on the refined matrix. The transposition cache makes
+	# revisited states cheap; the budget guard means this phase can only refine
+	# the answer, never stall a turn.
+	if Eval.LOOKAHEAD_DEPTH >= 2 and Time.get_ticks_msec() - t0 < BUDGET_MS:
+		var deep2: int = Eval.LOOKAHEAD_DEPTH
+		var touched := false
+		for i in mix.size():
+			if float(mix[i]) < 0.10:
+				continue
+			for j in _worst_cols(M[i], ROOT_COLS):
+				if Time.get_ticks_msec() - t0 >= BUDGET_MS:
+					break
+				M[i][j] = Eval.score_deep(me, foe, grid, my_cands[i], foe_cands[j], deep2)
+				touched = true
+		if touched:
+			dom = _dominance_filter(M)
+			mix = _expand(NashSolver.solve(_submatrix(M, dom["rows"], dom["cols"])), dom["rows"], my_cands.size())
+
 	# EXPLOITATION: tilt the mix toward punishing the foe's observed habits IN THIS
 	# SITUATION, scaled by how much history backs the read (confidence) and bounded
 	# by EXPLOIT_LAMBDA. The equilibrium stays underneath.
@@ -105,6 +128,7 @@ static func choose_sequence(me: Combatant, foe: Combatant, grid: Grid, spells: A
 		for i in mix.size():
 			mix[i] = (1.0 - lam) * float(mix[i]) + lam * float(exploit[i])
 
+	mix = _prune_support(mix, MIN_MIX)   # keep mixing, but never play negligible lines
 	return my_cands[_sample(mix)]
 
 # Drop empty sequences from a candidate list.
@@ -262,6 +286,22 @@ static func _uniform(n: int) -> Array:
 	var p := (1.0 / float(n)) if n > 0 else 0.0
 	for _i in n:
 		out.append(p)
+	return out
+
+# Zero out entries below the floor and renormalize. Mixing stays (unexploitable
+# frequencies survive within the kept support); only the "why did it do THAT" tail
+# -- near-tie noise like a pointless there-and-back -- gets cut.
+static func _prune_support(mix: Array, floor_p: float) -> Array:
+	var out: Array = []
+	var tot := 0.0
+	for v in mix:
+		var x: float = float(v) if float(v) >= floor_p else 0.0
+		out.append(x)
+		tot += x
+	if tot <= 0.0:
+		return mix
+	for i in out.size():
+		out[i] = float(out[i]) / tot
 	return out
 
 # Sample an index from a probability distribution (intentionally nondeterministic).

@@ -65,14 +65,17 @@ static func candidates(me: Combatant, foe: Combatant, grid: Grid) -> Array:
 	var seqs: Array = []
 	# REST only earns a slot if it can actually regen. At full HP and MP it heals
 	# nothing and grants no energy, so offering it just lets the mixer waste a turn.
-	if (me.hp < Config.MAX_HP or me.mp < Config.MAX_MP) and me.rest_ready:
+	# Rest only when it buys something REAL: topping up ~10 points wastes a whole
+	# turn of tempo. 25+ combined hp+mp deficit is roughly one hit's worth.
+	if (Config.MAX_HP - me.hp) + (Config.MAX_MP - me.mp) >= 25 and me.rest_ready:
 		seqs.append([{"id": "rest"}])
 	for a1 in slot_actions(me, foe, grid):
-		# A lone WAIT at full energy banks nothing and has no later action to delay:
-		# a pure pass. (A WAIT that PRECEDES another action is kept below -- it now
-		# delays that action, a strategic hold.)
-		if not (a1.get("id") == "wait" and me.energy >= Config.MAX_ENERGY):
-			seqs.append([a1])
+		# Never a lone action (REST excepted -- it ends the turn by rule): a turn
+		# always fills both slots, padding with a trailing WAIT. The wait costs
+		# nothing and changes nothing, but the plan reads honestly in the log and
+		# the brain can never look like it "did only one thing".
+		if a1.get("id") != "wait":
+			seqs.append([a1, {"id": "wait"}])
 		var proj := me.clone()
 		apply_projection(proj, a1)
 		for a2 in slot_actions(proj, foe, grid):
@@ -81,7 +84,7 @@ static func candidates(me: Combatant, foe: Combatant, grid: Grid) -> Array:
 				continue
 			seqs.append([a1, a2])
 	if seqs.is_empty():
-		seqs = [[{"id": "wait"}]]   # never hand back an empty candidate set (wait is always legal)
+		seqs = [[{"id": "wait"}, {"id": "wait"}]]   # never hand back an empty candidate set (wait is always legal)
 	return seqs
 
 # Sensible actions for one slot from a given state. Generic over spells (reads

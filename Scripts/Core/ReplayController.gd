@@ -14,6 +14,10 @@ var menu: ActionMenu
 var ua: UnitView
 var ub: UnitView
 
+var hud_a: ResourceHUD                   # the live resource bars, driven per shown turn
+var hud_b: ResourceHUD
+var local_is_a := true
+
 var match_record := MatchRecord.new()   # every resolved turn, for end-of-match replay
 var end_screen: EndScreen                # borrowed from GameController, to hide/restore
 var replay_bar: ReplayBar
@@ -21,13 +25,25 @@ var replay_idx := 0
 
 # Wire the system to the live scene objects (called once by GameController).
 func setup(p_board: BoardView, p_play: EventPlayer, p_log: CombatLog,
-		p_menu: ActionMenu, p_ua: UnitView, p_ub: UnitView) -> void:
+		p_menu: ActionMenu, p_ua: UnitView, p_ub: UnitView,
+		p_hud_a: ResourceHUD = null, p_hud_b: ResourceHUD = null, p_local_a := true) -> void:
 	board = p_board
 	play = p_play
 	combat_log = p_log
 	menu = p_menu
 	ua = p_ua
 	ub = p_ub
+	hud_a = p_hud_a
+	hud_b = p_hud_b
+	local_is_a = p_local_a
+
+# Drive the real resource HUDs with the replayed moment's stats (same local/foe
+# seat mapping the live game uses), so HP/MP/EN read exactly like a live turn.
+func _refresh_huds(ca: Combatant, cb: Combatant) -> void:
+	if hud_a:
+		hud_a.refresh(ca if local_is_a else cb)
+	if hud_b:
+		hud_b.refresh(cb if local_is_a else ca)
 
 # Log a resolved turn for later playback.
 func record(turn: int, pre_a: Combatant, pre_b: Combatant,
@@ -99,7 +115,7 @@ func _replay_show(idx: int) -> void:
 	ub.set_state(t["post_b"])
 	_rebuild_log_through(replay_idx)
 	replay_bar.set_label("TURN %d / %d" % [t["turn"], match_record.size()])
-	replay_bar.set_stats(t["post_a"], t["post_b"])   # resources as of this turn's end
+	_refresh_huds(t["post_a"], t["post_b"])   # resources as of this turn's end
 
 # Re-animate the current turn from its START state, so you watch the actual plays.
 func _replay_play_current() -> void:
@@ -109,9 +125,9 @@ func _replay_play_current() -> void:
 	board.clear_highlights()
 	ua.set_state(t["pre_a"])
 	ub.set_state(t["pre_b"])
-	replay_bar.set_stats(t["pre_a"], t["pre_b"])     # resources entering the turn
+	_refresh_huds(t["pre_a"], t["pre_b"])     # resources entering the turn
 	await play.play(t["events"], t["post_a"], t["post_b"])
-	replay_bar.set_stats(t["post_a"], t["post_b"])   # ...and after it resolves
+	_refresh_huds(t["post_a"], t["post_b"])   # ...and after it resolves
 	replay_bar.set_enabled(true)
 
 func _exit_replay() -> void:
@@ -122,6 +138,7 @@ func _exit_replay() -> void:
 	_restore_layout(last)
 	ua.set_state(last["post_a"])
 	ub.set_state(last["post_b"])
+	_refresh_huds(last["post_a"], last["post_b"])
 	_rebuild_log_through(match_record.size() - 1)
 	if end_screen:
 		end_screen.visible = true

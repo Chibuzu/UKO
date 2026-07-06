@@ -31,6 +31,8 @@ static var W_PRESS  := 0.2          # when I'm HP-ahead, reward closing in to co
 static var W_INCOMING := 6.0        # standing where the telegraph says a wall / zone ring lands next
 static var W_CENTER   := 0.5        # per ring of edge-depth advantage once the zone is closing
 static var W_ITEM     := 2.0        # an unspent grenade is a standing threat (option value)
+static var W_LETHAL   := 2.5        # danger multiplier when the foe's incoming can KILL me outright --
+									#   at one hit from death, exposure is the match, not a cost
 
 # ── Lookahead (EXTREME's depth-2 search) [all tunable] ────────────────────
 const LOOKAHEAD_DEPTH := 2   # turns EXTREME sees: 1 = shallow (this turn + heuristic);
@@ -45,14 +47,14 @@ static var DISCOUNT   := 0.9      # a future turn is worth slightly less than da
 # runtime; the defaults reproduce shipped behaviour exactly.
 const TUNABLE := ["W_DEAL", "W_TAKE", "W_ENERGY", "W_MP", "W_LOCK", "W_DANGER_MELEE",
 	"W_DANGER_SPELL", "W_PRESSURE", "W_ATTRITION", "W_TEMPO", "W_MOBILITY", "W_PRESS",
-	"W_INCOMING", "W_CENTER", "W_ITEM", "DISCOUNT"]
+	"W_INCOMING", "W_CENTER", "W_ITEM", "W_LETHAL", "DISCOUNT"]
 
 static func get_weights() -> Dictionary:
 	return {"W_DEAL": W_DEAL, "W_TAKE": W_TAKE, "W_ENERGY": W_ENERGY, "W_MP": W_MP,
 		"W_LOCK": W_LOCK, "W_DANGER_MELEE": W_DANGER_MELEE, "W_DANGER_SPELL": W_DANGER_SPELL,
 		"W_PRESSURE": W_PRESSURE, "W_ATTRITION": W_ATTRITION, "W_TEMPO": W_TEMPO,
 		"W_MOBILITY": W_MOBILITY, "W_PRESS": W_PRESS, "W_INCOMING": W_INCOMING,
-		"W_CENTER": W_CENTER, "W_ITEM": W_ITEM, "DISCOUNT": DISCOUNT}
+		"W_CENTER": W_CENTER, "W_ITEM": W_ITEM, "W_LETHAL": W_LETHAL, "DISCOUNT": DISCOUNT}
 
 static func set_weights(w: Dictionary) -> void:
 	for k in w:
@@ -73,6 +75,7 @@ static func set_weights(w: Dictionary) -> void:
 			"W_INCOMING": W_INCOMING = v
 			"W_CENTER": W_CENTER = v
 			"W_ITEM": W_ITEM = v
+			"W_LETHAL": W_LETHAL = v
 			"DISCOUNT": DISCOUNT = v
 
 # Per-decision transposition cache for solved subgame values. The same state is
@@ -187,7 +190,12 @@ static func _eval_situation(me: Combatant, foe: Combatant, grid: Grid) -> float:
 	# aggressive (ending in a position that threatens the foe is rewarded).
 	var danger := ThreatModel.incoming(foe, me, grid)
 	var mine := ThreatModel.incoming(me, foe, grid)
-	v -= W_DANGER_MELEE * float(danger["blockable"]) + W_DANGER_SPELL * float(danger["unblockable"])
+	var dtot := int(danger["blockable"]) + int(danger["unblockable"])
+	var lethal_mult := W_LETHAL if (dtot >= me.hp and me.hp > 0) else 1.0
+	# Desperation aversion: incoming threat matters more the closer `me` is to
+	# death (fear = 1.0 at full hp, ~2.2 near zero). Stopgap for win-prob scoring.
+	var fear := 1.0 + 1.2 * (1.0 - float(me.hp) / float(Config.MAX_HP))
+	v -= ((W_DANGER_MELEE * float(danger["blockable"]) + W_DANGER_SPELL * float(danger["unblockable"])) * lethal_mult) * fear
 	v += W_PRESSURE * float(int(mine["blockable"]) + int(mine["unblockable"]))
 
 	# Attrition: a foe who can't even afford to attack while I still can is losing

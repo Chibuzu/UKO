@@ -8,9 +8,9 @@
 # it for an overnight run.
 extends SceneTree
 
-const ITERS := 10
+const ITERS := 200
 const STEP := 0.15
-const SEEDS := [11, 23, 37]
+const SEEDS := [11, 23, 37, 51, 68]
 const ACCEPT := 0.55      # candidate must take this score share to replace the base
 const SAVE_PATH := "user://tuned_eval.cfg"
 
@@ -18,6 +18,7 @@ func _init() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.randomize()
 	var base := Eval.get_weights()
+	print("[tuner] booted")
 	print("[tuner] start; %d iters, %d seeds, step %.2f" % [ITERS, SEEDS.size(), STEP])
 	for it in range(ITERS):
 		var cand := {}
