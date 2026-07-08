@@ -7,8 +7,10 @@ extends RefCounted
 
 # ── Layout ──────────────────────────────────────────────────
 const TILE := 32                          # pixel size of one grid tile (32x32 pixel-art)
-const BOARD_SCALE := 1.375                # 12x12 board scaled to 44px tiles (528px) -- centred with clear margin
-const BOARD_ORIGIN := Vector2(312, 60)    # centred: (1152 - 384*1.375)/2 = 312, (648 - 384*1.375)/2 = 60 (60px space over/under)
+# ── DUEL board geometry. RULE: duel screens read BOARD_*, the story window reads
+# VIEW_* below. The two never mix -- mixing them is how offsets break.
+const BOARD_SCALE := 1.5                  # 8x8 at 48px tiles (384px board) -- crisp 1.5x pixel scale
+const BOARD_ORIGIN := Vector2(384, 132)    # centred: (1152-384)/2, (648-384)/2
 
 # Framed side columns (screen space). Grey fill + a hand-drawn purple border, drawn by UIFrame.
 # The board area BETWEEN them is left transparent -- the live board + figures render there.
@@ -17,13 +19,18 @@ const BOARD_ORIGIN := Vector2(312, 60)    # centred: (1152 - 384*1.375)/2 = 312,
 # the live board renders inside it. Matches the reference frame exactly (4800x2700 * 0.24).
 const PANEL_LEFT := Rect2(6, 5, 273, 637)      # action buttons + your resources (full height)
 const PANEL_RIGHT := Rect2(873, 5, 273, 637)   # combat log + opponent resources (full height)
-const BOARD_FRAME := Rect2(310, 58, 532, 532)  # inset frame hugging the centred board (clear space top/bottom)
+const BOARD_FRAME := Rect2(382, 130, 388, 388)  # inset frame hugging the centred board
 const COL_PANEL := Color(0.737, 0.745, 0.749)  # uniform grey background / panel fill (#bcbebf)
 const COL_FRAME := Color(0.231, 0.188, 0.392)  # hand-drawn purple border (#3b3064)
 
 # Story mode's moving window: how many tiles are shown per side (the board renders this many),
 # and the half-extent used to center the initial window on the player. Single source -- both
 # StoryController (windowing math) and WorldBoard (drawing) read these.
+# Story window geometry -- independent of the duel board (which is 8x8 now).
+# 12 view tiles at 44px fill the original 528px frame at the original origin.
+const VIEW_SCALE := 1.375
+const VIEW_ORIGIN := Vector2(312, 60)
+const VIEW_FRAME := Rect2(310, 58, 532, 532)   # frame around the 12-tile story window
 const VIEW_TILES := 12
 const VIEW_RADIUS := VIEW_TILES / 2       # = 6
 

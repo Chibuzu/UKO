@@ -9,13 +9,16 @@
 class_name UIFrame
 extends Node2D
 
+# Which rect to frame: duel board by default; story sets its own window rect.
+var rect: Rect2 = ViewConfig.BOARD_FRAME
+
 const LINE_W := 3.0                  # crisp border thickness
 
 @export var front: bool = false      # false = grey bg + side frames; true = center board frame
 
 func _draw() -> void:
 	if front:
-		draw_rect(ViewConfig.BOARD_FRAME, ViewConfig.COL_FRAME, false, LINE_W)
+		draw_rect(rect, ViewConfig.COL_FRAME, false, LINE_W)
 		return
 	# Uniform grey background across the whole viewport, then the two side frames on top.
 	draw_rect(Rect2(Vector2.ZERO, get_viewport_rect().size), ViewConfig.COL_PANEL)

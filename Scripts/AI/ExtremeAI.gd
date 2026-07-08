@@ -28,6 +28,44 @@ const ROOT_COLS      := 6     # ...each deepened only vs the foe's most threaten
 const ROOT_ROWS_END  := 5     # once the zone has squeezed the arena (shrink >= 2), moves are
 const ROOT_COLS_END  := 9     #   few and lethal: see further exactly when it's cheap to.
 const DOM_EPS        := 0.001 # strict-dominance margin for pruning the matrix
+# ── Evolved weights (self-play champion, validated 63% vs defaults on fresh
+# seeds + all position tests green). EXTREME plays these; CHALLENGING keeps the
+# hand-tuned Eval defaults -- the tiers are genuinely different fighters.
+const CHAMPION_WEIGHTS := {
+		"W_DEAL": 0.7760433647207,
+		"W_TAKE": 0.71699658697021,
+		"W_ENERGY": 0.06208346917766,
+		"W_MP": 0.05249705114287,
+		"W_LOCK": 0.14339931739404,
+		"W_DANGER_MELEE": 0.28679863478809,
+		"W_DANGER_SPELL": 0.46562601883242,
+		"W_PRESSURE": 0.34921951412432,
+		"W_ATTRITION": 15.3749149091094,
+		"W_TEMPO": 0.17207918087285,
+		"W_MOBILITY": 0.86039590436426,
+		"W_PRESS": 0.08479263985039,
+		"W_INCOMING": 8.52305065613671,
+		"W_CENTER": 0.28679863478809,
+		"W_ITEM": 1.14719453915234,
+		"W_LETHAL": 4.80466090909668,
+		"DISCOUNT": 0.69843902824863,
+}
+
+# ── Difficulty profiles: same brain, different throttles. CHALLENGING is the
+# approved frozen feel; EXTREME opens budget, width, and exploitation.
+const PROFILES := {
+	"challenging": {"budget_ms": 250, "rows": 3, "cols": 6, "rows_end": 5, "cols_end": 9, "lambda": 0.0},
+	"extreme":     {"budget_ms": 700, "rows": 4, "cols": 8, "rows_end": 6, "cols_end": 10, "lambda": 0.6},
+}
+static var P: Dictionary = PROFILES["extreme"]
+static func set_profile(name: String) -> void:
+	P = PROFILES.get(name, PROFILES["extreme"])
+	# Weights ride with the tier: champion for EXTREME, hand defaults otherwise.
+	if name == "extreme":
+		Eval.set_weights(CHAMPION_WEIGHTS)
+	else:
+		Eval.set_weights(Eval.DEFAULTS)
+
 const MIN_MIX        := 0.05  # support pruning: drop mix entries below this and renormalize --
 							  #   a 2-3% sampled row reads as a blunder even when the math is right
 const BUDGET_MS      := 250   # think budget: after the baseline deep look, keep deepening
@@ -60,8 +98,8 @@ static func choose_sequence(me: Combatant, foe: Combatant, grid: Grid, spells: A
 	# branching collapses and the subgame cache bites, so the same budget reaches much
 	# further -- and the leaves look one ply deeper (functionally: perfect endgames).
 	if Eval.LOOKAHEAD_DEPTH >= 2:
-		var deep_rows := ROOT_ROWS_END if grid.shrink_level >= 2 else ROOT_ROWS
-		var deep_cols := ROOT_COLS_END if grid.shrink_level >= 2 else ROOT_COLS
+		var deep_rows := int(P["rows_end"]) if grid.shrink_level >= 2 else int(P["rows"])
+		var deep_cols := int(P["cols_end"]) if grid.shrink_level >= 2 else int(P["cols"])
 		var leaf := Eval.LOOKAHEAD_DEPTH - 1
 		if grid.shrink_level >= 3:
 			leaf = Eval.LOOKAHEAD_DEPTH
@@ -71,7 +109,7 @@ static func choose_sequence(me: Combatant, foe: Combatant, grid: Grid, spells: A
 				M[i][j] = Eval.score_deep(me, foe, grid, my_cands[i], foe_cands[j], leaf)
 				done["%d,%d" % [i, j]] = true
 		for cell in _deepen_order(M):
-			if Time.get_ticks_msec() - t0 >= BUDGET_MS:
+			if Time.get_ticks_msec() - t0 >= int(P["budget_ms"]):
 				break
 			var ci: int = cell["i"]
 			var cj: int = cell["j"]
@@ -96,14 +134,14 @@ static func choose_sequence(me: Combatant, foe: Combatant, grid: Grid, spells: A
 	# budget, then re-solve on the refined matrix. The transposition cache makes
 	# revisited states cheap; the budget guard means this phase can only refine
 	# the answer, never stall a turn.
-	if Eval.LOOKAHEAD_DEPTH >= 2 and Time.get_ticks_msec() - t0 < BUDGET_MS:
+	if Eval.LOOKAHEAD_DEPTH >= 2 and Time.get_ticks_msec() - t0 < int(P["budget_ms"]):
 		var deep2: int = Eval.LOOKAHEAD_DEPTH
 		var touched := false
 		for i in mix.size():
 			if float(mix[i]) < 0.10:
 				continue
-			for j in _worst_cols(M[i], ROOT_COLS):
-				if Time.get_ticks_msec() - t0 >= BUDGET_MS:
+			for j in _worst_cols(M[i], int(P["cols"])):
+				if Time.get_ticks_msec() - t0 >= int(P["budget_ms"]):
 					break
 				M[i][j] = Eval.score_deep(me, foe, grid, my_cands[i], foe_cands[j], deep2)
 				touched = true
@@ -114,7 +152,7 @@ static func choose_sequence(me: Combatant, foe: Combatant, grid: Grid, spells: A
 	# EXPLOITATION: tilt the mix toward punishing the foe's observed habits IN THIS
 	# SITUATION, scaled by how much history backs the read (confidence) and bounded
 	# by EXPLOIT_LAMBDA. The equilibrium stays underneath.
-	if opp_model != null and EXPLOIT_LAMBDA > 0.0 and opp_model.is_warm():
+	if opp_model != null and float(P["lambda"]) > 0.0 and opp_model.is_warm():
 		var sit: String = OpponentModel.situation_of(foe, me, grid)
 		var q: Array = _predict(opp_model, foe_cands, sit)
 		var ev: Array = []
@@ -124,7 +162,7 @@ static func choose_sequence(me: Combatant, foe: Combatant, grid: Grid, spells: A
 				e += float(M[i][j]) * float(q[j])
 			ev.append(e)
 		var exploit: Array = _softmax(ev, EXPLOIT_TEMP)
-		var lam: float = EXPLOIT_LAMBDA * opp_model.confidence()
+		var lam: float = float(P["lambda"]) * opp_model.confidence()
 		for i in mix.size():
 			mix[i] = (1.0 - lam) * float(mix[i]) + lam * float(exploit[i])
 

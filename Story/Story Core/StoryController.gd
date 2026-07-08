@@ -91,10 +91,18 @@ func _ready() -> void:
 	# Board, menu, log: DIRECT children at their default screen positions -- identical
 	# layout to GameController/PLAY. The board just renders a moving window of the world.
 	board = WorldBoard.new()
-	add_child(board)
+	# Clip the whole story canvas to the 12-tile window: tiles, NPCs, houses, mobs,
+	# FX -- every child of the board -- vanish at the frame edge, permanently.
+	var clip := Control.new()
+	clip.position = ViewConfig.VIEW_ORIGIN
+	clip.size = Vector2.ONE * (ViewConfig.VIEW_TILES * ViewConfig.TILE * ViewConfig.VIEW_SCALE)
+	clip.clip_contents = true
+	add_child(clip)
+	clip.add_child(board)
 	board.setup_world(grid)
 	# Back chrome: grey background + full-height side panel frames, behind the board.
 	var frame_back := UIFrame.new()
+	frame_back.rect = ViewConfig.VIEW_FRAME
 	add_child(frame_back)
 	frame_back.z_index = -10
 	board.rest_set = omap.rest_set                 # golden sanctuary tiles drawn on the board
@@ -122,6 +130,7 @@ func _ready() -> void:
 	# so they don't scroll with the world window. Moves into the side panel with the framed layout.
 	# Front chrome: the inset board frame, on top of the board window.
 	var frame_front := UIFrame.new()
+	frame_front.rect = ViewConfig.VIEW_FRAME
 	frame_front.front = true
 	add_child(frame_front)
 
@@ -528,6 +537,7 @@ func _spawn_npcs() -> void:
 		uv.init_state(marker)
 		uv.unit_id = String(nd.get("name", "?"))
 		npcs.append({"id": id, "uv": uv, "tile": tile})
+		grid.occupied[tile] = true   # solid from birth (the cull pass keeps it in sync after)
 
 # Rebuild live QuestKind objects for every quest that's currently accepted (progress loaded).
 func _load_quests() -> void:
@@ -858,10 +868,29 @@ func _dawn() -> void:
 
 # Player + every live mob tile, kept open when the walls re-scatter so nothing gets sealed in.
 # NPCs retire indoors at night (hidden) and reappear at dawn.
+var _npcs_sleeping := false
+
 func _set_npcs_asleep(asleep: bool) -> void:
+	_npcs_sleeping = asleep
+	_cull_npc_views()
+
+# NPCs render as free sprites on the scrolling canvas, so anyone outside the
+# 12-tile window must be hidden -- the tile grid clips itself, but nodes do not.
+func _cull_npc_views() -> void:
+	# Solidity rides along: awake NPCs block their tile for everyone; asleep
+	# (indoors) they don't. Rebuilt here since this runs on every relevant change.
+	grid.occupied.clear()
+	if not _npcs_sleeping:
+		for m in npcs:
+			grid.occupied[m["tile"]] = true
 	for n in npcs:
-		if n["uv"] != null:
-			n["uv"].visible = not asleep
+		if n["uv"] == null:
+			continue
+		var t: Vector2i = n["tile"]
+		var o: Vector2i = board.origin
+		_cull_npc_views()
+		var inside := t.x >= o.x and t.y >= o.y and t.x < o.x + ViewConfig.VIEW_TILES and t.y < o.y + ViewConfig.VIEW_TILES
+		n["uv"].visible = inside and not _npcs_sleeping
 
 func _spawn_night_mobs(rng: RandomNumberGenerator, count: int) -> void:
 	var placed := 0

@@ -7,10 +7,20 @@
 extends SceneTree
 
 const SAMPLES := 21
+# Flip to true to run the suite on the EVOLVED weights (user://tuned_eval.cfg).
+const USE_TUNED := true
 
 var _fails := 0
 
 func _init() -> void:
+	if USE_TUNED:
+		var cf := ConfigFile.new()
+		if cf.load("user://tuned_eval.cfg") == OK:
+			var w := {}
+			for k in cf.get_section_keys("eval"):
+				w[k] = cf.get_value("eval", k)
+			Eval.set_weights(w)
+			print("[positions] running on TUNED weights")
 	print("[positions] booted -- running 4 tests (~84 AI decisions; a couple of minutes is normal)")
 	_test_flee_not_wait()
 	_test_hold_grenade()

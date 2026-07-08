@@ -24,18 +24,18 @@ var replay_bar: ReplayBar
 var replay_idx := 0
 
 # Wire the system to the live scene objects (called once by GameController).
-func setup(p_board: BoardView, p_play: EventPlayer, p_log: CombatLog,
-		p_menu: ActionMenu, p_ua: UnitView, p_ub: UnitView,
-		p_hud_a: ResourceHUD = null, p_hud_b: ResourceHUD = null, p_local_a := true) -> void:
-	board = p_board
-	play = p_play
-	combat_log = p_log
-	menu = p_menu
-	ua = p_ua
-	ub = p_ub
-	hud_a = p_hud_a
-	hud_b = p_hud_b
-	local_is_a = p_local_a
+# One deps dictionary instead of a nine-argument ratchet: adding a dependency is
+# one key here + one line below -- call sites never grow another positional arg.
+func setup(deps: Dictionary) -> void:
+	board = deps["board"]
+	play = deps["play"]
+	combat_log = deps["log"]
+	menu = deps["menu"]
+	ua = deps["ua"]
+	ub = deps["ub"]
+	hud_a = deps.get("hud_a", null)
+	hud_b = deps.get("hud_b", null)
+	local_is_a = bool(deps.get("local_is_a", true))
 
 # Drive the real resource HUDs with the replayed moment's stats (same local/foe
 # seat mapping the live game uses), so HP/MP/EN read exactly like a live turn.

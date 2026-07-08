@@ -11,19 +11,20 @@ extends Node2D
 # Sprite folders. The player's art now lives in three folders; each animation names its own,
 # so a remade animation just points at a new folder. BASE_DIR is the unequipped white figure
 # (the foundation gear layers sit on top of); TECH_DIR holds spell/tech effects and the
-# gear-piece overlays; LEGACY_DIR is the older set, still the source for the animations not yet
+# gear-piece overlays. (The legacy folder is gone; rows without art simply no-op.)
 # remade in the base style (move, guard).
 const BASE_DIR   := "res://Assets/Sprites/Unarmed Base Animations/"
-const TECH_DIR   := "res://Assets/Sprites/Tech Animations/"
+const TECH_DIR   := "res://Assets/Sprites/Tech Animations/Tech Spells/"
 const GEAR_DIR   := "res://Assets/Sprites/Tech Animations/Tech Gear/"   # per-piece gear overlays (hat_1..4 etc.)
-const LEGACY_DIR := "res://Assets/Sprites/Base Animation/"
+# (Legacy folder removed. Animations without a table row -- e.g. hurt, pivot --
+#  simply no-op until art exists: add a row + PNGs and they come alive.)
 const PIVOT_DUR := 0.18    # how long the facing bar takes to swing to a new side
 const SPRITE_OFFSET_Y := -6.0   # nudge the FIGURE up so its feet seat on the tile (tune in-engine)
 # These animations are tile-CENTRED effects (the guard shield cube), not feet-seated figures,
 # so they sit centered on the tile. Everything else uses its per-animation "offset" (below) or
 # the body's default seat. Buff is NOT here: its art has the aura in the lower half of a tall
 # canvas, so it's feet-anchored (offset) to sit in the tile, not centered.
-const CENTERED_ANIMS := ["guard", "guard_up"]
+# (Seating is per-row "offset" only -- one mechanism, no special-case lists.)
 
 # Animation table: name -> {dir, prefix, count, fps, loop, offset?}. Frames are
 # "<dir><prefix>_1.png".."_<count>.png" (missing numbers are skipped), or a single
@@ -35,18 +36,16 @@ const CENTERED_ANIMS := ["guard", "guard_up"]
 # 40x46 / 56x56 art keeps the body's default seat. Adding an animation is one row here + PNGs.
 const ANIMS := {
 	"idle":     {"dir": BASE_DIR,   "prefix": "Idle",      "count": 4,  "fps": 3.0, "loop": true,  "offset": 0.0},
-	"move":     {"dir": LEGACY_DIR, "prefix": "move",      "count": 6,  "fps": 6.0, "loop": false},
+	"move":     {"dir": BASE_DIR,   "prefix": "Move",      "count": 5,  "fps": 6.0, "loop": false, "points": "down"},
 	"rest":     {"dir": BASE_DIR,   "prefix": "Rest",      "count": 5,  "fps": 3.0, "loop": false, "offset": 0.0},
 	"buff":     {"dir": TECH_DIR,   "prefix": "buff",      "count": 5,  "fps": 3.0, "loop": false, "offset": -14.0},
-	"attack":   {"dir": BASE_DIR,   "prefix": "Melee",     "count": 5,  "fps": 6.0, "loop": false, "offset": 0.0},
+	"attack":   {"dir": BASE_DIR,   "prefix": "Melee",     "count": 5,  "fps": 6.0, "loop": false, "points": "up", "offset": 0.0},
 	"bolt":     {"dir": TECH_DIR,   "prefix": "dark_bolt", "count": 9,  "fps": 9.0, "loop": false},
-	"hurt":     {"dir": LEGACY_DIR, "prefix": "hurt",      "count": 9,  "fps": 16.0, "loop": false},  # no art yet -> no-op
-	"guard":    {"dir": BASE_DIR, "prefix": "guard",     "count": 11, "fps": 9.0, "loop": false},
+	"guard":    {"dir": BASE_DIR, "prefix": "guard",     "count": 11, "fps": 9.0, "loop": false, "points": "right", "offset": 0.0},
 	# Guard raise that ENDS on the shield cube (frames 1-9) and is held there for
 	# the whole duration the guard is up (see hold_anim / EventPlayer guard_raised);
 	# frames 10-11 (the lower) play on release via the normal idle return.
-	"guard_up": {"dir": BASE_DIR, "prefix": "guard", "frames": [1, 2, 3, 4, 5, 6, 7, 8, 9], "fps": 9.0, "loop": false},
-	"pivot":    {"dir": LEGACY_DIR, "prefix": "pivot",     "count": 7,  "fps": 18.0, "loop": false},  # no art yet -> no-op
+	"guard_up": {"dir": BASE_DIR, "prefix": "guard", "frames": [1, 2, 3, 4, 5, 6, 7, 8, 9], "fps": 9.0, "loop": false, "points": "right", "offset": 0.0},
 	# Teleport is ONE 9-frame strip: figure -> portal -> nothing -> portal ->
 	# figure. Split so the vanish plays at the origin (blink_depart) and the
 	# reappear plays at the destination (blink). Frame 5 (fully gone) is shared.
@@ -214,7 +213,7 @@ func tween_to(pos: Vector2i) -> void:
 	var delta := target - position
 	if body and delta.length() > 0.5:
 		# move art points UP; play_anim rotates the walk to the travel direction.
-		play_anim("move", delta)
+		play_anim("move", delta)   # orientation comes from the ANIMS row ("points")
 	var t := create_tween()
 	t.tween_property(self, "position", target, ViewConfig.MOVE_DUR) \
 		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
@@ -287,14 +286,21 @@ func play_anim(name: String, dir: Vector2 = Vector2.ZERO, rot_offset: float = PI
 			and body.sprite_frames.get_frame_count(name) > 0:
 		# Centred effects (guard cube, buff aura) sit ON the tile; figures get the
 		# feet-seating nudge. Set every play so we never inherit the wrong offset.
-		body.offset.y = float(_anim_offset.get(name, 0.0 if name in CENTERED_ANIMS else _body_offset_y))
+		body.offset.y = float(_anim_offset.get(name, _body_offset_y))
+		# Each art set declares which way it was DRAWN ("points"); the rotation
+		# needed to aim it at `dir` is computed here, so callers never carry
+		# art knowledge (swapping a sprite folder can no longer break rotation).
+		var rof := rot_offset
+		var pts := String(ANIMS.get(name, {}).get("points", ""))
+		if pts != "":
+			rof = {"up": PI / 2.0, "down": -PI / 2.0, "right": 0.0}.get(pts, rot_offset)
 		if directional_art and dir != Vector2.ZERO:
 			# Directional one-shot. `rot_offset` accounts for where the art's
 			# reference points by default: the move/attack figure points UP
 			# (+PI/2 turns UP onto `dir`); the guard shield's closed side points
 			# RIGHT, so it passes its facing with a 0 offset (see EventPlayer).
 			body.flip_h = false
-			body.rotation = dir.angle() + rot_offset
+			body.rotation = dir.angle() + rof
 		else:
 			body.rotation = _mob_facing_rotation()   # bats aim their head; oozes/others stay upright
 			body.flip_h = _mob_facing_flip()          # keep the facing mirror through the animation
@@ -361,7 +367,7 @@ func _build_frames() -> SpriteFrames:
 		_add_anim(sf, String(a.get("dir", BASE_DIR)), name, files, float(a["fps"]), bool(a["loop"]))
 		# Per-animation seat: explicit "offset" wins; centered effects sit on the tile; everything
 		# else keeps the body's default feet nudge.
-		_anim_offset[name] = float(a.get("offset", 0.0 if name in CENTERED_ANIMS else SPRITE_OFFSET_Y))
+		_anim_offset[name] = float(a.get("offset", SPRITE_OFFSET_Y))   # per-row "offset" is the ONE seat source (guard rows carry 0.0 explicitly)
 	return sf
 
 # Build frames from a SpriteBook set: each animation carries an explicit file list, fps, loop.

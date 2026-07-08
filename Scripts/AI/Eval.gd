@@ -45,6 +45,11 @@ static var DISCOUNT   := 0.9      # a future turn is worth slightly less than da
 # ── Tunable-weights API (self-play tuner) + subgame cache ──────────────────
 # The weights above are `static var` so the tuning harness can adjust them at
 # runtime; the defaults reproduce shipped behaviour exactly.
+# Snapshot of the hand-tuned defaults, so profiles can restore them at runtime.
+static var DEFAULTS: Dictionary = {}
+static func _static_init() -> void:
+	DEFAULTS = get_weights()
+
 const TUNABLE := ["W_DEAL", "W_TAKE", "W_ENERGY", "W_MP", "W_LOCK", "W_DANGER_MELEE",
 	"W_DANGER_SPELL", "W_PRESSURE", "W_ATTRITION", "W_TEMPO", "W_MOBILITY", "W_PRESS",
 	"W_INCOMING", "W_CENTER", "W_ITEM", "W_LETHAL", "DISCOUNT"]
@@ -95,16 +100,28 @@ static func score_rich(me: Combatant, foe: Combatant, grid: Grid, my_seq: Array,
 # next-turn subgame, solved as its own little equilibrium -- so EXTREME sees combos
 # that take two turns to pay off (set-up -> burst, bait -> punish), not one turn + a guess.
 static func score_deep(me: Combatant, foe: Combatant, grid: Grid, my_seq: Array, foe_seq: Array, depth: int) -> float:
-	var out := Resolver.resolve(grid, foe, me, foe_seq, my_seq, 0)
-	var foe_after: Combatant = out["a"]
-	var me_after: Combatant = out["b"]
+	# Seat-correct forward model: simulate with the SAME seats as reality, so
+	# within-tick tie-breaks are true for whichever chair this brain occupies.
+	# (Hardcoding me-as-B was fine for the live AI -- it IS seat B -- but it
+	# crippled every seat-A brain in self-play: validation exposed it by coming
+	# back 10/10 seat-decided on fresh maps.)
+	var out: Dictionary
+	if me.id == "A":
+		out = Resolver.resolve(grid, me, foe, my_seq, foe_seq, 0)
+	else:
+		out = Resolver.resolve(grid, foe, me, foe_seq, my_seq, 0)
+	var me_a := me.id == "A"
+	var foe_after: Combatant = out["b"] if me_a else out["a"]
+	var me_after: Combatant = out["a"] if me_a else out["b"]
 	var dealt := float(foe.hp - foe_after.hp)
 	var taken := float(me.hp - me_after.hp)        # negative if I healed (rest)
 	var s := dealt * W_DEAL - taken * W_TAKE
 	var res := String(out["result"])
-	match res:
-		"b_wins": s += W_WIN
-		"a_wins": s -= W_WIN
+	var my_win := "a_wins" if me_a else "b_wins"
+	if res == my_win:
+		s += W_WIN
+	elif res == "a_wins" or res == "b_wins":
+		s -= W_WIN
 	# Depth 0, or the duel already ended this turn -> static read of the result.
 	if depth <= 0 or res == "a_wins" or res == "b_wins":
 		return s + _eval_situation(me_after, foe_after, grid)

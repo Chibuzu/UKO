@@ -8,16 +8,25 @@
 # it for an overnight run.
 extends SceneTree
 
-const ITERS := 10
-const STEP := 0.15
-const SEEDS := [11, 23, 37]
+const ITERS := 150
+const STEP := 0.12   # finer mutations for refinement runs
+const SEEDS := [11, 23, 37, 51, 68, 84, 97]
 const ACCEPT := 0.55      # candidate must take this score share to replace the base
 const SAVE_PATH := "user://tuned_eval.cfg"
 
 func _init() -> void:
+	# Tune under the CHALLENGING throttle: Eval weights are shared across profiles,
+	ExtremeAI.set_profile("challenging")   # so this just makes every match ~3x faster.
 	var rng := RandomNumberGenerator.new()
 	rng.randomize()
 	var base := Eval.get_weights()
+	# Resume evolution from the saved champion when one exists -- successive runs
+	# CONTINUE the climb instead of restarting from the hand defaults every night.
+	var prev := ConfigFile.new()
+	if prev.load(SAVE_PATH) == OK:
+		for k in prev.get_section_keys("eval"):
+			base[k] = prev.get_value("eval", k)
+		print("[tuner] resuming from saved champion")
 	print("[tuner] booted")
 	print("[tuner] start; %d iters, %d seeds, step %.2f" % [ITERS, SEEDS.size(), STEP])
 	for it in range(ITERS):

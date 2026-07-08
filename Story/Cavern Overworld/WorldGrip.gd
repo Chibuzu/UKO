@@ -8,6 +8,10 @@
 class_name WorldGrid
 extends Grid
 
+# Character colliders: tiles occupied by NPCs are solid for every mover
+# (player and mobs alike) -- maintained by StoryController.
+var occupied: Dictionary = {}
+
 var world_size: int = OverworldMap.SIZE
 
 var gem_map: OverworldMap = null   # ungathered gemstone nodes are solid; gathering clears them
@@ -25,6 +29,8 @@ func build(map: OverworldMap) -> void:
 # (not the blocked array), so they still DRAW as gems -- but you can't step onto one until it's
 # gathered, at which point remove_gem() clears it here too (shared reference).
 func is_blocked(p: Vector2i) -> bool:
+	if occupied.has(p):
+		return true
 	if gem_map != null and (gem_map.is_gem(p) or gem_map.is_mushroom(p)):
 		return true
 	return super.is_blocked(p)

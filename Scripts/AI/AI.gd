@@ -28,10 +28,14 @@ static func choose_sequence(difficulty: int, me: Combatant, foe: Combatant,
 		Difficulty.EASY:
 			return StubOpponent.choose_sequence(me, foe, grid, spells)
 		Difficulty.CHALLENGING:
-			return ChallengingAI.choose_sequence(me, foe, grid, spells)
+			# The frozen matrix-Nash brain at today's settings, no opponent model:
+			# a fair, non-adapting equilibrium wall (the tier the design approved).
+			ExtremeAI.set_profile("challenging")
+			return ExtremeAI.choose_sequence(me, foe, grid, spells)
 		Difficulty.HARD:
 			return HardAI.choose_sequence(me, foe, grid, spells, opp_model)
 		Difficulty.EXTREME:
+			ExtremeAI.set_profile("extreme")   # full budget, wider search, adaptive model
 			return EconomyAI.choose_sequence(me, foe, grid, spells, opp_model)  # economy + intent + Nash (remodelled)
 		_:
 			return StubOpponent.choose_sequence(me, foe, grid, spells)

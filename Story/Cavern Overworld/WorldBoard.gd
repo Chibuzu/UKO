@@ -32,7 +32,7 @@ var _anim_t: float = 0.0
 
 func setup_world(g: Grid) -> void:
 	grid = g
-	scale = Vector2(ViewConfig.BOARD_SCALE, ViewConfig.BOARD_SCALE)   # match the duel board's scale
+	scale = Vector2(ViewConfig.VIEW_SCALE, ViewConfig.VIEW_SCALE)   # match the duel board's scale
 	if bg_tex == null and ResourceLoader.exists(BG_PATH):
 		bg_tex = load(BG_PATH)
 		texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
@@ -70,7 +70,7 @@ func _process(delta: float) -> void:
 # is updated too so BoardView's shake still works from the right rest position.
 func set_window(origin: Vector2i) -> void:
 	window_origin = origin
-	var p := ViewConfig.BOARD_ORIGIN - Vector2(origin.x * ViewConfig.TILE, origin.y * ViewConfig.TILE) * ViewConfig.BOARD_SCALE
+	var p := Vector2.ZERO - Vector2(origin.x * ViewConfig.TILE, origin.y * ViewConfig.TILE) * ViewConfig.VIEW_SCALE
 	position = p
 	_base_pos = p
 	queue_redraw()

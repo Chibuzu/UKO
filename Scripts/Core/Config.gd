@@ -32,10 +32,10 @@ const PRIORITY_BLINK_ARRIVE := 1   # ties resolve in the pivot slot
 const PRIORITY_PROJECTILE := 9     # above all bands (0-7)
 
 # ── Resources [PH] ──────────────────────────────────────────────────────
-const MAP_ROTATE_EVERY := 5    # shift the arena quadrants one step clockwise every this many turns
+const MAP_ROTATE_EVERY := 10    # shift the arena quadrants one step clockwise every this many turns
 const MAP_CRUSH_DAMAGE := 20   # if a rotating wall would land on you, it is suppressed and you take this
-const BLOCKER_DENSITY_MIN := 0.08   # fraction of tiles that become walls (rolled per arena)
-const BLOCKER_DENSITY_MAX := 0.10
+const BLOCKER_DENSITY_MIN := 0.085   # fraction of tiles that become walls (rolled per arena)
+const BLOCKER_DENSITY_MAX := 0.11
 const SPAWN_INSET := 1   # fighters spawn this many tiles in from the left/right edge, mid-row
 const MAX_HP := 100
 const MAX_MP := 100

@@ -617,8 +617,23 @@ static func _sched_less(x: Dictionary, y: Dictionary) -> bool:
 static func _launch_projectile(grid: Grid, s: Dictionary, caster: Combatant, sched: Array, i: int, events: Array) -> void:
 	var pd := Config.def(s["id"])
 	var pdir := _dir_from(caster.pos, s["tile"])
-	var path := Config.projectile_path(grid, caster.pos, pdir,
-			int(pd.get("range", 1)), int(pd.get("tick_per_tile", 0)), int(s["tick"]))
+	var path: Array
+	if String(pd.get("shape", "")) == "throw":
+		# Thrown (grenade): fly straight AT the target tile, diagonal steps included,
+		# and land exactly there -- so a diagonal throw animates diagonally.
+		path = []
+		var cur: Vector2i = caster.pos
+		var t := int(s["tick"])
+		var tpt := int(pd.get("tick_per_tile", 0))
+		var n := 0
+		while cur != s["tile"] and n < 8:
+			n += 1
+			cur += Vector2i(signi(s["tile"].x - cur.x), signi(s["tile"].y - cur.y))
+			t += tpt
+			path.append({"tile": cur, "step": n, "tick": t})
+	else:
+		path = Config.projectile_path(grid, caster.pos, pdir,
+				int(pd.get("range", 1)), int(pd.get("tick_per_tile", 0)), int(s["tick"]))
 	if path.is_empty():
 		return
 	var pid := "%s:%d" % [caster.id, int(s["tick"])]
@@ -669,23 +684,24 @@ static func _projectile_step(s: Dictionary, actor: Combatant, target: Combatant,
 	if target.pos == tile and dead_tick[target.id] == -1:
 		var eff: Dictionary = Config.def(s["id"]).get("effect", {})
 		if String(eff.get("type", "")) == "disrupt":
-			# Grenade: no damage -- drain energy and ROOT (next move cancelled). Applied at the
-			# hit tick, so a move scheduled LATER this turn sees the root and is cancelled; a move
-			# that already resolved is caught next turn instead.
-			target.energy = maxi(0, target.energy - int(eff.get("energy_drain", 0)))
-			var st: String = String(eff.get("status", ""))
-			if st != "":
-				target.statuses[st] = int(Config.status_def(st).get("duration", 1))
-			var drain := int(eff.get("energy_drain", 0))   # the shock saps the target (grenade: 20)
-			if drain > 0:
-				target.energy = maxi(0, target.energy - drain)
-			events.append(_ev("spell_hit", tick, actor.id, {"target": target.id, "damage": 0, "spell": s["id"], "disrupt": true, "drain": drain}))
+			_apply_disrupt(eff, s, actor, target, tick, events)
 		else:
 			var dmg := int(s["damage"])
 			_apply_damage(target, dmg, tick, damaged_tick, dead_tick)
 			events.append(_ev("spell_hit", tick, actor.id, {"target": target.id, "damage": dmg, "spell": s["id"]}))
 		if not bool(s["pierce"]):
 			consumed[pid] = true
+
+# THE one place the grenade's landing rules live (root + drain + event) -- any
+# future disrupt-style effect is edited here, never inlined at a hit site again.
+static func _apply_disrupt(eff: Dictionary, s: Dictionary, actor: Combatant, target: Combatant, tick: int, events: Array) -> void:
+	var st: String = String(eff.get("status", ""))
+	if st != "":
+		target.statuses[st] = int(Config.status_def(st).get("duration", 1))
+	var drain := int(eff.get("energy_drain", 0))
+	if drain > 0:
+		target.energy = maxi(0, target.energy - drain)
+	events.append(_ev("spell_hit", tick, actor.id, {"target": target.id, "damage": 0, "spell": s["id"], "disrupt": true, "drain": drain}))
 
 static func _flank(defender: Combatant, attacker_pos: Vector2i) -> String:
 	# THE flank rule lives once in Config; this is just the resolver-side adapter.

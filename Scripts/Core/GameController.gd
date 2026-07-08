@@ -156,7 +156,8 @@ func _ready() -> void:
 
 	replay = ReplayController.new()
 	add_child(replay)
-	replay.setup(board, play, combat_log, menu, ua, ub, hud_a, hud_b, _local_is_a())
+	replay.setup({"board": board, "play": play, "log": combat_log, "menu": menu,
+		"ua": ua, "ub": ub, "hud_a": hud_a, "hud_b": hud_b, "local_is_a": _local_is_a()})
 
 	_game_loop()
 

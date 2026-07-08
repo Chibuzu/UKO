@@ -4,7 +4,7 @@
 class_name Grid
 extends RefCounted
 
-const SIZE := 12
+const SIZE := 8    # 8x8 duel arena (was 12): contact by turn 2-3, zone closes twice
 const SHRINK_FLOOR := 4        # the shrinking zone stops here (4x4); never closes past it
 const DIRS := [Vector2i(0, -1), Vector2i(0, 1), Vector2i(-1, 0), Vector2i(1, 0)]
 const ROT_STEPS := 4           # quadrant cycle has 4 orientations; 4 shifts return to start
