@@ -244,8 +244,23 @@ public static class Config
 
 	public static bool EnergyPulseDue(int turn) => turn > 0 && turn % ENERGY_PULSE_TURNS == 0;
 
-	// ── DEFERRED to the Grid stage (need Grid.in_bounds/is_blocked): ─────────
-	//   projectile_path(grid, from, dir, rng, tax, launchTick)  -- Resolver-critical
-	//   blink_landing(grid, from, dir, dist, foePos)            -- AI candidate gen only
-	// They port alongside Grid.cs; left out here so Config compiles standalone.
+	// ── Grid-dependent helper (un-deferred at the Grid stage) ────────────────
+	// A projectile's flight path from `from` along cardinal `dir`: one entry per tile,
+	// each `tax` ticks after the previous, first at `launchTick`. Stops at a wall/edge.
+	public struct PathStep { public Vec2I Tile; public int Tick; public int Step; }
+	public static List<PathStep> ProjectilePath(Grid grid, Vec2I from, Vec2I dir, int rng, int tax, int launchTick)
+	{
+		var path = new List<PathStep>();
+		Vec2I p = from;
+		for (int k = 1; k <= rng; k++)
+		{
+			p += dir;
+			if (!grid.InBounds(p) || grid.IsBlocked(p)) break;
+			path.Add(new PathStep { Tile = p, Tick = launchTick + (k - 1) * tax, Step = k });
+		}
+		return path;
+	}
+
+	// STILL DEFERRED (AI candidate-gen only, not used by the Resolver):
+	//   blink_landing(grid, from, dir, dist, foePos)  -- ports with the AI layer.
 }

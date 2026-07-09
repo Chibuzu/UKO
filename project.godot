@@ -19,7 +19,7 @@ uniqueUsername=false
 
 config/name="UKO"
 run/main_scene="uid://cew8t5jk6n5cu"
-config/features=PackedStringArray("4.7", "Forward Plus")
+config/features=PackedStringArray("4.7", "C#", "Forward Plus")
 config/icon="res://icon.svg"
 
 [autoload]
