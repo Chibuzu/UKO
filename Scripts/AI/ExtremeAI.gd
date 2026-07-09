@@ -54,17 +54,20 @@ const CHAMPION_WEIGHTS := {
 # ── Difficulty profiles: same brain, different throttles. CHALLENGING is the
 # approved frozen feel; EXTREME opens budget, width, and exploitation.
 const PROFILES := {
-	"challenging": {"budget_ms": 250, "rows": 3, "cols": 6, "rows_end": 5, "cols_end": 9, "lambda": 0.0},
-	"extreme":     {"budget_ms": 700, "rows": 4, "cols": 8, "rows_end": 6, "cols_end": 10, "lambda": 0.6},
+	"mob":         {"budget_ms": 90, "budget_end_ms": 90, "rows": 2, "cols": 4, "rows_end": 2, "cols_end": 4, "lambda": 0.0},
+	"challenging": {"budget_ms": 250, "budget_end_ms": 250, "rows": 3, "cols": 6, "rows_end": 5, "cols_end": 9, "lambda": 0.0},
+	"extreme":     {"budget_ms": 700, "budget_end_ms": 1400, "rows": 4, "cols": 8, "rows_end": 6, "cols_end": 10, "lambda": 0.6},
 }
 static var P: Dictionary = PROFILES["extreme"]
 static func set_profile(name: String) -> void:
 	P = PROFILES.get(name, PROFILES["extreme"])
 	# Weights ride with the tier: champion for EXTREME, hand defaults otherwise.
-	if name == "extreme":
-		Eval.set_weights(CHAMPION_WEIGHTS)
-	else:
-		Eval.set_weights(Eval.DEFAULTS)
+	# Champion SHELVED after live-play regressions (passive waits, flank order,
+	# rest-into-bolt): it beat defaults in self-play but fails the richer human
+	# gauntlet. It stays as evolution's base; re-adoption requires the new
+	# behavior gates (tests 5-7) once written. Both tiers play hand defaults.
+	Eval.set_weights(Eval.DEFAULTS)
+	Eval.load_calibration()   # judge in P(win) once a calibration exists
 
 const MIN_MIX        := 0.05  # support pruning: drop mix entries below this and renormalize --
 							  #   a 2-3% sampled row reads as a blunder even when the math is right
@@ -82,6 +85,9 @@ static func choose_sequence(me: Combatant, foe: Combatant, grid: Grid, spells: A
 	if foe_cands.is_empty():
 		foe_cands = [[{"id": "rest"}]]
 	var t0 := Time.get_ticks_msec()
+	# Endgame: depth converts to near-perfect play once the zone squeezes --
+	# EXTREME doubles its budget there (cache + tiny branching make it cheap).
+	var budget: int = int(P.get("budget_end_ms", P["budget_ms"])) if grid.shrink_level >= 2 else int(P["budget_ms"])
 	Eval.clear_cache()   # per-decision transposition cache for subgame values
 
 	# Shallow payoff matrix: MY score for (my move i, foe reply j) -- one turn + heuristic.
@@ -109,7 +115,7 @@ static func choose_sequence(me: Combatant, foe: Combatant, grid: Grid, spells: A
 				M[i][j] = Eval.score_deep(me, foe, grid, my_cands[i], foe_cands[j], leaf)
 				done["%d,%d" % [i, j]] = true
 		for cell in _deepen_order(M):
-			if Time.get_ticks_msec() - t0 >= int(P["budget_ms"]):
+			if Time.get_ticks_msec() - t0 >= budget:
 				break
 			var ci: int = cell["i"]
 			var cj: int = cell["j"]
@@ -121,6 +127,14 @@ static func choose_sequence(me: Combatant, foe: Combatant, grid: Grid, spells: A
 	# foe's (columns). A move that is worse than another against EVERYTHING is not
 	# part of any sane mix; the human skill of "pruning the reachable set", made
 	# exact. Solving the reduced game sharpens the equilibrium and speeds the solve.
+	# CALIBRATED JUDGMENT: convert every cell to win-probability before solving --
+	# a nonlinear monotone map, so the equilibrium shifts exactly as it should:
+	# ahead plays tight, behind polarizes. Points stay the internal currency.
+	if Eval.CAL_A > 0.0:
+		for wi in M.size():
+			for wj in (M[wi] as Array).size():
+				M[wi][wj] = Eval.to_winprob(float(M[wi][wj]))
+
 	var dom := _dominance_filter(M)
 	var reduced := _submatrix(M, dom["rows"], dom["cols"])
 
@@ -134,16 +148,17 @@ static func choose_sequence(me: Combatant, foe: Combatant, grid: Grid, spells: A
 	# budget, then re-solve on the refined matrix. The transposition cache makes
 	# revisited states cheap; the budget guard means this phase can only refine
 	# the answer, never stall a turn.
-	if Eval.LOOKAHEAD_DEPTH >= 2 and Time.get_ticks_msec() - t0 < int(P["budget_ms"]):
+	if Eval.LOOKAHEAD_DEPTH >= 2 and Time.get_ticks_msec() - t0 < budget:
 		var deep2: int = Eval.LOOKAHEAD_DEPTH
 		var touched := false
 		for i in mix.size():
 			if float(mix[i]) < 0.10:
 				continue
 			for j in _worst_cols(M[i], int(P["cols"])):
-				if Time.get_ticks_msec() - t0 >= int(P["budget_ms"]):
+				if Time.get_ticks_msec() - t0 >= budget:
 					break
-				M[i][j] = Eval.score_deep(me, foe, grid, my_cands[i], foe_cands[j], deep2)
+				var v3 := Eval.score_deep(me, foe, grid, my_cands[i], foe_cands[j], deep2)
+				M[i][j] = Eval.to_winprob(v3) if Eval.CAL_A > 0.0 else v3
 				touched = true
 		if touched:
 			dom = _dominance_filter(M)

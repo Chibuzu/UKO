@@ -390,7 +390,12 @@ func _combat_turn(engaged: Array) -> void:
 	var mob_seqs: Array = []
 	for i in engaged.size():
 		var g := StoryCombat._grid_blocking_others(grid, mob_cs, {}, i)
-		mob_seqs.append(engaged[i]["kind"].plan(engaged[i]["combatant"], player, g))
+		# Mobs think with the REAL matrix brain at a pocket budget: same machinery,
+		# their own toolkit -- story fights demand reads now, not stat checks. Kind
+		# logic stays as the fallback (and still owns specials like the ooze split).
+		ExtremeAI.set_profile("mob")
+		var brain_seq: Array = ExtremeAI.choose_sequence(engaged[i]["combatant"], player, g, engaged[i]["combatant"].spell_ids())
+		mob_seqs.append(brain_seq if not brain_seq.is_empty() else engaged[i]["kind"].plan(engaged[i]["combatant"], player, g))
 
 	var res := StoryCombat.resolve_turn(grid, player, mob_cs, player_seq, mob_seqs, mob_kinds)
 	var dmg: Array = res["dmg_by_mob"]

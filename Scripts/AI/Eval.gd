@@ -45,6 +45,18 @@ static var DISCOUNT   := 0.9      # a future turn is worth slightly less than da
 # ── Tunable-weights API (self-play tuner) + subgame cache ──────────────────
 # The weights above are `static var` so the tuning harness can adjust them at
 # runtime; the defaults reproduce shipped behaviour exactly.
+# ── Win-probability calibration (fitted from self-play by CollectCalibration.gd).
+# When CAL_A > 0, the brain's matrix payoffs become P(win): a monotone but
+# NONLINEAR map, so equilibria shift exactly as they should -- ahead plays tight
+# (little P(win) left to gain from risk), behind polarizes (only variance moves
+# its number). This is the fear multiplier's job, derived from evidence.
+static var CAL_A := 0.0
+static func load_calibration() -> void:
+	var cf := ConfigFile.new()
+	CAL_A = float(cf.get_value("cal", "a", 0.0)) if cf.load("user://calibration.cfg") == OK else 0.0
+static func to_winprob(score: float) -> float:
+	return 1.0 / (1.0 + exp(-CAL_A * score))
+
 # Snapshot of the hand-tuned defaults, so profiles can restore them at runtime.
 static var DEFAULTS: Dictionary = {}
 static func _static_init() -> void:
