@@ -8,7 +8,7 @@ extends SceneTree
 
 const SAMPLES := 21
 # Flip to true to run the suite on the EVOLVED weights (user://tuned_eval.cfg).
-const USE_TUNED := true
+const USE_TUNED := false
 
 var _fails := 0
 
@@ -21,11 +21,13 @@ func _init() -> void:
 				w[k] = cf.get_value("eval", k)
 			Eval.set_weights(w)
 			print("[positions] running on TUNED weights")
-	print("[positions] booted -- running 4 tests (~84 AI decisions; a couple of minutes is normal)")
+	print("[positions] booted -- running 6 tests (~126 AI decisions; a couple of minutes is normal)")
 	_test_flee_not_wait()
 	_test_hold_grenade()
 	_test_safe_rest()
 	_test_critical_rest()
+	_test_press_starving()
+	_test_no_lead_wait_under_aoe()
 	print("[positions] %s" % ("ALL PASS" if _fails == 0 else "%d FAILED" % _fails))
 	quit(0 if _fails == 0 else 1)
 
@@ -120,3 +122,35 @@ func _test_critical_rest() -> void:
 				rested += 1
 				break
 	_check("critical-rest: heals at death's door vs a spent foe", float(rested) / SAMPLES, 0.6)
+
+
+# 5) YOUR report: foe at 10 energy (one action from lockout), two tiles away, me
+# healthy -- pressing is nearly free. Passivity here was the recurring complaint.
+func _test_press_starving() -> void:
+	print("[positions] 5/6 press-the-starving-man...")
+	var g := _blank_grid()
+	var me := _mk("B", Vector2i(4, 4), Config.Facing.WEST, 90, 80)
+	var foe := _mk("A", Vector2i(2, 4), Config.Facing.EAST, 60, 10)
+	var pressed := 0
+	for _i in range(SAMPLES):
+		var seq := ExtremeAI.choose_sequence(me, foe, g, me.spell_ids())
+		for act in seq:
+			var id := String(act.get("id", ""))
+			if id == "attack" or id == "dark_bolt" or (id == "move" and Grid.dist(Vector2i(act.get("tile", me.pos)), foe.pos) < 2):
+				pressed += 1
+				break
+	_check("press-starving: attacks or closes on a locked-out foe", float(pressed) / SAMPLES, 0.6)
+
+# 6) YOUR report: foe can step in and AoE-burst; leading with WAIT eats it, while
+# moving FIRST dodges -- action order is the whole test.
+func _test_no_lead_wait_under_aoe() -> void:
+	print("[positions] 6/6 no-lead-wait-under-aoe...")
+	var g := _blank_grid()
+	var me := _mk("B", Vector2i(5, 4), Config.Facing.WEST, 70, 60)
+	var foe := _mk("A", Vector2i(3, 4), Config.Facing.EAST, 100, 100)
+	var safe := 0
+	for _i in range(SAMPLES):
+		var seq := ExtremeAI.choose_sequence(me, foe, g, me.spell_ids())
+		if seq.size() > 0 and String(seq[0].get("id", "")) != "wait":
+			safe += 1
+	_check("no-lead-wait: acts before waiting under burst threat", float(safe) / SAMPLES, 0.7)

@@ -1,6 +1,6 @@
 @echo off
 setlocal
-set GODOT=C:\Users\franc\Downloads\Godot_v4.6.2-stable_win64.exe\Godot_v4.6.2-stable_win64_console.exe
+set GODOT="C:\Users\franc\Desktop\Godot_v4.7-stable_mono_win64\Godot_v4.7-stable_mono_win64.exe"
 
 cd /d "%~dp0"
 echo Project folder: %CD%

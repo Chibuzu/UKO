@@ -1,7 +1,6 @@
-Godot Engine v4.6.2.stable.official.71f334935 - https://godotengine.org
+Godot Engine v4.7.stable.mono.official.5b4e0cb0f - https://godotengine.org
 
-[positions] running on TUNED weights
-[positions] booted -- running 4 tests (~84 AI decisions; a couple of minutes is normal)
+[positions] booted -- running 6 tests (~126 AI decisions; a couple of minutes is normal)
 [positions] 1/3 flee-not-wait...
 [PASS] flee-not-wait: survives the kill line  rate 100% (want 70..100%)
 [positions] 2/3 hold-grenade...
@@ -10,7 +9,11 @@ Godot Engine v4.6.2.stable.official.71f334935 - https://godotengine.org
 [PASS] safe-rest: heals when unpunishable  rate 100% (want 50..100%)
 [positions] 4/4 critical-rest...
 [PASS] critical-rest: heals at death's door vs a spent foe  rate 100% (want 60..100%)
-[positions] ALL PASS
+[positions] 5/6 press-the-starving-man...
+[FAIL] press-starving: attacks or closes on a locked-out foe  rate 38% (want 60..100%)
+[positions] 6/6 no-lead-wait-under-aoe...
+[PASS] no-lead-wait: acts before waiting under burst threat  rate 100% (want 70..100%)
+[positions] 1 FAILED
 SCRIPT ERROR: Cannot call method 'get_path' on a null value.
    at: NodeInstantiator._ready (res://addons/GD-Sync/Scripts/Types/NodeInstantiator.gd:115)
    GDScript backtrace (most recent call first):
@@ -18,7 +21,7 @@ SCRIPT ERROR: Cannot call method 'get_path' on a null value.
        [1] _ready (res://addons/GD-Sync/Scripts/NodeTracker.gd:51)
        [2] _ready (res://addons/GD-Sync/MultiplayerClient.gd:232)
 ERROR: Can't send message. No active debugger
-   at: send_message (core/core_bind.cpp:2208)
+   at: send_message (core/core_bind.cpp:2222)
    GDScript backtrace (most recent call first):
        [0] _ready (res://addons/GD-Sync/Scripts/Logger.gd:59)
        [1] _ready (res://addons/GD-Sync/MultiplayerClient.gd:235)
