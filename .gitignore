@@ -44,3 +44,8 @@ rendering_device/driver.windows="d3d12"
 # OS / editor junk
 .DS_Store
 Thumbs.db
+
+# C# / .NET build artifacts
+.mono/
+bin/
+obj/
