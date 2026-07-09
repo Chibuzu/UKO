@@ -1,146 +1,50 @@
-# UKO Duel — Context & Handoff
+# UKO — HANDOFF (current state)
 
-**For the next Claude:** read this whole file, then read the actual code in this
-repo — **the repo is the source of truth**, not anything you think you remember.
-Francesco directs all design; you write all the code. Confirm the live decisions
-below before implementing anything.
+## Engine
+- **Godot 4.7 .NET (mono)** — the ONLY engine now (editing, playing, bats, and the upcoming C# port). Project converted and green; all four bats repointed to the 4.7 mono *console* exe. GD-Sync's headless "No active debugger / get_path on null" spam is harmless addon noise in every tool run.
 
----
+## Duel arena
+- Grid.SIZE = 8. Spawns (1,4)/(6,4) → contact turn 2–3.
+- Rotation + zone COUPLED every 10 turns (Config.MAP_ROTATE_EVERY): ring closes t10 (8→6) and t20 (6→4 floor). Zone = anti-stall backstop by design.
+- Blockers 8.5–11% of tiles (~6–7 walls), connectivity-guaranteed, random per match. (Mirrored-map generation = future toggle.)
 
-## Working agreement (non-negotiable)
-- Be brutally honest and direct. No validation-seeking, no flattery.
-- Before implementing: state the **problem**, your **proposed solution**, and the
-  **downsides**, then wait for his decision. Don't implement things he didn't ask for.
-- **Never guess at mechanics.** Read the relevant code first. If you're unsure how
-  something resolves, open the file.
-- **Verify before claiming it works.** The established practice is a small Python
-  mirror of the resolver logic for anything timing/rules-sensitive (see the guard
-  sim from the last session).
-- He owns design decisions; you own implementation.
+## Rules that bite
+- REST restores HP+MP only; damage cancels an in-progress rest and locks next turn's. Energy comes ONLY from the per-player pulse: +30 per 6 of your own non-wait actions.
+- Flank multipliers use the DEFENDER's facing (side ×1.5, back ×2). Attacker facing is irrelevant.
+- **Grenade**: once/match; impact 480/660/840 ticks at 1/2/3 tiles (first-action move ≈520 → escapes at 2+, loses point-blank). On hit: root (next action can't MOVE **or PIVOT** — either fizzles and consumes it; other actions consume it freely) + **20 energy drain, applied in exactly one place: `Resolver._apply_disrupt`**. Diagonal throws fly diagonally (throw-shape path).
+- **Attacks are aimed DIRECTIONS, not map tiles**: `dir` stored at queue time (player selection + AI candidates), struck tile computed from the attacker's ACTUAL position at strike time; absolute tile remains fallback.
+- AI never takes a lone action (trailing WAIT pad; lone REST is the rule-based exception). Rest enters candidates only at 25+ combined HP/MP deficit. Re-casting an already-active self-buff is skipped.
 
----
+## View layer
+- GEOMETRY RULE: duel reads ViewConfig.**BOARD_\*** (8 tiles @ 1.5 = 48px, origin 384,132, frame 382,130,388,388); story reads **VIEW_\*** (12-tile window @ 1.375, origin 312,60, frame 310,58,532,532). NEVER mix.
+- Story canvas is wrapped in a clip Control — every board child (NPCs, houses, mobs, FX) cuts at the frame edge. UIFrame takes a `rect` (story passes VIEW_FRAME).
+- NPC solidity: WorldGrip.occupied (filled at spawn, resynced in _cull_npc_views, released while asleep); is_blocked checks it → player AND mobs collide.
+- UnitView.ANIMS is the single animation source: per-row {dir, prefix, count, fps, loop, offset, **points**}. "points" = which way the art was DRAWN; play_anim computes rotation — callers carry no art knowledge. Missing rows/frames no-op. **After any asset folder reorg: fix the `dir` fields here** (move → BASE_DIR "Move" ×5, points "down"; TECH_DIR → Tech Spells/).
 
-## What the game is
-A 1v1 **simultaneous-turn (WEGO) tactical dueler** in **Godot 4 / GDScript**.
-Both fighters lock in their turn at once, then it resolves. Design pillars: skill
-as the primary tiebreaker, no dominant builds, "complexity without complication."
+## AI (Scripts/AI)
+- One matrix-Nash brain (ExtremeAI): shallow M from real Resolver sims → budgeted selective deepening → iterated dominance → **win-probability transform of all cells when Eval.CAL_A > 0** (depth-3 rescores wrapped the same) → Nash (regret matching) → selective depth-3 re-solve → bounded exploitation (λ × model confidence, situation buckets) → support pruning (MIN_MIX 0.05) → sample.
+- **Seat-correct forward model** (me.id branches resolve args/unpacking/win-check). The old me-as-B hardcode structurally biased self-play (10/10 seat-decided) — fixed; live play was always seat-B and unaffected.
+- PROFILES: "mob" {90ms, 2/4} · "challenging" {250ms, 3/6→5/9, λ0} · "extreme" {700/**1400 endgame** ms, 4/8→6/10, λ0.6 + persistent OpponentModel (user://uko_opp_model.cfg)}. set_profile also sets weights and loads calibration.
+- **Weights: Eval.DEFAULTS for ALL tiers. The evolved champion is SHELVED** after live regressions (passive waits, bolt+pivot ordering, rest-into-bolt); CHAMPION_WEIGHTS const remains in ExtremeAI as evolution's base. Re-adoption requires the full 6-gate suite.
+- Eval: tunable static weights + TUNABLE list + DEFAULTS snapshot; zone terms; per-player pulse relief; grenade option value (W_ITEM); desperation fear multiplier (still present; calibration supersedes it in spirit); per-decision subgame cache; **CAL_A + to_winprob** (sigmoid; from user://calibration.cfg — delete the cfg to disable). W_LETHAL exists (user-added, tuned along).
+- Story mobs think with the real brain ("mob" profile) via StoryController's engaged loop; kind.plan is fallback. **Ooze split lives in kind hooks — verify split still fires.**
 
-## Architecture (how the code is organized)
-- **Event-driven.** `Resolver` is near-pure: it clones its inputs, never mutates
-  them, and produces an ordered **event list** plus a `result`. The view layer only
-  *consumes* events (animation, combat log, fx). Don't put game logic in the view.
-- **Tunables are split by concern:** `Config.gd` (engine numbers/bands/costs),
-  `SpellBook.gd` (spell + status content), `GearBook.gd` (gear pieces), `ViewConfig.gd`
-  (all visuals/layout).
-- **Spells are data:** `shape` + `effect` + `vfx` + `ai_role`. The engine never names
-  a specific spell. A fighter has **no innate magic** — spells come from equipped
-  **gear** (4 slots; a gear piece grants a spell).
+## Tooling (Scripts/AI/Tuning + Scripts/Port; bats in project root)
+- **PositionTests.gd** — 6 gates, SAMPLES 21, frequency assertions. Current: flee 100 · hold-grenade 0 · safe-rest 100 · critical-rest 100 · **press-starving FAIL 38% (want ≥60) — deliberately red: the port's first target** · no-lead-wait 100. USE_TUNED flag runs the suite on user://tuned_eval.cfg. Gates pin FULL situations (never maxims). Pending #7–9: grenade-must-convert, no-wait-after-root, flank-from-diagonal (need multi-turn scaffolding).
+- **Tuner.gd** — 150 iters, seeds [11,23,37,51,68,84,97], step 0.12, accept 0.55, **resumes from user://tuned_eval.cfg**, HP-margin scoring, runs under the challenging profile. Accepts save the moment they happen (mid-run shutdowns lose nothing).
+- **ValidateChampion.gd** (+ run_validate.bat) — champion vs defaults on FRESH seeds [101…505], both seats; ≥55% adopt / <50% keep. History: pre-seat-fix 45% (exposed the bias) → post-fix 63% ADOPT → live regressions → shelved.
+- **CollectCalibration.gd** (+ run_calibration.bat) — 40 matches; appends (score,turn,total,a_won) to **user://selfplay_data.csv** (the experience log the future learned value trains on); late-weighted logistic fit. Current A = 0.017832. ~16–19/40 matches hit the 50-turn cap = **stall-meta datum** (equilibrium bots circle at cadence-10; design lever noted, no change).
+- **Scripts/Port/ParityDump.gd — port stage ZERO, committed but NOT YET RUN**: 400 deterministic (state, plans → outcome) cases → user://parity_gd.txt via Eval._c_key fingerprints. Needs a bat (clone run_position_tests.bat, swap the script path).
+- All bats: `cd /d "%~dp0"` + hardcoded GODOT console path (**must point at the 4.7 mono console exe**), output redirected to <name>_log.txt then typed.
 
-## File map (paths under the Godot project's script folders)
-- `core/`: `Config`, `SpellBook`, `GearBook`, `Grid`, `Combatant`, `Resolver`,
-  `StubOpponent`, `AI`, `ChallengingAI`, `GameController`
-- `view/`: `ViewConfig`, `BoardView`, `UnitView`, `EventPlayer`, `CombatLog`, `Fx`,
-  `ActionMenu`, `MainMenu`, `EndScreen`
-- Scenes: `MainMenu.tscn` (**main scene**), `Game.tscn` (root has `GameController`)
+## Protocol
+- Any AI/board change: 6 gates green (press-starving exempt until the port) + think-time sane + play-feel. Misplays: harvest the exact position with replay arrows (HUD shows per-turn resources) → new gate. Gates are exams the brain never reads — understanding must EMERGE (search = imagination, value = judgment); no behavior rules in the brain.
+- user:// files are local state: uko_opp_model.cfg (what it knows about you), tuned_eval.cfg (evolution champion), calibration.cfg (P(win) curve — delete to disable), selfplay_data.csv (experience log).
 
-## Core ruleset (locked)
-- **Bands** `{BUFF 0, PIVOT 100, GUARD 200, ATTACK 300, AOE 400, MOVE 500, SPECIAL 600,
-  REST 700}`, width 100. "Attack-before-Move" world (melee can't be kited; AoE is
-  un-dodgeable; dark_bolt at SPECIAL is dodgeable by stepping off the line, since
-  MOVE 500 < SPECIAL 600).
-- **Two-action timeline.** Each player picks ≤2 ordered actions (Rest = whole turn).
-  Strike times are **cumulative**, so a slot-2 action resolves much later than if it
-  were alone. Both players' actions interleave on one clock, sorted by `(tick, then
-  band_priority, then A-before-B)`.
-- **speed_boost**: set by **Wait** and by a **successful guard**; makes next turn's
-  slot-0 action front-of-its-band (never cross-band). Read for scheduling at the top
-  of `resolve()` *before* it's reset.
-- **Flank** (`Resolver._flank(defender, attacker_pos)`): dot of `(attacker - defender)`
-  with the defender's facing vector → `dot>0` front (1.0×), `dot<0` back (2.0×),
-  `dot==0` side (1.5×).
-- **Cooldowns are action-based** (aged 1 per action in `_plan`, before legalize; a cast
-  goes on cd immediately so it can't recast itself the same turn).
-- **Economy / anti-kite**: directional move cost (fwd/side/back), a shared energy pulse
-  every N non-Wait actions, hard energy lockout at 0 (only Rest/Pivot/Spells usable).
-- **Gear → spells**: `GameController` equips `PLAYER_GEAR` / `AI_GEAR`; reads
-  `a.spell_ids()` / `b.spell_ids()`. Number keys 1–4 are slot-indexed.
-
-## AI (done)
-- `AI.gd` is the **dispatcher**: `AI.choose_sequence(difficulty, me, foe, grid, spells)`,
-  a `Difficulty` enum `{EASY, CHALLENGING, HARD, EXTREME}`, and a `static var
-  selected_difficulty` that carries the menu choice across the scene change.
-- **Easy** = `StubOpponent` (reactive role-based ladder + the shared toolkit the search
-  brain reuses).
-- **Challenging** = `ChallengingAI`, a **shallow-search brain**: it generates candidate
-  1–2 action sequences, plays each through the **real Resolver** against an assumed
-  Easy enemy move, and scores the outcome (weights `W_DEAL / W_TAKE / W_WIN / W_RES /
-  W_DIST` at the top of the file), keeping the best with Easy's pick as a floor.
-  Flanking/dodging/guarding emerge from real-rules scoring, not hardcoded heuristics.
-- **Hard / Extreme** currently fall back to Challenging and are shown disabled "(soon)"
-  in the menu. Roadmap: Hard models a *distribution* of the player's moves; Extreme
-  solves the per-turn matrix.
-
-## Main menu (done)
-`MainMenu.gd` (hand-drawn `Node2D`, main scene). PLAY opens a **difficulty page**
-(`_mode = "main" | "difficulty"`); Easy/Challenging enabled, Hard/Extreme disabled,
-plus Back. Picking a difficulty sets `AI.selected_difficulty` and changes to
-`Game.tscn`. `GameController._ready` reads it on its first line. **Requires Godot
-4.1+** for the `static var`; on 4.0 use a small autoload instead.
-
-## Guard rework (done last session)
-- A guard's shield **drops the instant the guarder takes an offensive action** (a basic
-  attack, or a damaging spell where `effect.type == "damage"`). Defensive/neutral
-  actions (move/pivot/buff/rest/wait) leave it up.
-- A latched `guarded[id]` flag (separate from the live `guarding[id]` shield) means you
-  still earn the block-refund if you blocked **before** striking.
-- The drop is a **per-tick-group pre-pass** so a foe striking on the *same* tick as your
-  attack is **not** blocked (clean trade).
-- **Guard + dark_bolt is forbidden** in one turn: enforced in `Resolver._plan` (the later
-  pick is voided via `_noop` + an `illegal_action` event with `reason "no_guard_combo"`),
-  driven by a `"no_guard_combo": true` data flag on the spell, and blocked at pick-time
-  in `GameController._add_action` / `_conflicts_with_plan`.
-
----
-
-## ⚠️ LIVE DECISIONS — resume here (Francesco to choose)
-
-1. **Guard timing — the important one.** Because slot-2 actions resolve *late*
-   (cumulative scheduling: a guard→attack strikes at ~t550 while a normal attack lands
-   at ~t350), the current "covered until your strike tick" rule means **guard→attack
-   still blocks a normal first attack** — i.e. the "won't get hit but can hit" case he
-   originally flagged still happens against a single attack. The change so far only
-   exposes you to offense landing *after* your strike, and bans dark_bolt.
-   **Decision needed:** keep it as-is (telegraphed/punishable; only beats a naive
-   attacker) OR switch to **"guard drops at the offensive BAND tick (~t300)"** so
-   guard→attack becomes a genuine trade even vs a first attack. The latter is a bigger
-   resolver change (a scheduled drop-event decoupled from the action's resolution) and
-   would make per-spell bans unnecessary.
-2. **aoe_burst:** under the current rule, guard→aoe covers to ~t640. Should it also be
-   `no_guard_combo`, or does the band-drop version (decision 1) make this moot?
-3. **Menu greying (polish):** the conflicting Guard/bolt button is currently *silently*
-   ignored on click. Option to grey it out in `ActionMenu` instead (small change).
-4. **Second-action tax (discussing, not yet built):** need the **goal** first — curb
-   2-action dominance generally? nerf a specific burst (attack+attack, move+attack
-   alpha strike)? give 1-action turns a niche? — and whether 2-action turns actually
-   dominate in playtests. Claude's lean: a **time tax** (extra within-band delay on
-   slot-2) fits the "everything is timing" philosophy; note slot-2 is *already*
-   time-taxed by cumulative scheduling, so confirm the problem is real before adding one.
-
-## Other deferred items
-- **Board scaling** (he wants the board bigger, keeping 32×32 art and 12×12 grid): not
-  picked yet. Route A = project settings (Stretch Mode `canvas_items`, Aspect `keep`,
-  base viewport ~960×460, window-size override 2×, Texture Filter `Nearest`) — scales
-  everything uniformly. Route B = code (`BOARD_SCALE` in `ViewConfig`: scale the board
-  node, reflow the log right, resize the window in `_ready`) — board only; clicks stay
-  correct because `BoardView` maps clicks in its own local space.
-- **Hard / Extreme AI brains** (see roadmap above).
-- **Layered sprite (Step 5):** blockless base figure + 4 gear-block overlays (needs art
-  from Francesco).
-- **ChallengingAI weight tuning** after playtest (the 5 `W_*` constants).
-- **Key/menu unification:** number keys are slot-based; menu spell buttons are
-  role-based — unify later.
-
-## Verification habit
-For any resolver/timing change, mirror it in Python and print the tick timeline for a
-few scenarios before telling him it works. He will (rightly) not trust "it works"
-without it.
+## Next (priority order)
+1. **C# engine-brain port**: run ParityDump → Config.cs → Combatant.cs → Resolver.cs, each stage byte-identical vs parity_gd.txt → brain switches forward model → SM-MCTS → learned value on selfplay_data.csv. Targets: press-starving green via depth 4–6; kills horizon-class errors (grenade+wait, rest-into-AoE).
+2. Behavior gates #7–9 (multi-turn scaffolding).
+3. **Wait-haste prototype** behind flags — agreed spec: WAIT_HASTE + full-turn-guard companion flag; full bracket hop; AOE excluded; consumed by next non-wait; non-stacking; public + needs a unit icon.
+4. StoryController split (own session, playtest between steps): NpcDirector → GatherDirector → CameraRig; then StoryDirector + beats/flags/DialogBox once the story document is uploaded (story-as-data, TODO placeholder dialogue).
+5. Nightly tuner continues (resumes champion; re-audition happens under the calibrated judge + all 6 gates).
+6. Watch items: stall meta at cadence-10; grenade oppression on 8×8 (tick_per_tile lever); mirrored-map toggle; 80s duel dressing (side panels w/ portraits → round banner + collapse countdown → frame + braziers); mushroom/day-night persistence across duel returns; document within-tick tiebreaks in-game.
