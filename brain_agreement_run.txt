@@ -1,0 +1,22 @@
+Godot Engine v4.7.stable.mono.official.5b4e0cb0f - https://godotengine.org
+
+FAIL: pos0 deep[0,1] 9.232968750 vs 2.160000000
+FAIL: pos0 deep[1,0] -8.931190256 vs -2.259609375
+FAIL: pos0 deep[1,1] -3.431109427 vs -3.392578125
+FAIL: pos0 full mix[48] 0.000000000 vs 0.122132217
+FAIL: pos0 full mix[52] 0.000000000 vs 0.122660566
+FAIL: pos0 full mix[99] 0.139636930 vs 0.175181189
+FAIL: pos0 full mix[104] 0.114924761 vs 0.069267352
+FAIL: pos0 full mix[106] 0.108312987 vs 0.000000000
+FAIL: pos0 full mix[109] 0.000000000 vs 0.105226182
+FAIL: pos0 full mix[112] 0.091702561 vs 0.000000000
+FAIL: pos0 full mix[117] 0.214237002 vs 0.000000000
+FAIL: pos0 full mix[126] 0.000000000 vs 0.334593676
+FAIL: pos0 full mix[129] 0.127078915 vs 0.000000000
+FAIL: pos0 full mix[133] 0.000000000 vs 0.070938817
+FAIL: pos0 full mix[141] 0.089571282 vs 0.000000000
+FAIL: pos0 full mix[142] 0.114535563 vs 0.000000000
+FAIL: pos1 deep[0,0] 1.784184088 vs 14.779204479
+FAIL: pos1 deep[0,1] 21.754895833 vs 18.842605241
+FAIL: pos1 deep[1,0] -16.149609375 vs -13.217109375
+FAIL: pos1 deep[1,1] -1.550156250 vs 2.103716518

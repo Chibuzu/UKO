@@ -178,9 +178,15 @@ static func _capped_cands(me: Combatant, foe: Combatant, grid: Grid) -> Array:
 	if clean.size() <= DEEP_CANDS:
 		return clean
 	var ranked: Array = []
-	for c in clean:
-		ranked.append({"seq": c, "v": _cheap_rank(me, foe, grid, c)})
-	ranked.sort_custom(func(x, y): return float(x["v"]) > float(y["v"]))
+	for ci in clean.size():
+		ranked.append({"seq": clean[ci], "v": _cheap_rank(me, foe, grid, clean[ci]), "i": ci})
+	# EXPLICIT stable tie-break (original order): Godot's sort_custom is UNSTABLE, so
+	# without this, WHICH equally-ranked candidates enter a subgame was accidental --
+	# undefined behavior the C# port exposed. Defined now: value desc, then index asc.
+	ranked.sort_custom(func(x, y):
+		if float(x["v"]) != float(y["v"]):
+			return float(x["v"]) > float(y["v"])
+		return int(x["i"]) < int(y["i"]))
 	var out: Array = []
 	for k in range(DEEP_CANDS):
 		out.append(ranked[k]["seq"])

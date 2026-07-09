@@ -276,7 +276,12 @@ static func _top_rows(M: Array, k: int) -> Array:
 		for v in M[i]:
 			worst = minf(worst, float(v))
 		rows.append({"i": i, "w": worst})
-	rows.sort_custom(func(x, y): return float(x["w"]) > float(y["w"]))
+	# Stable tie-break (index asc): sort_custom is unstable; ties here decide which
+	# rows get the deep look, so the order must be DEFINED (and match the C# port).
+	rows.sort_custom(func(x, y):
+		if float(x["w"]) != float(y["w"]):
+			return float(x["w"]) > float(y["w"])
+		return int(x["i"]) < int(y["i"]))
 	var out: Array = []
 	for n in range(mini(k, rows.size())):
 		out.append(int(rows[n]["i"]))
@@ -288,7 +293,10 @@ static func _worst_cols(row: Array, k: int) -> Array:
 	var cols: Array = []
 	for j in row.size():
 		cols.append({"j": j, "v": float(row[j])})
-	cols.sort_custom(func(x, y): return float(x["v"]) < float(y["v"]))
+	cols.sort_custom(func(x, y):
+		if float(x["v"]) != float(y["v"]):
+			return float(x["v"]) < float(y["v"])
+		return int(x["j"]) < int(y["j"]))
 	var out: Array = []
 	for n in range(mini(k, cols.size())):
 		out.append(int(cols[n]["j"]))

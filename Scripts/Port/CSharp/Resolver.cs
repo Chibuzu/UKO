@@ -5,10 +5,11 @@
 // PARITY-CRITICAL CHOICES (why this matches the GDScript byte-for-byte):
 //  * round(): Godot rounds halves AWAY FROM ZERO; C# Math.Round defaults to banker's
 //    (to-even). All round() sites use Rnd() = MidpointRounding.AwayFromZero.
-//  * schedule sort: Godot Array.sort_custom uses insertion sort for these small (<16)
-//    arrays, which is STABLE. So we sort STABLY by (tick, band_priority), preserving the
-//    A-before-B / slot insertion order for ties. (Unstable List.Sort would diverge on
-//    same-tick same-priority ties -- see StableSort below.)
+//  * schedule sort: Godot's sort_custom is UNSTABLE (proven by the brain harness);
+//    parity still holds because same-tick same-priority ties in the schedule are
+//    OUTCOME-NEUTRAL by construction (same-tick entries resolve as one group; attack
+//    order within a group cannot change results, mutual moves are handled explicitly).
+//    We sort stably by (tick, band_priority) anyway so C#-side order is DEFINED.
 //  * events carry only Type/Tick/Owner here (the parity digest tallies Type); the event
 //    DATA payloads are view-only and omitted, like vfx.
 namespace UKO;

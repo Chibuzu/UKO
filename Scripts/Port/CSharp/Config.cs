@@ -261,6 +261,18 @@ public static class Config
 		return path;
 	}
 
-	// STILL DEFERRED (AI candidate-gen only, not used by the Resolver):
-	//   blink_landing(grid, from, dir, dist, foePos)  -- ports with the AI layer.
+	// Landing tile of a fixed-distance directional blink (un-deferred with the brain):
+	// land as far along `dir` as possible (up to dist), stepping back toward `from`
+	// when far tiles are walls/foe. Returns null when no tile in the line is landable.
+	public static Vec2I? BlinkLanding(Grid grid, Vec2I from, Vec2I dir, int dist, Vec2I foePos)
+	{
+		if (dir == new Vec2I(0, 0) || dist <= 0) return null;
+		for (int dd = dist; dd >= 1; dd--)
+		{
+			Vec2I land = from + dir * dd;
+			if (grid.InBounds(land) && !grid.IsBlocked(land) && land != foePos)
+				return land;
+		}
+		return null;
+	}
 }
