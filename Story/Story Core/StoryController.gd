@@ -390,12 +390,11 @@ func _combat_turn(engaged: Array) -> void:
 	var mob_seqs: Array = []
 	for i in engaged.size():
 		var g := StoryCombat._grid_blocking_others(grid, mob_cs, {}, i)
-		# Mobs think with the REAL matrix brain at a pocket budget: same machinery,
-		# their own toolkit -- story fights demand reads now, not stat checks. Kind
-		# logic stays as the fallback (and still owns specials like the ooze split).
-		ExtremeAI.set_profile("mob")
-		var brain_seq: Array = ExtremeAI.choose_sequence(engaged[i]["combatant"], player, g, engaged[i]["combatant"].spell_ids())
-		mob_seqs.append(brain_seq if not brain_seq.is_empty() else engaged[i]["kind"].plan(engaged[i]["combatant"], player, g))
+		# DESIGN RULE (Fra): monsters use ONLY their own toolkit -- attack/pivot/move.
+		# The duelist brain (ExtremeAI) is BANNED here: it rests, guards, and casts,
+		# which mobs must never do. Each MobKind's plan() IS the mob's brain (BatKind
+		# kites to range-2 and pokes; SlimeKind brawls adjacent and owns the split).
+		mob_seqs.append(engaged[i]["kind"].plan(engaged[i]["combatant"], player, g))
 
 	var res := StoryCombat.resolve_turn(grid, player, mob_cs, player_seq, mob_seqs, mob_kinds)
 	var dmg: Array = res["dmg_by_mob"]
