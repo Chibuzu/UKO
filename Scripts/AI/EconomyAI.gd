@@ -27,7 +27,7 @@ const ROOT_ROWS := 4       # rows (my plans) to deepen with the 2-turn lookahead
 const ROOT_COLS := 3       # foe replies per deepened row to look at (its best answers)
 const EXPLOIT_LAMBDA := 0.0  # 0 = pure Nash. >0 tilts toward the foe's observed habits (bounded)
 const EXPLOIT_TEMP := 8.0    # softmax temperature for the exploit tilt
-const DEBUG_LOG := true      # TEMPORARY: print foe columns, my rows, matrix, and mix each turn
+const DEBUG_LOG := false     # TEMPORARY diag; OFF (would flood overnight self-play logs)
 
 static func choose_sequence(me: Combatant, foe: Combatant, grid: Grid, spells: Array, opp_model = null) -> Array:
 	# 1. Strategic intent for MY plans, from the resource economy.

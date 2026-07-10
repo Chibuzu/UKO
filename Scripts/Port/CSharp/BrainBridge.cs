@@ -23,6 +23,8 @@ public partial class BrainBridge : RefCounted
 	// ── setup ────────────────────────────────────────────────────────────────
 	public void SetProfile(string name) => ExtremeAI.SetProfile(name);
 
+	public void SetDepth(int d) => Eval.LOOKAHEAD_DEPTH = d;
+
 	public void LoadCalibration()
 	{
 		var cf = new ConfigFile();

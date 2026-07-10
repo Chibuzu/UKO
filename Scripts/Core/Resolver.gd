@@ -286,6 +286,10 @@ static func _plan(c: Combatant, seq: Array, events: Array) -> Dictionary:
 			var cdv := Config.cooldown_of(aid)
 			if cdv > 0:
 				c.cooldowns[aid] = cdv
+			# Burn once-per-match at PLAN time (like cooldowns), so a second copy later
+			# in this SAME sequence is nooped by _legalize -- fixes the double-grenade.
+			if Config.def(aid).get("once_per_match", false):
+				c.spent_once[aid] = true
 		var boost: bool = c.speed_boost and slot == 0
 		var entry := _schedule(c, act, slot, vpos, vfacing, boost)
 		entry["energy_cost"] = paid   # for refund if this move fizzles at resolution
@@ -619,6 +623,12 @@ static func _launch_projectile(grid: Grid, s: Dictionary, caster: Combatant, sch
 	var pdir := _dir_from(caster.pos, s["tile"])
 	var path: Array
 	if String(pd.get("shape", "")) == "throw":
+		# The aim was validated from the PLANNED position; if an earlier action fizzled,
+		# the throw can be geometrically invalid from the LIVE tile. The shape rule is
+		# the single source of truth: invalid -> a miss, never a ghost flight.
+		if _shape_tiles(grid, caster, pd, s["tile"]).is_empty():
+			events.append(_ev("spell_miss", int(s["tick"]), caster.id, {"spell": s["id"]}))
+			return
 		# Thrown (grenade): fly straight AT the target tile, diagonal steps included,
 		# and land exactly there -- so a diagonal throw animates diagonally.
 		path = []

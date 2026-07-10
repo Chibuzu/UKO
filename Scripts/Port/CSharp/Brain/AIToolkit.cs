@@ -46,6 +46,7 @@ public static class AIToolkit
 	public static bool CanUse(Combatant me, string id)
 	{
 		if (me.Cooldowns.GetValueOrDefault(id, 0) > 0) return false;
+		if (Config.Def(id).OncePerMatch && me.SpentOnce.ContainsKey(id)) return false;
 		return Config.CanAfford(me.Energy, me.Mp, me.Statuses, id);
 	}
 

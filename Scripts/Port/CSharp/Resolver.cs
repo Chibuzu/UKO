@@ -361,6 +361,8 @@ public static class Resolver
 			{
 				int cdv = Config.CooldownOf(aid);
 				if (cdv > 0) c.Cooldowns[aid] = cdv;
+				// Burn once-per-match at PLAN time (like cooldowns) -- double-grenade fix.
+				if (Config.Def(aid).OncePerMatch) c.SpentOnce[aid] = true;
 			}
 			bool boost = c.SpeedBoost && slot == 0;
 			var entry = Schedule(c, act, slot, vpos, vfacing, boost);
@@ -681,6 +683,12 @@ public static class Resolver
 		List<Config.PathStep> path;
 		if (pd.Shape == "throw")
 		{
+			// Invalid from the LIVE tile (earlier action fizzled) -> miss, no ghost flight.
+			if (ShapeTiles(grid, caster, pd, s.Tile).Count == 0)
+			{
+				events.Add(Ev("spell_miss", s.Tick, caster.Id));
+				return;
+			}
 			path = new List<Config.PathStep>();
 			Vec2I cur = caster.Pos;
 			int t = s.Tick;

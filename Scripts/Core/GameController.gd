@@ -202,7 +202,9 @@ func _game_loop() -> void:
 		var seq_a: Array = local_plan if _local_is_a() else opponent_plan
 		var seq_b: Array = opponent_plan if _local_is_a() else local_plan
 		var out := Resolver.resolve(grid, a, b, seq_a, seq_b, turn_num)
-		opp_model.observe(local_plan, OpponentModel.situation_of(a if _local_is_a() else b, b if _local_is_a() else a, grid))   # learn the move IN ITS SITUATION
+		var obs_sit := OpponentModel.situation_of(a if _local_is_a() else b, b if _local_is_a() else a, grid)
+		opp_model.observe(local_plan, obs_sit)   # learn the move IN ITS SITUATION
+		AI.forward_observation(local_plan, obs_sit)   # keep the C# brain's model in sync (no-op when disabled)
 		replay.record(turn_num, pre_a, pre_b, out["a"], out["b"], out["events"], grid.snapshot(), _shift_notes.duplicate(true))
 		await play.play(out["events"], out["a"], out["b"])
 		a = out["a"]

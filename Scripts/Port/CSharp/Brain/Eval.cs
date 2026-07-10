@@ -32,7 +32,7 @@ public static class Eval
 	public static double W_LETHAL = 2.5;
 
 	// ── Lookahead ─────────────────────────────────────────────────────────────
-	public const int LOOKAHEAD_DEPTH = 2;
+	public static int LOOKAHEAD_DEPTH = 2;   // settable (BrainBridge.SetDepth): the overnight depth dial
 	public const int DEEP_CANDS = 3;
 	public const int DEEP_ITERS = 64;
 	public static double DISCOUNT = 0.9;
