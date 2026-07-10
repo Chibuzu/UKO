@@ -137,6 +137,8 @@ func _usable(id: String) -> bool:
 		var sid := _spell_for_role(id.substr(6))
 		if sid == "":
 			return false            # no gear fills this slot -> can't press
+		if Config.def(sid).get("once_per_match", false) and player.spent_once.has(sid):
+			return false   # once-per-match and already used
 		if int(player.cooldowns.get(sid, 0)) > 0:
 			return false
 		if Config.def(sid).get("once_per_match", false) and player.spent_once.has(sid):

@@ -16,6 +16,20 @@ var world_size: int = OverworldMap.SIZE
 
 var gem_map: OverworldMap = null   # ungathered gemstone nodes are solid; gathering clears them
 
+# Build a small standalone arena: everything is wall except `open_rect` (the boss
+# fighting floor). No overworld behind it -- gem_map stays null, occupied starts empty.
+func build_arena(size: int, open_rect: Rect2i) -> void:
+	world_size = size
+	gem_map = null
+	occupied = {}
+	blocked = []
+	for y in size:
+		var row: Array = []
+		for x in size:
+			row.append(not open_rect.has_point(Vector2i(x, y)))
+		blocked.append(row)
+	base_blocked = _copy(blocked)
+
 # Adopt an overworld's wall layout as this grid's terrain.
 func build(map: OverworldMap) -> void:
 	world_size = OverworldMap.SIZE

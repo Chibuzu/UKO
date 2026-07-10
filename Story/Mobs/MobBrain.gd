@@ -18,6 +18,12 @@ const PROFILES := {
 		"dmg": 15,
 		"loot": [ { "item": "slime_gel", "chance": 0.70 } ],
 	},
+	# The boss (Fra: fight designed later -- base melee behavior as the placeholder).
+	"boss": {
+		"name": "WARLORD", "hp": 220, "scale": 1.5, "tint": Color(0.85, 0.55, 1.0),
+		"dmg": 20,
+		"loot": [ { "item": "serpent_fang", "chance": 1.00 } ],
+	},
 	"serpent": {
 		"name": "Serpent", "hp": 100, "scale": 1.15, "tint": Color(0.90, 0.52, 0.55),
 		"dmg": 15,

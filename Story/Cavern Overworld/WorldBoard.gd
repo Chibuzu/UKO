@@ -14,6 +14,7 @@ var window_origin: Vector2i = Vector2i.ZERO
 var rest_set: Dictionary = {}     # Vector2i sanctuary tiles -> true (set by the controller)
 var gem_set: Dictionary = {}      # Vector2i gemstone nodes -> true (set by the controller)
 var mushroom_set: Dictionary = {} # Vector2i mushroom nodes -> true (rare gatherables)
+var portal_set: Dictionary = {}   # Vector2i boss-portal pads -> true (drawn glowing purple)
 var building_set: Dictionary = {} # Vector2i village building footprints -> floor here + sprite on top
 const GEM_PATH := "res://Assets/Sprites/Gemstone_sprite.png"
 var gem_tex: Texture2D = null     # gemstone node art; falls back to the purple tile if absent
@@ -123,6 +124,10 @@ func _draw() -> void:
 					else:
 						draw_rect(rect, ViewConfig.COL_GEM_FILL)
 						draw_rect(rect, ViewConfig.COL_GEM, false, 2.0)
+				elif portal_set.has(Vector2i(wx, wy)):    # boss portal pad: glowing purple
+					draw_rect(rect, Color(0.42, 0.18, 0.66))
+					draw_rect(Rect2(rect.position + Vector2(T * 0.18, T * 0.18), Vector2(T * 0.64, T * 0.64)), Color(0.72, 0.42, 1.0))
+					draw_rect(rect, Color(0.90, 0.62, 1.0), false, 2.0)
 				elif mushroom_set.has(Vector2i(wx, wy)):  # mushroom node (rare): red cap + pale stem
 					var stem := Rect2(rect.position + Vector2(T * 0.40, T * 0.52), Vector2(T * 0.20, T * 0.30))
 					var cap := Rect2(rect.position + Vector2(T * 0.20, T * 0.22), Vector2(T * 0.60, T * 0.34))

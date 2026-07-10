@@ -11,6 +11,11 @@ const GEM_COUNT := 16            # purple gemstone nodes: gatherable, scattered 
 const MUSHROOM_COUNT := 8        # rare mushrooms: only a handful in the whole map
 const BORDER := 1                # the outer ring of tiles is always wall
 
+# ── The BOSS PORTAL (Fra): a purple pad set INTO the right border wall. Stepping
+# on it hands you to a SEPARATE small arena map (StoryController owns the world
+# swap); the world map contains no boss room, and the boss spawns only there.
+const BOSS_DOOR := Vector2i(59, 30)     # the purple portal, set INTO the right border wall itself
+
 # The spawn VILLAGE: the mob-free safe zone at world center. This is a FOUNDING BLOCK -- one
 # definition that world-gen, tile scatter, mob roaming, NPC placement and the controller all
 # read, so the safe zone can never drift between hand-copied bounds. VILLAGE_RADIUS is kept
@@ -109,6 +114,11 @@ func generate(seed_value: int) -> void:
 	for tt in transport_tiles():
 		if tt.x > 0 and tt.y > 0 and tt.x < SIZE - 1 and tt.y < SIZE - 1:
 			blocked[tt.y][tt.x] = false
+
+	# BOSS PORTAL: the arena is its OWN small map (StoryController swaps worlds), so
+	# nothing is carved here -- just the purple pad set into the border + its approach.
+	blocked[BOSS_DOOR.y][BOSS_DOOR.x] = false       # the portal pad is steppable
+	blocked[BOSS_DOOR.y][BOSS_DOOR.x - 1] = false   # guarantee a walkable approach
 
 	# Golden sanctuary tiles: a rare scattered few, all OUT in the wilds (never in the
 	# mob-free village), so mobs can always approach them -- they're a risk/reward rest, not a

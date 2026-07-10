@@ -9,7 +9,7 @@
 extends SceneTree
 
 const FULL_GEAR := ["discount_charm", "burst_node", "blink_boots", "dark_focus"]
-const MATCHES_PER_PHASE := 80
+const MATCHES_PER_PHASE := 110   # ~10-12h total; interruption-safe (kill it when you're back, partials count)
 const MAX_TURNS := 80          # cap -> draw (no zone stall runs forever)
 const SEED_BASE := 770001
 const OUT := "user://sweep_results.txt"

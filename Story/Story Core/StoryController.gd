@@ -26,7 +26,7 @@ const TYPE_WEIGHTS := [["bat", 50], ["slime", 38], ["serpent", 12]]
 # Mobs wander the world while you roam. They step on this cadence (slower than you, so
 # you can outrun them), beeline toward you within MOB_AGGRO tiles, else drift randomly.
 const MOB_ROAM_CD := 0.55
-const MOB_AGGRO := 9
+const MOB_AGGRO := 6              # mobs engage within 6 tiles of you (Chebyshev), not by window
 
 # Passive recovery: every REGEN_EVERY actions YOU take (roam steps + combat actions), only
 # ENERGY comes back -- moving never heals. HP/MP are recovered by resting or a sanctuary tile.
@@ -43,6 +43,14 @@ const NIGHT_REST := 2          # new resonance spots (golden tiles)
 const NIGHT_GEMS := 4          # new gemstones
 const NIGHT_MUSH := 2          # new mushrooms (rare, so few)
 const REST_SAFE := 5             # a sanctuary tile only rests you if no mob is within this many tiles
+
+# ── Boss arena: a separate small map swapped in over the world (Fra spec). One
+# window-sized grid so nothing scrolls; the WARLORD exists ONLY here. ──
+const ARENA_SIZE := 12                       # 12x12 grid = exactly one board window
+const ARENA_FLOOR := Rect2i(2, 2, 8, 8)      # the open 8x8 fighting floor
+const ARENA_PLAYER := Vector2i(3, 5)         # you arrive here, facing the boss
+const ARENA_BOSS := Vector2i(8, 5)
+const ARENA_RETURN := Vector2i(9, 8)         # purple exit pad; appears once the boss is dead
 
 enum Phase { ROAM, COMBAT }
 
@@ -71,6 +79,8 @@ var _quests: Array = []               # live QuestKind objects for currently-act
 var _talk_npc: String = ""            # id of the NPC whose dialog is open (for re-refresh)
 var _paused: bool = false
 var _mob_cd: float = 0.0              # countdown to the next world-wander step for all mobs
+var _in_arena := false                # inside the boss arena (world stashed)
+var _world_stash: Dictionary = {}     # everything needed to restore the world on exit
 var _actions: int = 0                 # your actions since the last passive-regen tick
 var _day_clock: int = 0               # actions elapsed in the current day/night cycle
 var _is_night: bool = false
@@ -111,6 +121,7 @@ func _ready() -> void:
 	board.gem_set = omap.gem_set                   # purple gemstone nodes drawn on the board
 	board.mushroom_set = omap.mushroom_set         # rare mushroom nodes drawn on the board
 	board.building_set = omap.building_set         # village building footprints -> floor + sprites
+	board.portal_set = {OverworldMap.BOSS_DOOR: true}   # the purple boss portal in the border wall
 
 	var start: Vector2i
 	if resuming:
@@ -143,7 +154,7 @@ func _ready() -> void:
 		_spawn_from_save(save.get("mobs", []))
 		turn_num = int(save.get("turn", 0))
 	else:
-		_spawn_mobs_procedural()
+		_spawn_mobs_procedural()   # the WARLORD is NOT here: he spawns only inside the arena
 
 	fx = Fx.new()
 	board.add_child(fx)
@@ -253,8 +264,11 @@ func _spawn_from_save(mob_data: Array) -> void:
 
 # ── roam (real-time WASD) until a monster is in view, then the loop flips to COMBAT ─
 func _process(delta: float) -> void:
-	if menu != null:
-		menu.player = player           # HUD always reflects your live resources, every frame
+	if menu != null and _phase == Phase.ROAM:
+		# Roam only: live HUD. During COMBAT the menu shows SelectionController's
+		# PROJECTION (plan_c) -- stomping it every frame was the resource-tracking bug
+		# (cast a 40MP blink, and slot 2 still showed spells as castable).
+		menu.player = player
 		menu.queue_redraw()
 	if _phase == Phase.ROAM and not _paused:
 		_roam(delta)
@@ -308,6 +322,8 @@ func _refresh_rest_prompt() -> void:
 	menu.set_roam_extras(extras)
 
 func _pause_save() -> void:
+	if _in_arena:
+		return                          # no saving inside the boss arena (the world is stashed)
 	StorySave.write(_gather_save())    # SAVE button: write, then let the overlay confirm
 	pause_menu.note_saved()
 
@@ -329,6 +345,11 @@ func _roam(delta: float) -> void:
 		return
 	player.pos = target
 	player_uv.tween_to(target)
+	# ── BOSS ARENA doors (Fra) ────────────────────────────────────────────────
+	if not _in_arena and target == OverworldMap.BOSS_DOOR:
+		_enter_boss_arena()                        # the world is stashed; the arena map swaps in
+	elif _in_arena and target == ARENA_RETURN and _boss_dead():
+		_exit_boss_arena()                         # kill confirmed: back to the story map
 	_bump_actions(1)                   # a step is an action -> feeds the every-6 regen
 	_follow_window()                   # scroll only near the window edge -> you visibly walk
 	if omap.is_rest(player.pos):
@@ -396,6 +417,9 @@ func _combat_turn(engaged: Array) -> void:
 		# kites to range-2 and pokes; SlimeKind brawls adjacent and owns the split).
 		mob_seqs.append(engaged[i]["kind"].plan(engaged[i]["combatant"], player, g))
 
+	var pre_hp: Array = []
+	for c in mob_cs:
+		pre_hp.append(c.hp)
 	var res := StoryCombat.resolve_turn(grid, player, mob_cs, player_seq, mob_seqs, mob_kinds)
 	var dmg: Array = res["dmg_by_mob"]
 	var p_end: Vector2i = res["player"].pos
@@ -426,6 +450,7 @@ func _combat_turn(engaged: Array) -> void:
 		_face_toward(e["combatant"], e["uv"], player.pos)   # end of turn: mobs turn to face you
 	_bump_actions(player_seq.size())   # your actions this turn feed the every-6 regen
 	_clear_dead()
+	_refresh_boss_exit()
 	# The mob strikes bypass the resolver, so synthesise a hit line for each so the log shows
 	# them too -- with the same directional flank tier that scaled the damage.
 	var log_events: Array = res["primary_events"].duplicate()
@@ -439,6 +464,24 @@ func _combat_turn(engaged: Array) -> void:
 				"flank": Config.flank_tier(player.facing, player.pos, mc.pos),
 			})
 	combat_log.add_turn(turn_num, log_events)
+	# ── completeness notes: everything the pairwise event stream can't show ──
+	var strikes: Array = res.get("strikes_by_mob", [])
+	for i in engaged.size():
+		var name := _mob_label(engaged[i])
+		# your damage on NON-nearest mobs resolves in their own pair -> surface it
+		if i > 0 and int(pre_hp[i]) > res["mobs"][i].hp:
+			combat_log.add_note("You hit %s for %d" % [name, int(pre_hp[i]) - int(res["mobs"][i].hp)], ViewConfig.COL_TEXT)
+		var moved := StoryCombat._move_count(mob_seqs[i])
+		if moved > 0:
+			combat_log.add_note("%s moved x%d" % [name, moved], ViewConfig.COL_TEXT)
+		elif int(dmg[i]) == 0:
+			combat_log.add_note("%s held its ground" % name, ViewConfig.COL_TEXT)
+		if i < strikes.size() and int(strikes[i]) >= 2:
+			combat_log.add_note("%s struck x%d!" % [name, int(strikes[i])], ViewConfig.COL_DMG)
+	for e in res["primary_events"]:
+		if String(e.get("type", "")) == "illegal_action" and String(e.get("owner", "")) == "A":
+			combat_log.add_note("One of your actions fizzled (cost/cooldown)", ViewConfig.COL_DMG)
+			break
 	_follow_window()                   # keep you in view; refresh mob visibility
 
 # Readable name for a mob entry (used in the combat log), from its profile.
@@ -447,7 +490,81 @@ func _mob_label(entry: Dictionary) -> String:
 	var prof: Dictionary = MobBrain.PROFILES.get(t, {})
 	return String(prof.get("name", t.capitalize()))
 
+# Instant relocation (used by the arena doors): snap the sprite, recenter the window.
+func _teleport(t: Vector2i) -> void:
+	player.pos = t
+	player_uv.init_state(player)       # snap, not a tween across the whole world
+	_follow_window()
+
+func _boss_dead() -> bool:
+	for m in mobs:
+		if String(m.get("type", "")) == "boss":
+			return m["combatant"].is_dead()
+	return true                        # not in the live list (looted/removed) -> dead
+
+# Once the WARLORD is down, the purple EXIT pad appears inside the arena
+# (portal_set is board-drawn, so per-turn highlight clears can't eat it).
+func _refresh_boss_exit() -> void:
+	if _in_arena and _boss_dead() and not board.portal_set.has(ARENA_RETURN):
+		board.portal_set[ARENA_RETURN] = true
+		board.queue_redraw()
+
+# ── Boss arena swap (Fra): step the wall portal -> fight on a separate 8x8 map ──
+func _enter_boss_arena() -> void:
+	_in_arena = true
+	_world_stash = {
+		"grid": grid, "player_pos": player.pos, "win": _win,
+		"rest": board.rest_set, "gem": board.gem_set, "mush": board.mushroom_set,
+		"build": board.building_set, "portal": board.portal_set,
+	}
+	for m in mobs:
+		m["uv"].visible = false
+	for n in npcs:
+		if n["uv"] != null:
+			n["uv"].visible = false
+	var ag := WorldGrid.new()
+	ag.build_arena(ARENA_SIZE, ARENA_FLOOR)
+	grid = ag
+	board.rest_set = {}
+	board.gem_set = {}
+	board.mushroom_set = {}
+	board.building_set = {}
+	board.portal_set = {}
+	board.setup_world(grid)
+	player.pos = ARENA_PLAYER
+	player.facing = Config.Facing.EAST
+	player_uv.init_state(player)
+	_win = Vector2i.ZERO
+	_apply_window()
+	var b := _add_mob("boss", ARENA_BOSS)      # the WARLORD exists ONLY here
+	b["arena"] = true
+
+func _exit_boss_arena() -> void:
+	_in_arena = false
+	for m in mobs:                              # scrub any arena entry (boss corpse is
+		if m.get("arena", false) and is_instance_valid(m["uv"]):
+			m["uv"].queue_free()                # normally already looted+freed by _clear_dead)
+	mobs = mobs.filter(func(m): return not m.get("arena", false))
+	grid = _world_stash["grid"]
+	board.rest_set = _world_stash["rest"]
+	board.gem_set = _world_stash["gem"]
+	board.mushroom_set = _world_stash["mush"]
+	board.building_set = _world_stash["build"]
+	board.portal_set = _world_stash["portal"]
+	board.setup_world(grid)
+	player.pos = OverworldMap.BOSS_DOOR + Vector2i(-1, 0)   # back beside the wall portal
+	player_uv.init_state(player)
+	_init_window()
+	for m in mobs:
+		m["uv"].visible = _in_window(m["combatant"].pos, _win)
+	for n in npcs:
+		if n["uv"] != null:
+			n["uv"].visible = _in_window(n["tile"], _win) and not _npcs_sleeping
+	_world_stash = {}
+
 func _die() -> void:
+	if _in_arena:
+		_exit_boss_arena()               # never die trapped: restore the world first
 	# A setback: you forfeit some gold (that lives on your profile, so it persists) and return
 	# to the menu. Story progress is NOT auto-written -- you resume from your last manual save.
 	PlayerProfile.spend_gold(mini(DEATH_GOLD_PENALTY, PlayerProfile.gold()))
@@ -496,8 +613,11 @@ func _in_window(p: Vector2i, o: Vector2i) -> bool:
 func _engaged() -> Array:
 	var out: Array = []
 	for m in mobs:
-		if _in_window(m["combatant"].pos, _win):
-			out.append(m)
+		if _in_arena:
+			if m.get("arena", false):
+				out.append(m)                       # arena: the boss, nothing else
+		elif _cheb(m["combatant"].pos) <= MOB_AGGRO:
+			out.append(m)                           # world: 6-tile aggro, not the window
 	out.sort_custom(func(x, y):
 		return _cheb(x["combatant"].pos) < _cheb(y["combatant"].pos))
 	return out
@@ -771,8 +891,8 @@ func _face_toward(c: Combatant, uv: UnitView, target: Vector2i) -> void:
 # otherwise drift. They never enter the village (your safe zone) and never overlap. A mob
 # that steps into your window starts combat, exactly like walking into one yourself.
 func _mob_roam(delta: float) -> void:
-	if mobs.is_empty():
-		return
+	if mobs.is_empty() or _in_arena:
+		return   # the world is stashed while you fight the boss; nothing wanders
 	_mob_cd -= delta
 	if _mob_cd > 0.0:
 		return
@@ -887,12 +1007,13 @@ func _cull_npc_views() -> void:
 	if not _npcs_sleeping:
 		for m in npcs:
 			grid.occupied[m["tile"]] = true
+	# (Repaired: this read a nonexistent `board.origin` and RECURSED into itself
+	# mid-loop -- a mangled paste that crashed on the first post-kill NPC refresh.)
+	var o: Vector2i = board.window_origin
 	for n in npcs:
 		if n["uv"] == null:
 			continue
 		var t: Vector2i = n["tile"]
-		var o: Vector2i = board.origin
-		_cull_npc_views()
 		var inside := t.x >= o.x and t.y >= o.y and t.x < o.x + ViewConfig.VIEW_TILES and t.y < o.y + ViewConfig.VIEW_TILES
 		n["uv"].visible = inside and not _npcs_sleeping
 

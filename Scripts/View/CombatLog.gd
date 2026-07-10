@@ -50,6 +50,14 @@ func add_turn(turn_num: int, events: Array) -> void:
 	scroll = 0                          # a fresh turn snaps the view back to the newest lines
 	queue_redraw()
 
+# A plain line appended after add_turn -- story mode uses it for mob movement and
+# multi-strike notes that never pass through the resolver's event stream.
+func add_note(text: String, color: Color = ViewConfig.COL_TEXT) -> void:
+	_push("      " + text, color)
+	if lines.size() > ViewConfig.LOG_MAX_LINES:
+		lines = lines.slice(lines.size() - ViewConfig.LOG_MAX_LINES, lines.size())
+	queue_redraw()
+
 func _push(text: String, color: Color) -> void:
 	lines.append({"text": text, "color": color})
 

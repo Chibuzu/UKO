@@ -36,13 +36,29 @@ static func resolve_turn(grid: WorldGrid, player_in: Combatant, mobs: Array,
 	# per turn and an ATTACK IS one of them, so a mob that spent both actions moving (2 moves)
 	# cannot also strike this turn. Its per-creature range/shape still governs whether the
 	# strike from <=1 move connects.
+	# ── strikes on REAL TICK TIMING ─────────────────────────────────────────
+	# A mob's non-move actions are strikes at fixed attack-band ticks (slot 1 -> 350,
+	# slot 2 -> 900). Each strike is judged against WHERE THE PLAYER WAS at that tick,
+	# rebuilt from the resolve's own event stream -- so blinking behind a mob mid-turn
+	# (or being IN TRANSIT at strike time) makes it genuinely MISS.
+	var timeline := _player_timeline(player_in, primary_events)
 	var dmg_by_mob: Array = []
 	var dmg_total: int = 0
-	var may_attack: Array = []
+	var strikes_by_mob: Array = []
 	for i in mobs.size():
-		var attacked: bool = _move_count(mob_seqs[i]) <= 1
-		may_attack.append(attacked)
-		var d: int = mob_kinds[i].attack_damage(out_mobs[i], player_final, grid, guarded) if attacked else 0
+		var budget: int = clampi(2 - _move_count(mob_seqs[i]), 0, 2)
+		var ticks: Array = [900] if budget == 1 else ([350, 900] if budget == 2 else [])
+		var landed: int = 0
+		var d: int = 0
+		for st in ticks:
+			var snap := _player_at(timeline, int(st), player_final)
+			if snap == null:
+				continue                    # in transit (mid-blink): untargetable -> miss
+			var hit: int = mob_kinds[i].attack_damage(out_mobs[i], snap, grid, guarded)
+			if hit > 0:
+				landed += 1
+				d += hit
+		strikes_by_mob.append(landed)
 		dmg_by_mob.append(d)
 		dmg_total += d
 
@@ -52,7 +68,7 @@ static func resolve_turn(grid: WorldGrid, player_in: Combatant, mobs: Array,
 	var guard_refund: int = 0
 	if guarded:
 		for i in mobs.size():
-			if may_attack[i] and mob_kinds[i].threatens(out_mobs[i].pos, player_final.pos, grid):
+			if int(strikes_by_mob[i]) > 0 and mob_kinds[i].threatens(out_mobs[i].pos, player_final.pos, grid):
 				var tier: String = Config.flank_tier(player_final.facing, player_final.pos, out_mobs[i].pos)
 				guard_refund = maxi(guard_refund, int(Config.GUARD_REFUND_TIER.get(tier, 0)))
 		if guard_refund > 0:
@@ -65,9 +81,45 @@ static func resolve_turn(grid: WorldGrid, player_in: Combatant, mobs: Array,
 		"mobs": out_mobs,
 		"primary_events": primary_events,
 		"dmg_by_mob": dmg_by_mob,
+		"strikes_by_mob": strikes_by_mob,
 		"guard_refund": guard_refund,
 		"result": result,
 	}
+
+# The player's (pos, facing) at every change-tick this turn, from the pair-0 events.
+# Entries: {tick, pos, facing, transit}. transit=true between blink_depart and blink.
+static func _player_timeline(start: Combatant, events: Array) -> Array:
+	var tl: Array = [{"tick": -1, "pos": start.pos, "facing": start.facing, "transit": false}]
+	for e in events:
+		if String(e.get("owner", "")) != "A":
+			continue
+		var t := int(e.get("tick", 0))
+		var last: Dictionary = tl[tl.size() - 1]
+		match String(e.get("type", "")):
+			"move":
+				tl.append({"tick": t, "pos": e.get("to", last["pos"]), "facing": last["facing"], "transit": false})
+			"pivot":
+				tl.append({"tick": t, "pos": last["pos"], "facing": int(e.get("facing", last["facing"])), "transit": false})
+			"blink_depart":
+				tl.append({"tick": t, "pos": last["pos"], "facing": last["facing"], "transit": true})
+			"blink":
+				tl.append({"tick": t, "pos": e.get("to", last["pos"]), "facing": int(e.get("facing", last["facing"])), "transit": false})
+	return tl
+
+# A shallow player snapshot AT `tick` (null while in blink transit = untargetable).
+static func _player_at(tl: Array, tick: int, template: Combatant) -> Combatant:
+	var cur: Dictionary = tl[0]
+	for entry in tl:
+		if int(entry["tick"]) <= tick:
+			cur = entry
+		else:
+			break
+	if bool(cur["transit"]):
+		return null
+	var snap: Combatant = template.clone()
+	snap.pos = cur["pos"]
+	snap.facing = int(cur["facing"])
+	return snap
 
 static func _player_guarded(player_seq: Array) -> bool:
 	for a in player_seq:
