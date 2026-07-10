@@ -19,6 +19,8 @@ func _init(difficulty: int, tree: SceneTree, mob: String = "") -> void:
 func opponent_sequence(me: Combatant, foe: Combatant, grid: Grid, turn_num: int, local_seq: Array, opp_model) -> Array:
 	await _tree.process_frame   # let "Waiting for opponent..." actually paint...
 	await _tree.process_frame   # ...before the synchronous search blocks the thread
-	if _mob != "":
+	# Simple mobs use the toolkit-restricted brain; the BOSS keeps the full duel
+	# brain until its fight is designed (Fra: "boss later"). Unknown tags -> duel brain.
+	if _mob in ["bat", "ooze", "grunt", "brute"]:
 		return MobAI.choose_sequence(_mob, me, foe, grid)
 	return AI.choose_sequence(_difficulty, me, foe, grid, me.spell_ids(), opp_model)

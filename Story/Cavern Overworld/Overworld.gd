@@ -177,6 +177,7 @@ func _start_duel(index: int) -> void:
 	OverworldState.player_tile = _player_tile
 	OverworldState.fighting = index
 	GameController.pending_b_gear = m.combatant.gear.duplicate()
+	GameController.pending_b_mob = m.tag   # "bat"/"ooze" -> toolkit-restricted MobAI + attack profile
 	GameController.pending_return_scene = STORY_SCENE
 	AI.selected_difficulty = _mob_diff(m.tag)
 	get_tree().change_scene_to_file(GAME_SCENE)

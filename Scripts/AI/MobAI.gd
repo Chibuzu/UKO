@@ -32,6 +32,12 @@ static func choose_sequence(mob: String, me: Combatant, foe: Combatant, grid: Gr
 
 static func _pick(me: Combatant, foe: Combatant, grid: Grid, pos: Vector2i, facing: int, energy: int) -> Dictionary:
 	var atk_cost := Config.effective_energy_cost("attack", me.statuses)
+	# KITING (Fra): a ranged mob hugged at dist 1 leverages its build -- step AWAY to
+	# its sweet spot first; the next slot's reach check then lands the ranged strike.
+	if me.attack_range >= 2 and not me.attack_all_adjacent and Grid.dist(pos, foe.pos) == 1:
+		var away := _step_away(me, foe, grid, pos, facing, energy)
+		if not away.is_empty():
+			return away
 	if _in_reach(me, pos, foe.pos) and energy >= atk_cost:
 		return {"id": "attack", "tile": foe.pos}
 	# Close the distance: the legal step that gets nearest to the foe (stable DIRS order).
@@ -54,6 +60,28 @@ static func _pick(me: Combatant, foe: Combatant, grid: Grid, pos: Vector2i, faci
 	if want != facing:
 		return {"id": "pivot", "facing": want}
 	return {"id": "wait"}
+
+# The legal affordable step that INCREASES distance most, ideally landing exactly at
+# attack_range (the bat's backpedal-and-bite). Empty when boxed in -> fight in place.
+static func _step_away(me: Combatant, foe: Combatant, grid: Grid, pos: Vector2i, facing: int, energy: int) -> Dictionary:
+	var best := {}
+	var best_score := -999
+	for dv in Grid.DIRS:
+		var t: Vector2i = pos + dv
+		if not grid.in_bounds(t) or grid.is_blocked(t) or t == foe.pos:
+			continue
+		if energy < Config.effective_move_cost(facing, pos, t, me.statuses):
+			continue
+		var d := Grid.dist(t, foe.pos)
+		if d <= 1:
+			continue
+		var score := d
+		if d == me.attack_range:
+			score += 10   # the sweet spot: retreat straight into striking distance
+		if score > best_score:
+			best_score = score
+			best = {"id": "move", "tile": t}
+	return best
 
 static func _in_reach(me: Combatant, pos: Vector2i, foe_pos: Vector2i) -> bool:
 	if me.attack_all_adjacent:

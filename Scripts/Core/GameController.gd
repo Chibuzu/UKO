@@ -47,6 +47,7 @@ static var pending_opponent: OpponentSource
 # mob duel and read the outcome back. Empty/"" -> normal (AI gear, return to menu).
 static var pending_b_gear: Array = []
 static var pending_b_mob: String = ""   # "bat"/"ooze": restricts B to the mob toolkit + attack profile
+var b_mob := ""   # this match's consumed mob identity ("" = normal duel)
 static var pending_return_scene: String = ""
 static var last_match_won: bool = false
 
@@ -79,7 +80,7 @@ func _ready() -> void:
 	pending_config = null      # consume: a later single-player match must not inherit these
 	pending_opponent = null
 	var b_gear_override: Array = pending_b_gear
-	var b_mob := pending_b_mob
+	b_mob = pending_b_mob
 	pending_b_mob = ""   # consume with the gear
 	pending_b_gear = []        # consume: a later match must not inherit a story mob's kit
 
@@ -114,8 +115,12 @@ func _ready() -> void:
 		b.equip(AI_GEAR if b_gear_override.is_empty() else b_gear_override)
 	if b_mob == "bat":
 		b.attack_range = 2                # strikes from two tiles away
+		b.hp = 45                         # TUNE: fragile skirmisher
+		b.energy = 100                    # full stamina (Fra); costs + pulse meter the pace
 	elif b_mob == "ooze":
 		b.attack_all_adjacent = true      # every attack hits ALL 4 adjacent tiles
+		b.hp = 70                         # TUNE: tanky brawler
+		b.energy = 100                    # full stamina (Fra)
 
 	ua = UnitView.new()
 	board.add_child(ua)
