@@ -5,7 +5,10 @@
 class_name SelfPlayArena
 extends RefCounted
 
-const DEFAULT_KIT := ["dark_bolt", "aoe_burst", "energy_discount", "blink_step"]
+# FIXED: these were SPELL/STATUS ids, but equip() takes GEAR ids -> spell_ids()
+# returned only ["grenade"], so every historical tuner/calibration/position-test
+# match was SPELL-LESS. Real gear now; old baselines are stale (see HANDOFF).
+const DEFAULT_KIT := ["discount_charm", "burst_node", "blink_boots", "dark_focus"]
 
 # Fixed mirror kit. Deliberately NOT PlayerProfile.loadout(): autoloads don't exist
 # yet when a --script run boots (touching one hangs the whole run), and a fixed kit

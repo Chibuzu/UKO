@@ -492,8 +492,12 @@ public static class Resolver
 			Dictionary<string, bool> guarding, Dictionary<string, int> guardBlocked,
 			Dictionary<string, int> damagedTick, Dictionary<string, int> deadTick, List<Event> events)
 	{
-		if (Grid.Dist(attacker.Pos, s.Tile) != 1) { events.Add(Ev("attack_whiff", tick, attacker.Id)); return; }
-		if (target.Pos != s.Tile) { events.Add(Ev("attack_whiff", tick, attacker.Id)); return; }
+		if (attacker.AttackAllAdjacent)
+		{
+			if (Grid.Dist(attacker.Pos, target.Pos) != 1) { events.Add(Ev("attack_whiff", tick, attacker.Id)); return; }
+		}
+		else if (Grid.Dist(attacker.Pos, s.Tile) > attacker.AttackRange) { events.Add(Ev("attack_whiff", tick, attacker.Id)); return; }
+		if (!attacker.AttackAllAdjacent && target.Pos != s.Tile) { events.Add(Ev("attack_whiff", tick, attacker.Id)); return; }
 		string rel = Flank(target, attacker.Pos);
 		int dmg = Rnd(Config.ATTACK_DAMAGE * Config.FLANK_MULT[rel]);
 		if (guarding[target.Id])

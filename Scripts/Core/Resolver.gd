@@ -419,10 +419,16 @@ static func _attack(attacker: Combatant, target: Combatant, s: Dictionary,
 		damaged_tick: Dictionary, dead_tick: Dictionary, events: Array) -> void:
 	# Must be adjacent to the struck tile at strike time (you may have moved).
 	var dir: Vector2i = s["tile"] - attacker.pos      # direction of the swing, for the anim
-	if Grid.dist(attacker.pos, s["tile"]) != 1:
+	if attacker.attack_all_adjacent:
+		# Ooze: the strike hits ALL 4 adjacent tiles at once -- foe is hit if CARDINALLY
+		# adjacent at strike time, wherever the aim tile pointed.
+		if Grid.dist(attacker.pos, target.pos) != 1:
+			events.append(_ev("attack_whiff", tick, attacker.id, {"tile": s["tile"], "dir": dir}))
+			return
+	elif Grid.dist(attacker.pos, s["tile"]) > attacker.attack_range:
 		events.append(_ev("attack_whiff", tick, attacker.id, {"tile": s["tile"], "dir": dir}))
 		return
-	if target.pos != s["tile"]:
+	if not attacker.attack_all_adjacent and target.pos != s["tile"]:
 		events.append(_ev("attack_whiff", tick, attacker.id, {"tile": s["tile"], "dir": dir}))
 		return
 	var rel := _flank(target, attacker.pos)

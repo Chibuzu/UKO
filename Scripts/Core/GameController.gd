@@ -46,6 +46,7 @@ static var pending_opponent: OpponentSource
 # return when the match ends, and the last result -- so the overworld can hand off a
 # mob duel and read the outcome back. Empty/"" -> normal (AI gear, return to menu).
 static var pending_b_gear: Array = []
+static var pending_b_mob: String = ""   # "bat"/"ooze": restricts B to the mob toolkit + attack profile
 static var pending_return_scene: String = ""
 static var last_match_won: bool = false
 
@@ -78,6 +79,8 @@ func _ready() -> void:
 	pending_config = null      # consume: a later single-player match must not inherit these
 	pending_opponent = null
 	var b_gear_override: Array = pending_b_gear
+	var b_mob := pending_b_mob
+	pending_b_mob = ""   # consume with the gear
 	pending_b_gear = []        # consume: a later match must not inherit a story mob's kit
 
 	var rng := RandomNumberGenerator.new()
@@ -109,6 +112,10 @@ func _ready() -> void:
 	else:
 		a.equip(PlayerProfile.loadout())   # offline: your shop gear vs the AI's (or a story mob's) kit
 		b.equip(AI_GEAR if b_gear_override.is_empty() else b_gear_override)
+	if b_mob == "bat":
+		b.attack_range = 2                # strikes from two tiles away
+	elif b_mob == "ooze":
+		b.attack_all_adjacent = true      # every attack hits ALL 4 adjacent tiles
 
 	ua = UnitView.new()
 	board.add_child(ua)
@@ -177,7 +184,7 @@ func _game_loop() -> void:
 	var opp_model := OpponentModel.new()   # learns the local player's habits
 	opp_model.load_disk()                  # ...and remembers them across matches
 	if opponent == null:
-		opponent = AIOpponent.new(difficulty, get_tree())   # offline default; a lobby swaps in NetworkOpponent
+		opponent = AIOpponent.new(difficulty, get_tree(), b_mob)   # offline default; a lobby swaps in NetworkOpponent
 	while true:
 		turn_num += 1
 		_shift_notes.clear()

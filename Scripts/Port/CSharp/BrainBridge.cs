@@ -25,6 +25,8 @@ public partial class BrainBridge : RefCounted
 
 	public void SetDepth(int d) => Eval.LOOKAHEAD_DEPTH = d;
 
+	public void SetBudget(int ms) => ExtremeAI.BudgetOverrideMs = ms;   // -1 = profile default
+
 	public void LoadCalibration()
 	{
 		var cf = new ConfigFile();

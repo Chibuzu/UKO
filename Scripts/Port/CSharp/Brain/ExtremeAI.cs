@@ -29,6 +29,7 @@ public static class ExtremeAI
 	};
 
 	public static Profile P = Profiles["extreme"];
+	public static int BudgetOverrideMs = -1;   // sweep dial: -1 = use the profile's budget
 	private static readonly Random Rng = new();
 
 	public static void SetProfile(string name)
@@ -64,7 +65,8 @@ public static class ExtremeAI
 			foeCands = new List<List<PlanAction>> { new() { new PlanAction("rest") } };
 		long t0 = Environment.TickCount64;
 		int budget = grid.ShrinkLevel >= 2 ? P.BudgetEndMs : P.BudgetMs;
-		if (budgetOverrideMs >= 0) budget = budgetOverrideMs;
+		if (BudgetOverrideMs >= 0) budget = BudgetOverrideMs;
+		if (budgetOverrideMs >= 0) budget = budgetOverrideMs;   // explicit param still wins
 		Eval.ClearCache();
 
 		// Shallow payoff matrix.

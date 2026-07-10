@@ -32,6 +32,10 @@ var reroute_tile: Vector2i = Vector2i.ZERO
 # non-Wait actions taken by either player, both regen energy.
 var action_count: int = 0
 
+# Mob attack profile (duelists keep the defaults). Set by GameController for story mobs.
+var attack_range: int = 1              # bat = 2: strikes from two tiles away
+var attack_all_adjacent: bool = false  # ooze = true: every attack hits ALL 4 adjacent tiles
+
 # Loadout: up to four gear slots (ids into GearBook). "" = empty/neutral block.
 # Spells are NOT stored on the fighter — they are derived from this gear, so
 # swapping a slot swaps the spell. Slots map 1:1 to the sprite's four blocks.
@@ -83,6 +87,8 @@ func clone() -> Combatant:
 	c.cooldowns = cooldowns.duplicate()
 	c.spent_once = spent_once.duplicate()
 	c.action_count = action_count
+	c.attack_range = attack_range
+	c.attack_all_adjacent = attack_all_adjacent
 	c.gear = gear.duplicate()
 	return c
 

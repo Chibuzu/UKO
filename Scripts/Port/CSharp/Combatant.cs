@@ -34,6 +34,10 @@ public sealed class Combatant
 	// This fighter's own real-action tally toward the energy pulse metronome.
 	public int ActionCount = 0;
 
+	// Mob attack profile (duelists keep defaults; parity fingerprints unaffected).
+	public int AttackRange = 1;
+	public bool AttackAllAdjacent = false;
+
 	// Loadout: four gear slots (ids into GearBook). "" = empty/neutral block. Spells are
 	// DERIVED from this (see SpellIds), not stored -- swapping a slot swaps the spell.
 	public List<string> Gear = new() { "", "", "", "" };
@@ -93,6 +97,8 @@ public sealed class Combatant
 			Cooldowns = new Dictionary<string, int>(Cooldowns),
 			SpentOnce = new Dictionary<string, bool>(SpentOnce),
 			ActionCount = ActionCount,
+			AttackRange = AttackRange,
+			AttackAllAdjacent = AttackAllAdjacent,
 			Gear = new List<string>(Gear),
 		};
 		// RerouteArmed / RerouteTile are transient and intentionally reset (not copied).
