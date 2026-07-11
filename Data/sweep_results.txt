@@ -1,0 +1,39 @@
+==== SWEEP start 2026-07-11T00:29:54 | 80 matches/phase, max 80 turns ====
+==== SWEEP start 2026-07-11T00:34:40 | 110 matches/phase, max 80 turns ====
+[d3_1400_vs_d2_700] 10/110  d3b1400 5 - 2 d2b700 (draws 3)  avg-margin +12.6
+[d3_1400_vs_d2_700] 20/110  d3b1400 9 - 6 d2b700 (draws 5)  avg-margin +2.5
+[d3_1400_vs_d2_700] 30/110  d3b1400 15 - 9 d2b700 (draws 6)  avg-margin +8.3
+[d3_1400_vs_d2_700] 40/110  d3b1400 18 - 12 d2b700 (draws 10)  avg-margin +7.3
+[d3_1400_vs_d2_700] 50/110  d3b1400 21 - 15 d2b700 (draws 14)  avg-margin +6.2
+[d3_1400_vs_d2_700] 60/110  d3b1400 21 - 19 d2b700 (draws 20)  avg-margin +2.0
+[d3_1400_vs_d2_700] 70/110  d3b1400 24 - 22 d2b700 (draws 24)  avg-margin +1.7
+[d3_1400_vs_d2_700] 80/110  d3b1400 28 - 26 d2b700 (draws 26)  avg-margin +1.6
+[d3_1400_vs_d2_700] 90/110  d3b1400 31 - 29 d2b700 (draws 30)  avg-margin +0.2
+[d3_1400_vs_d2_700] 100/110  d3b1400 33 - 33 d2b700 (draws 34)  avg-margin -2.2
+[d3_1400_vs_d2_700] 110/110  d3b1400 36 - 36 d2b700 (draws 38)  avg-margin -2.7
+[d3_1400_vs_d2_700] FINAL  d3b1400 36 - 36 d2b700 (draws 38)  winrate 50.0%  avg-margin -2.7
+[d4_2000_vs_d2_700] 10/110  d4b2000 4 - 4 d2b700 (draws 2)  avg-margin +4.9
+[d4_2000_vs_d2_700] 20/110  d4b2000 10 - 6 d2b700 (draws 4)  avg-margin +11.6
+[d4_2000_vs_d2_700] 30/110  d4b2000 13 - 7 d2b700 (draws 10)  avg-margin +11.0
+[d4_2000_vs_d2_700] 40/110  d4b2000 16 - 12 d2b700 (draws 12)  avg-margin +9.5
+[d4_2000_vs_d2_700] 50/110  d4b2000 19 - 15 d2b700 (draws 16)  avg-margin +10.8
+[d4_2000_vs_d2_700] 60/110  d4b2000 23 - 18 d2b700 (draws 19)  avg-margin +12.0
+[d4_2000_vs_d2_700] 70/110  d4b2000 27 - 20 d2b700 (draws 23)  avg-margin +12.0
+[d4_2000_vs_d2_700] 80/110  d4b2000 31 - 23 d2b700 (draws 26)  avg-margin +11.1
+[d4_2000_vs_d2_700] 90/110  d4b2000 33 - 28 d2b700 (draws 29)  avg-margin +9.7
+[d4_2000_vs_d2_700] 100/110  d4b2000 34 - 32 d2b700 (draws 34)  avg-margin +5.7
+[d4_2000_vs_d2_700] 110/110  d4b2000 38 - 34 d2b700 (draws 38)  avg-margin +8.1
+[d4_2000_vs_d2_700] FINAL  d4b2000 38 - 34 d2b700 (draws 38)  winrate 52.8%  avg-margin +8.1
+[d3_700_vs_d2_700] 10/110  d3b700 3 - 2 d2b700 (draws 5)  avg-margin -5.4
+[d3_700_vs_d2_700] 20/110  d3b700 7 - 7 d2b700 (draws 6)  avg-margin -8.7
+[d3_700_vs_d2_700] 30/110  d3b700 12 - 11 d2b700 (draws 7)  avg-margin -1.7
+[d3_700_vs_d2_700] 40/110  d3b700 16 - 14 d2b700 (draws 10)  avg-margin +1.1
+[d3_700_vs_d2_700] 50/110  d3b700 18 - 19 d2b700 (draws 13)  avg-margin -2.8
+[d3_700_vs_d2_700] 60/110  d3b700 23 - 21 d2b700 (draws 16)  avg-margin -1.0
+[d3_700_vs_d2_700] 70/110  d3b700 26 - 24 d2b700 (draws 20)  avg-margin -0.2
+[d3_700_vs_d2_700] 80/110  d3b700 30 - 27 d2b700 (draws 23)  avg-margin +0.2
+[d3_700_vs_d2_700] 90/110  d3b700 35 - 30 d2b700 (draws 25)  avg-margin +1.9
+[d3_700_vs_d2_700] 100/110  d3b700 39 - 32 d2b700 (draws 29)  avg-margin +3.6
+[d3_700_vs_d2_700] 110/110  d3b700 41 - 35 d2b700 (draws 34)  avg-margin +2.6
+[d3_700_vs_d2_700] FINAL  d3b700 41 - 35 d2b700 (draws 34)  winrate 53.9%  avg-margin +2.6
+==== SWEEP done 2026-07-11T08:08:21 ====
