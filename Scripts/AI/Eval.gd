@@ -25,6 +25,8 @@ static var W_DANGER_MELEE := 0.5    # penalty per pt of BLOCKABLE (melee) damage
 static var W_DANGER_SPELL := 0.6    # per pt of UNBLOCKABLE (spell) damage -- scarier; a guard can't help
 static var W_PRESSURE     := 0.45   # reward per pt of damage I can actually threaten on the foe from here
 static var W_ATTRITION    := 8.0    # foe can't even attack (energy < cost) while I can -> winning the war
+static var W_SURE_PRESS   := 0.35   # foe can't afford GUARD -> my blockable pressure is UNANSWERABLE
+static var W_REST_PATH    := 6.0    # wounded + standing where resting is SAFE = the eat-hit->disengage->rest doorway
 static var W_TEMPO  := 0.3          # carried speed boost (successful guard)
 static var W_MOBILITY := 1.5        # free escape tiles, mine minus the foe's (don't get cornered)
 static var W_PRESS  := 0.2          # when I'm HP-ahead, reward closing in to convert the lead
@@ -64,14 +66,15 @@ static func _static_init() -> void:
 
 const TUNABLE := ["W_DEAL", "W_TAKE", "W_ENERGY", "W_MP", "W_LOCK", "W_DANGER_MELEE",
 	"W_DANGER_SPELL", "W_PRESSURE", "W_ATTRITION", "W_TEMPO", "W_MOBILITY", "W_PRESS",
-	"W_INCOMING", "W_CENTER", "W_ITEM", "W_LETHAL", "DISCOUNT"]
+	"W_INCOMING", "W_CENTER", "W_ITEM", "W_LETHAL", "W_SURE_PRESS", "W_REST_PATH", "DISCOUNT"]
 
 static func get_weights() -> Dictionary:
 	return {"W_DEAL": W_DEAL, "W_TAKE": W_TAKE, "W_ENERGY": W_ENERGY, "W_MP": W_MP,
 		"W_LOCK": W_LOCK, "W_DANGER_MELEE": W_DANGER_MELEE, "W_DANGER_SPELL": W_DANGER_SPELL,
 		"W_PRESSURE": W_PRESSURE, "W_ATTRITION": W_ATTRITION, "W_TEMPO": W_TEMPO,
 		"W_MOBILITY": W_MOBILITY, "W_PRESS": W_PRESS, "W_INCOMING": W_INCOMING,
-		"W_CENTER": W_CENTER, "W_ITEM": W_ITEM, "W_LETHAL": W_LETHAL, "DISCOUNT": DISCOUNT}
+		"W_CENTER": W_CENTER, "W_ITEM": W_ITEM, "W_LETHAL": W_LETHAL,
+		"W_SURE_PRESS": W_SURE_PRESS, "W_REST_PATH": W_REST_PATH, "DISCOUNT": DISCOUNT}
 
 static func set_weights(w: Dictionary) -> void:
 	for k in w:
@@ -93,6 +96,8 @@ static func set_weights(w: Dictionary) -> void:
 			"W_CENTER": W_CENTER = v
 			"W_ITEM": W_ITEM = v
 			"W_LETHAL": W_LETHAL = v
+			"W_SURE_PRESS": W_SURE_PRESS = v
+			"W_REST_PATH": W_REST_PATH = v
 			"DISCOUNT": DISCOUNT = v
 
 # Per-decision transposition cache for solved subgame values. The same state is
@@ -235,12 +240,33 @@ static func _eval_situation(me: Combatant, foe: Combatant, grid: Grid) -> float:
 
 	# Attrition: a foe who can't even afford to attack while I still can is losing
 	# the resource war -- worth pressing, and worth trading some HP to reach.
+	# Foe cannot afford GUARD: my blockable melee threat is UNANSWERABLE -- price it
+	# as sure damage, not maybe-damage (understanding: guarding is impossible for them).
+	if foe.energy < Config.COST_GUARD and int(mine["blockable"]) > 0:
+		v += W_SURE_PRESS * int(mine["blockable"])
+	if me.energy < Config.COST_GUARD and int(danger["blockable"]) > 0:
+		v -= W_SURE_PRESS * int(danger["blockable"])
+
+	# The rest doorway (Fra): a wounded fighter who ENDS the turn where resting is
+	# SAFE has found the eat-hit -> disengage -> recover line. Value the doorway
+	# itself so those plans surface on merit, not by scripted randomness.
+	var my_deficit := (Config.MAX_HP - me.hp) + (Config.MAX_MP - me.mp)
+	if my_deficit >= 25 and me.rest_ready and ThreatModel.rest_safe(foe, me, grid):
+		v += W_REST_PATH * minf(1.0, float(my_deficit) / 60.0)
+	var foe_deficit := (Config.MAX_HP - foe.hp) + (Config.MAX_MP - foe.mp)
+	if foe_deficit >= 25 and foe.rest_ready and ThreatModel.rest_safe(me, foe, grid):
+		v -= W_REST_PATH * minf(1.0, float(foe_deficit) / 60.0)
+
 	var foe_starved := foe.energy < Config.COST_ATTACK
 	var me_starved := me.energy < Config.COST_ATTACK
 	if foe_starved and not me_starved:
-		v += W_ATTRITION
+		# LOCKOUT CLOCK: the further the foe is from their +30 pulse, the longer the
+		# lock lasts -- waiting them out (Fra's double-wait) is worth MORE then.
+		var foe_to_pulse := Config.ENERGY_PULSE_ACTIONS - (foe.action_count % Config.ENERGY_PULSE_ACTIONS)
+		v += W_ATTRITION * (0.6 + 0.4 * float(foe_to_pulse) / float(Config.ENERGY_PULSE_ACTIONS))
 	elif me_starved and not foe_starved:
-		v -= W_ATTRITION
+		var me_to_pulse := Config.ENERGY_PULSE_ACTIONS - (me.action_count % Config.ENERGY_PULSE_ACTIONS)
+		v -= W_ATTRITION * (0.6 + 0.4 * float(me_to_pulse) / float(Config.ENERGY_PULSE_ACTIONS))
 
 	# The arena clock. Ending the turn where the amber telegraph says a wall or the
 	# next zone ring lands is priced as real danger (crush + a forced move); and once

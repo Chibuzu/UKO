@@ -59,7 +59,7 @@ const SPELLS := {
 		"shape": "throw", "range": 3, "diag_range": 1,   # 3 tiles orthogonally, 1 tile diagonally
 		"projectile": true, "tick_per_tile": 180, "pierce": false,   # flies tile-by-tile; each tile a tick tax
 		# Disrupt, not damage: drains 20 energy and ROOTS the target (its next move is cancelled).
-		"effect": { "type": "disrupt", "energy_drain": 20, "status": "rooted" },
+		"effect": { "type": "disrupt", "energy_drain": 20, "status": "rooted", "amount": 1 },   # 1 dmg: interrupts a rest AND blocks next turn's (damaged_tick path)
 		"no_guard_combo": true,
 		"ai_role": "item",
 		"vfx": { "style": "projectile", "cast_anim": "bolt", "projectile": "bolt_proj" },

@@ -155,15 +155,13 @@ func _visualize(e: Dictionary) -> float:
 			return ViewConfig.FX_DUR
 		"spell_hit":
 			if e.get("disrupt", false):
-				# Disrupt lands 0 damage BY DESIGN (root + drain) -- show what it DID,
-				# not a "-0" that reads as a whiff.
+				# The grenade's full receipt: chip damage (rest-breaker), root, drain.
+				_impact(units.get(e["target"], null), int(e["damage"]), ViewConfig.FLASH_HIT, ViewConfig.SHAKE_SPELL)
 				var tgt0: UnitView = units.get(e["target"], null)
 				if tgt0:
-					tgt0.play_anim("hurt")
-					board.spawn_number(tgt0.position, "ROOTED", ViewConfig.COL_DMG)
+					board.spawn_number(tgt0.position + Vector2(0, -14), "ROOTED", ViewConfig.COL_DMG)
 					if int(e.get("drain", 0)) > 0:
 						board.spawn_number(tgt0.position + Vector2(0, 14), "-%d ENERGY" % int(e.get("drain", 0)), ViewConfig.COL_DMG)
-					board.shake(ViewConfig.SHAKE_SPELL)
 			else:
 				_impact(units.get(e["target"], null), int(e["damage"]), ViewConfig.FLASH_HIT, ViewConfig.SHAKE_SPELL)
 			if e.get("disrupt", false):                       # the grenade landed -> explode where it FELL

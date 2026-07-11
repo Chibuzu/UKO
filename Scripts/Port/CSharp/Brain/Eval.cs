@@ -23,6 +23,8 @@ public static class Eval
 	public static double W_DANGER_SPELL = 0.6;
 	public static double W_PRESSURE = 0.45;
 	public static double W_ATTRITION = 8.0;
+	public static double W_SURE_PRESS = 0.35;
+	public static double W_REST_PATH = 6.0;
 	public static double W_TEMPO = 0.3;
 	public static double W_MOBILITY = 1.5;
 	public static double W_PRESS = 0.2;
@@ -50,7 +52,8 @@ public static class Eval
 		["W_LOCK"] = W_LOCK, ["W_DANGER_MELEE"] = W_DANGER_MELEE, ["W_DANGER_SPELL"] = W_DANGER_SPELL,
 		["W_PRESSURE"] = W_PRESSURE, ["W_ATTRITION"] = W_ATTRITION, ["W_TEMPO"] = W_TEMPO,
 		["W_MOBILITY"] = W_MOBILITY, ["W_PRESS"] = W_PRESS, ["W_INCOMING"] = W_INCOMING,
-		["W_CENTER"] = W_CENTER, ["W_ITEM"] = W_ITEM, ["W_LETHAL"] = W_LETHAL, ["DISCOUNT"] = DISCOUNT,
+		["W_CENTER"] = W_CENTER, ["W_ITEM"] = W_ITEM, ["W_LETHAL"] = W_LETHAL,
+		["W_SURE_PRESS"] = W_SURE_PRESS, ["W_REST_PATH"] = W_REST_PATH, ["DISCOUNT"] = DISCOUNT,
 	};
 
 	public static void SetWeights(Dictionary<string, double> w)
@@ -76,6 +79,8 @@ public static class Eval
 				case "W_CENTER": W_CENTER = v; break;
 				case "W_ITEM": W_ITEM = v; break;
 				case "W_LETHAL": W_LETHAL = v; break;
+				case "W_SURE_PRESS": W_SURE_PRESS = v; break;
+				case "W_REST_PATH": W_REST_PATH = v; break;
 				case "DISCOUNT": DISCOUNT = v; break;
 			}
 		}
@@ -195,10 +200,33 @@ public static class Eval
 		v -= ((W_DANGER_MELEE * danger.Blockable + W_DANGER_SPELL * danger.Unblockable) * lethalMult) * fear;
 		v += W_PRESSURE * (mine.Blockable + mine.Unblockable);
 
+		// Foe cannot afford GUARD: my blockable melee threat is UNANSWERABLE.
+		if (foe.Energy < Config.COST_GUARD && mine.Blockable > 0)
+			v += W_SURE_PRESS * mine.Blockable;
+		if (me.Energy < Config.COST_GUARD && danger.Blockable > 0)
+			v -= W_SURE_PRESS * danger.Blockable;
+
+		// The rest doorway (Fra): wounded + ending the turn where resting is SAFE.
+		double myDeficit = (Config.MAX_HP - me.Hp) + (Config.MAX_MP - me.Mp);
+		if (myDeficit >= 25 && me.RestReady && ThreatModel.RestSafe(foe, me, grid))
+			v += W_REST_PATH * Math.Min(1.0, myDeficit / 60.0);
+		double foeDeficit = (Config.MAX_HP - foe.Hp) + (Config.MAX_MP - foe.Mp);
+		if (foeDeficit >= 25 && foe.RestReady && ThreatModel.RestSafe(me, foe, grid))
+			v -= W_REST_PATH * Math.Min(1.0, foeDeficit / 60.0);
+
 		bool foeStarved = foe.Energy < Config.COST_ATTACK;
 		bool meStarved = me.Energy < Config.COST_ATTACK;
-		if (foeStarved && !meStarved) v += W_ATTRITION;
-		else if (meStarved && !foeStarved) v -= W_ATTRITION;
+		if (foeStarved && !meStarved)
+		{
+			// LOCKOUT CLOCK: further from their +30 pulse = longer lock = worth more.
+			int foeToPulse = Config.ENERGY_PULSE_ACTIONS - (foe.ActionCount % Config.ENERGY_PULSE_ACTIONS);
+			v += W_ATTRITION * (0.6 + 0.4 * (double)foeToPulse / Config.ENERGY_PULSE_ACTIONS);
+		}
+		else if (meStarved && !foeStarved)
+		{
+			int meToPulse = Config.ENERGY_PULSE_ACTIONS - (me.ActionCount % Config.ENERGY_PULSE_ACTIONS);
+			v -= W_ATTRITION * (0.6 + 0.4 * (double)meToPulse / Config.ENERGY_PULSE_ACTIONS);
+		}
 
 		var iw = IncomingSet(grid);
 		if (iw.Contains(me.Pos)) v -= W_INCOMING;

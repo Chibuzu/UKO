@@ -37,6 +37,8 @@ static func _get_bridge():
 	_bridge.SetProfile("extreme")
 	_bridge.LoadCalibration()   # sets the C# Eval.CAL_A from user://calibration.cfg
 	_bridge.LoadModel()         # warm-start from what past matches learned (same cfg the GD model writes)
+	_bridge.SetDepth(3)         # sweep-validated (2 nights, ~54% + positive margins at EQUAL time):
+								# depth 3 @ the same 700ms budget -- free strength, zero added latency
 	return _bridge
 
 # GameController forwards each observed local-player move here so the C# brain's

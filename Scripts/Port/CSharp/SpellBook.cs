@@ -51,7 +51,7 @@ public static class SpellBook
 			OncePerMatch = true,
 			NeedsTile = true, Shape = "throw", Range = 3, DiagRange = 1,
 			Projectile = true, TickPerTile = 180, Pierce = false,
-			Effect = new Effect { Type = "disrupt", EnergyDrain = 20, Status = "rooted" },
+			Effect = new Effect { Type = "disrupt", EnergyDrain = 20, Status = "rooted", Amount = 1 },
 			NoGuardCombo = true,
 		},
 		["blink_step"] = new ActionDef

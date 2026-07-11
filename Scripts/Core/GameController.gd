@@ -217,7 +217,7 @@ func _game_loop() -> void:
 		var obs_sit := OpponentModel.situation_of(a if _local_is_a() else b, b if _local_is_a() else a, grid)
 		opp_model.observe(local_plan, obs_sit)   # learn the move IN ITS SITUATION
 		AI.forward_observation(local_plan, obs_sit)   # keep the C# brain's model in sync (no-op when disabled)
-		replay.record(turn_num, pre_a, pre_b, out["a"], out["b"], out["events"], grid.snapshot(), _shift_notes.duplicate(true))
+		replay.record(turn_num, pre_a, pre_b, out["a"], out["b"], out["events"], grid.snapshot(), _shift_notes.duplicate(true), seq_a, seq_b)
 		await play.play(out["events"], out["a"], out["b"])
 		a = out["a"]
 		b = out["b"]

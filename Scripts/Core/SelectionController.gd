@@ -236,7 +236,7 @@ func _key_spell(id: String) -> void:
 	if not (id in a.spell_ids()):
 		return
 	if Config.def(id).get("once_per_match", false) and plan_c.spent_once.has(id):
-		return false   # a spent grenade is not castable -- the resolver would noop it
+		return   # a spent grenade is not castable -- the resolver would noop it
 	if int(plan_c.cooldowns.get(id, 0)) > 0:
 		return
 	if not Config.can_afford(plan_c.energy, plan_c.mp, plan_c.statuses, id):

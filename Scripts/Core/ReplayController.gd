@@ -48,8 +48,8 @@ func _refresh_huds(ca: Combatant, cb: Combatant) -> void:
 # Log a resolved turn for later playback.
 func record(turn: int, pre_a: Combatant, pre_b: Combatant,
 		post_a: Combatant, post_b: Combatant, events: Array,
-		layout: Array = [], notes: Array = []) -> void:
-	match_record.add(turn, pre_a, pre_b, post_a, post_b, events, layout, notes)
+		layout: Array = [], notes: Array = [], seq_a: Array = [], seq_b: Array = []) -> void:
+	match_record.add(turn, pre_a, pre_b, post_a, post_b, events, layout, notes, seq_a, seq_b)
 
 # Restore the wall layout recorded for a turn (and clear the live telegraph), so a
 # replayed turn shows its own arena, not the match's final layout.
@@ -79,18 +79,24 @@ func _enter_replay() -> void:
 	replay_bar = ReplayBar.new()
 	add_child(replay_bar)
 	replay_bar.replay_action.connect(_on_replay_action)
-	_replay_show(0)
+	match_record.write_dump("(replayed)")   # analyst dump: whole match -> user://last_match.txt
+	_replay_goto(0)                          # first turn ANIMATES immediately (no Play press)
 
 func _on_replay_action(which: String) -> void:
 	match which:
 		"prev":
-			_replay_show(replay_idx - 1)
+			await _replay_goto(replay_idx - 1)
 		"next":
-			_replay_show(replay_idx + 1)
+			await _replay_goto(replay_idx + 1)
 		"play":
-			await _replay_play_current()
+			await _replay_play_current()   # re-watch the same turn
 		"exit":
 			_exit_replay()
+
+# Navigate AND animate: stepping to a turn plays it immediately (Fra: no extra press).
+func _replay_goto(idx: int) -> void:
+	_replay_show(idx)
+	await _replay_play_current()
 
 # Arrow keys step between turns while the replay is open (LEFT = prev, RIGHT = next).
 # Ignored while a turn is animating (the bar is disabled) so a keypress can't desync.
@@ -100,10 +106,10 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_LEFT:
 			get_viewport().set_input_as_handled()
-			_replay_show(replay_idx - 1)
+			await _replay_goto(replay_idx - 1)
 		elif event.keycode == KEY_RIGHT:
 			get_viewport().set_input_as_handled()
-			_replay_show(replay_idx + 1)
+			await _replay_goto(replay_idx + 1)
 
 # Jump to a turn: snap the board to its END state and show the log through it.
 func _replay_show(idx: int) -> void:

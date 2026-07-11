@@ -759,7 +759,7 @@ public static class Resolver
 		{
 			var eff = Config.Def(s.Id).Effect;
 			if (eff != null && eff.Type == "disrupt")
-				ApplyDisrupt(eff, s, actor, target, tick, events);
+				ApplyDisrupt(eff, s, actor, target, tick, events, damagedTick, deadTick);
 			else
 			{
 				int dmg = s.Damage;
@@ -770,13 +770,16 @@ public static class Resolver
 		}
 	}
 
-	private static void ApplyDisrupt(Effect eff, SchedEntry s, Combatant actor, Combatant target, int tick, List<Event> events)
+	private static void ApplyDisrupt(Effect eff, SchedEntry s, Combatant actor, Combatant target, int tick, List<Event> events,
+			Dictionary<string, int> damagedTick, Dictionary<string, int> deadTick)
 	{
 		string st = eff.Status ?? "";
 		if (st != "")
 			target.Statuses[st] = Config.StatusDef(st)?.Duration ?? 1;
 		int drain = eff.EnergyDrain ?? 0;
 		if (drain > 0) target.Energy = Math.Max(0, target.Energy - drain);
+		int dmg = eff.Amount ?? 0;
+		if (dmg > 0) ApplyDamage(target, dmg, tick, damagedTick, deadTick);   // rides the normal path: rest interrupt + block
 		events.Add(Ev("spell_hit", tick, actor.Id));
 	}
 

@@ -700,7 +700,7 @@ static func _projectile_step(s: Dictionary, actor: Combatant, target: Combatant,
 	if target.pos == tile and dead_tick[target.id] == -1:
 		var eff: Dictionary = Config.def(s["id"]).get("effect", {})
 		if String(eff.get("type", "")) == "disrupt":
-			_apply_disrupt(eff, s, actor, target, tick, events)
+			_apply_disrupt(eff, s, actor, target, tick, events, damaged_tick, dead_tick)
 		else:
 			var dmg := int(s["damage"])
 			_apply_damage(target, dmg, tick, damaged_tick, dead_tick)
@@ -710,14 +710,20 @@ static func _projectile_step(s: Dictionary, actor: Combatant, target: Combatant,
 
 # THE one place the grenade's landing rules live (root + drain + event) -- any
 # future disrupt-style effect is edited here, never inlined at a hit site again.
-static func _apply_disrupt(eff: Dictionary, s: Dictionary, actor: Combatant, target: Combatant, tick: int, events: Array) -> void:
+static func _apply_disrupt(eff: Dictionary, s: Dictionary, actor: Combatant, target: Combatant, tick: int, events: Array,
+		damaged_tick: Dictionary, dead_tick: Dictionary) -> void:
 	var st: String = String(eff.get("status", ""))
 	if st != "":
 		target.statuses[st] = int(Config.status_def(st).get("duration", 1))
 	var drain := int(eff.get("energy_drain", 0))
 	if drain > 0:
 		target.energy = maxi(0, target.energy - drain)
-	events.append(_ev("spell_hit", tick, actor.id, {"target": target.id, "damage": 0, "spell": s["id"], "disrupt": true, "drain": drain}))
+	# The chip damage rides the NORMAL damage path, so it interrupts an in-progress
+	# rest and blocks next turn's rest exactly like any other hit (Fra's spec).
+	var dmg := int(eff.get("amount", 0))
+	if dmg > 0:
+		_apply_damage(target, dmg, tick, damaged_tick, dead_tick)
+	events.append(_ev("spell_hit", tick, actor.id, {"target": target.id, "damage": dmg, "spell": s["id"], "disrupt": true, "drain": drain}))
 
 static func _flank(defender: Combatant, attacker_pos: Vector2i) -> String:
 	# THE flank rule lives once in Config; this is just the resolver-side adapter.
