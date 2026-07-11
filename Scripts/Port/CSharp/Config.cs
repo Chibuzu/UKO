@@ -96,7 +96,36 @@ public static class Config
 	{ ["front"] = 1.0, ["side"] = 0.5, ["back"] = 0.0 };
 	public static readonly Dictionary<string, int> GUARD_REFUND_TIER = new()
 	{ ["front"] = GUARD_REFUND, ["side"] = 10, ["back"] = 0 };
-	public const int BACK_MOVE_TAX = 0;
+	public const int BACK_MOVE_TAX = 0;   // RETIRED (subsumed by DirTax)
+
+	// ── THE TICK BUNDLE (mirrors Config.gd exactly) ─────────────────────────
+	public const int TAX_SECOND_DIFFERENT = 80;
+	public const int CLASH_PUSH_DAMAGE = 10;
+	public const int CLASH_BOUNCE_COST = 10;
+	private static readonly Dictionary<string, int> DIR_TAX_MOVE =
+		new() { ["front"] = 0, ["side"] = 50, ["back"] = 100 };
+	private static readonly Dictionary<string, int> DIR_TAX_AIMED =
+		new() { ["front"] = 0, ["side"] = 190, ["back"] = 290 };
+
+	public static string RelOf(int facing, Vec2I from, Vec2I to)
+	{
+		Vec2I d = to - from;
+		if (d == new Vec2I(0, 0) || (d.X != 0 && d.Y != 0)) return "front";
+		Vec2I dir = new(System.Math.Sign(d.X), System.Math.Sign(d.Y));
+		Vec2I f = FACING_VEC[facing];
+		if (dir == f) return "front";
+		if (dir == new Vec2I(-f.X, -f.Y)) return "back";
+		return "side";
+	}
+
+	public static int DirTax(string id, string category, int facing, Vec2I from, Vec2I to)
+	{
+		string rel = RelOf(facing, from, to);
+		if (category == "move") return DIR_TAX_MOVE[rel];
+		var d = Def(id);
+		bool aimed = category == "attack" || d.NeedsTile || IsBlink(id);
+		return aimed ? DIR_TAX_AIMED[rel] : 0;
+	}
 
 	// ── Facing & flanking ────────────────────────────────────────────────────
 	public enum Facing { NORTH, EAST, SOUTH, WEST }

@@ -85,4 +85,7 @@ const STATUSES := {
 	# and still blocks the FIRST move next turn if the grenade landed too late this turn. It is
 	# consumed the instant it blocks a move (erased in the resolver), so it never lingers.
 	"rooted": { "duration": 2, "blocks_move": true },
+	# STAGGERED (clash feint): the victim's NEXT TURN is capped to ONE action.
+	# Consumed at PLAN time (erased when it bites), so it can never linger.
+	"staggered": { "duration": 2, "action_limit": 1 },
 }

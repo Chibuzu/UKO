@@ -108,7 +108,8 @@ public partial class ResolverBridge : RefCounted
 			}
 			if (d.ContainsKey("facing"))
 				facing = d["facing"].AsInt32();
-			outp.Add(new PlanAction(id, tile, facing));
+			string stance = d.ContainsKey("stance") ? d["stance"].AsString() : "push";
+			outp.Add(new PlanAction(id, tile, facing, stance));
 		}
 		return outp;
 	}

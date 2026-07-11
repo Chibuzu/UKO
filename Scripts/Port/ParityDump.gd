@@ -396,6 +396,46 @@ func _fixtures() -> Array:
 		"b": _c("B", Vector2i(4, 4), Config.Facing.WEST, 100, 100, 100),
 		"sa": [{"id": "attack", "tile": Vector2i(4, 4)}], "sb": [{"id": "attack", "tile": Vector2i(3, 4)}], "turn": 4,
 	})
+	# ── TICK BUNDLE fixtures (Fra-ratified physics) ──
+	# Dodge by arithmetic: A faces NORTH, aims EAST (side, 350+190=540); foe runs
+	# forward (520) -> gone before the swing lands -> whiff, no damage.
+	out.append({
+		"grid": _open_grid(),
+		"a": _c("A", Vector2i(3, 4), Config.Facing.NORTH, 100, 100, 100),
+		"b": _c("B", Vector2i(4, 4), Config.Facing.EAST, 100, 100, 100),
+		"sa": [{"id": "attack", "tile": Vector2i(4, 4)}], "sb": [{"id": "move", "tile": Vector2i(5, 4)}], "turn": 3,
+	})
+	# Clash: PUSH beats PULL -> pusher takes the tile, puller chipped 10 + yanked.
+	out.append({
+		"grid": _open_grid(),
+		"a": _c("A", Vector2i(3, 4), Config.Facing.EAST, 100, 100, 100),
+		"b": _c("B", Vector2i(5, 4), Config.Facing.WEST, 100, 100, 100),
+		"sa": [{"id": "move", "tile": Vector2i(4, 4), "stance": "push"}],
+		"sb": [{"id": "move", "tile": Vector2i(4, 4), "stance": "pull"}], "turn": 3,
+	})
+	# Clash: FEINT beats PUSH -> pusher takes the tile but is STAGGERED.
+	out.append({
+		"grid": _open_grid(),
+		"a": _c("A", Vector2i(3, 4), Config.Facing.EAST, 100, 100, 100),
+		"b": _c("B", Vector2i(5, 4), Config.Facing.WEST, 100, 100, 100),
+		"sa": [{"id": "move", "tile": Vector2i(4, 4), "stance": "push"}],
+		"sb": [{"id": "move", "tile": Vector2i(4, 4), "stance": "feint"}], "turn": 3,
+	})
+	# Clash: same stance -> both bounce, both pay the shoulder-check 10.
+	out.append({
+		"grid": _open_grid(),
+		"a": _c("A", Vector2i(3, 4), Config.Facing.EAST, 100, 100, 100),
+		"b": _c("B", Vector2i(5, 4), Config.Facing.WEST, 100, 100, 100),
+		"sa": [{"id": "move", "tile": Vector2i(4, 4)}], "sb": [{"id": "move", "tile": Vector2i(4, 4)}], "turn": 3,
+	})
+	# Staggered carried in: a 2-action plan is capped to ONE (status consumed).
+	out.append({
+		"grid": _open_grid(),
+		"a": _c("A", Vector2i(3, 4), Config.Facing.EAST, 100, 100, 100, {"statuses": {"staggered": 2}}),
+		"b": _c("B", Vector2i(6, 6), Config.Facing.WEST, 100, 100, 100),
+		"sa": [{"id": "move", "tile": Vector2i(4, 4)}, {"id": "move", "tile": Vector2i(5, 4)}],
+		"sb": [{"id": "wait"}], "turn": 3,
+	})
 	# Energy-discount status active -> a move costs less (reduction applies).
 	out.append({
 		"grid": _open_grid(),

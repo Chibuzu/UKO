@@ -65,7 +65,14 @@ static func resolve(grid: Grid, in_a: Combatant, in_b: Combatant,
 				guarding[s["owner"]] = false
 				events.append(_ev("guard_dropped", tick, s["owner"]))
 
+		# ── TRUE SIMULTANEITY (Fra-ratified): a tick group resolves in two phases.
+		# PHASE 1 (state): pivots, moves (incl. clash RPS), blink arrivals, rest/wait.
+		# PHASE 2 (violence): attacks, casts, projectile steps -- ALL reading the
+		# post-phase-1 board. One sentence: everyone is where they END UP at T, and
+		# every effect at T judges that board. (Replaces band-priority tie order.)
 		for s in group:
+			if s["category"] in ["attack", "spell", "projectile"]:
+				continue   # phase 2
 			var actor: Combatant = a if s["owner"] == "A" else b
 			var target: Combatant = b if s["owner"] == "A" else a
 			if dead_tick[actor.id] != -1 and dead_tick[actor.id] < tick:
@@ -88,21 +95,11 @@ static func resolve(grid: Grid, in_a: Combatant, in_b: Combatant,
 					if not bool(s.get("_resolved", false)):
 						var a_was: Vector2i = actor.pos
 						var t_was: Vector2i = target.pos
-						_do_move(s, actor, target, group, grid, dead_tick, tick, events)
+						_do_move(s, actor, target, group, grid, damaged_tick, dead_tick, tick, events)
 						if actor.pos != a_was:
 							_move_into_projectile(actor, sched, tick, proj_consumed, damaged_tick, dead_tick, events)
 						if target.pos != t_was:
 							_move_into_projectile(target, sched, tick, proj_consumed, damaged_tick, dead_tick, events)
-				"attack":
-					_attack(actor, target, s, tick, guarding, guard_blocked, damaged_tick, dead_tick, events)
-				"spell":
-					_cast_spell(grid, actor, target, s, tick, damaged_tick, dead_tick, fresh, events)
-					if Config.is_projectile(s["id"]):
-						_launch_projectile(grid, s, actor, sched, i, events)
-					elif Config.is_blink(s["id"]):
-						_launch_blink(grid, s, actor, target, sched, i, tick, events)
-				"projectile":
-					_projectile_step(s, actor, target, tick, proj_consumed, grid, damaged_tick, dead_tick, events)
 				"blink_arrive":
 					actor.pos = _blink_settle(grid, target, s["origin"], s["dest"])   # avoid landing on the foe
 					actor.facing = int(s["facing"])
@@ -123,6 +120,29 @@ static func resolve(grid: Grid, in_a: Combatant, in_b: Combatant,
 			# root can never linger past that one action to block some later move.
 			if actor.statuses.has("rooted"):
 				actor.statuses.erase("rooted")
+
+		# ── PHASE 2: violence, judging the settled board ──
+		for s in group:
+			if not (s["category"] in ["attack", "spell", "projectile"]):
+				continue
+			var actor2: Combatant = a if s["owner"] == "A" else b
+			var target2: Combatant = b if s["owner"] == "A" else a
+			if dead_tick[actor2.id] != -1 and dead_tick[actor2.id] < tick:
+				events.append(_ev("dead_skip", tick, actor2.id))
+				continue
+			match s["category"]:
+				"attack":
+					_attack(actor2, target2, s, tick, guarding, guard_blocked, damaged_tick, dead_tick, events)
+				"spell":
+					_cast_spell(grid, actor2, target2, s, tick, damaged_tick, dead_tick, fresh, events)
+					if Config.is_projectile(s["id"]):
+						_launch_projectile(grid, s, actor2, sched, i, events)
+					elif Config.is_blink(s["id"]):
+						_launch_blink(grid, s, actor2, target2, sched, i, tick, events)
+				"projectile":
+					_projectile_step(s, actor2, target2, tick, proj_consumed, grid, damaged_tick, dead_tick, events)
+			if actor2.statuses.has("rooted"):
+				actor2.statuses.erase("rooted")
 
 	# Guard outcome. Use the LATCH, not the live shield (an offensive action may
 	# have dropped it): you still earn the refund if you blocked before striking.
@@ -250,6 +270,12 @@ static func _tally_one(c: Combatant, acts: Array, id: String, events: Array) -> 
 # Paying happens per action in order, so action 2's affordability sees the
 # energy/mp already spent by action 1.
 static func _plan(c: Combatant, seq: Array, events: Array) -> Dictionary:
+	# STAGGERED (lost a clash feint): this turn is capped to ONE action. Consumed now.
+	if c.statuses.has("staggered"):
+		c.statuses.erase("staggered")
+		if seq.size() > 1:
+			events.append(_ev("illegal_action", -1, c.id, {"reason": "staggered", "id": String(seq[1].get("id", ""))}))
+			seq = seq.slice(0, 1)
 	var entries: Array = []
 	var acts: Array = []
 	var cum := 0
@@ -293,6 +319,10 @@ static func _plan(c: Combatant, seq: Array, events: Array) -> Dictionary:
 		var boost: bool = c.speed_boost and slot == 0
 		var entry := _schedule(c, act, slot, vpos, vfacing, boost)
 		entry["energy_cost"] = paid   # for refund if this move fizzles at resolution
+		# VERSATILITY TAX (Fra): a second action of a DIFFERENT id costs +80 ticks.
+		# Committed doubles (move+move, attack+attack) stay untaxed.
+		if slot == 1 and entries.size() > 0 and String(entries[0]["id"]) != aid and aid != "_noop":
+			entry["tick"] = int(entry["tick"]) + Config.TAX_SECOND_DIFFERENT
 		cum += int(entry["tick"])     # this action's own duration
 		entry["tick"] = cum           # strike time = cumulative (= a blink's DEPART tick)
 		if Config.is_blink(aid):
@@ -326,9 +356,11 @@ static func _plan(c: Combatant, seq: Array, events: Array) -> Dictionary:
 static func _schedule(c: Combatant, action: Dictionary, slot: int, vpos: Vector2i, vfacing: int, boost: bool = false) -> Dictionary:
 	var d := Config.def(action["id"])
 	var within: int = int(d["base_tick"])
-	if d["category"] == "move" and action.has("tile"):
-		if action["tile"] == vpos - Vector2i(Config.FACING_VEC[vfacing]):
-			within += Config.BACK_MOVE_TAX
+	# Universal directional tax (Fra): aimed off-facing = slower. Added after
+	# final_tick below -- pure time on the shared clock, not band position.
+	var dtax := 0
+	if action.has("tile"):
+		dtax = Config.dir_tax(action["id"], d["category"], vfacing, vpos, action["tile"])
 	if boost:
 		within = 0   # carried guard initiative (slot 0) or a WAIT earlier this turn: front of band
 	var facing := vfacing
@@ -338,10 +370,11 @@ static func _schedule(c: Combatant, action: Dictionary, slot: int, vpos: Vector2
 		"owner": c.id,
 		"id": action["id"],
 		"category": d["category"],
-		"tick": Config.final_tick(d["band"], within),   # own duration; _plan makes it cumulative
+		"tick": Config.final_tick(d["band"], within) + dtax,   # own duration (+dir tax); _plan makes it cumulative
 		"band_priority": int(Config.BAND_PRIORITY[d["band"]]),
 		"tile": action.get("tile", c.pos),
 		"facing": facing,
+		"stance": String(action.get("stance", "push")),   # clash rider on forward moves (default push)
 	}
 
 # ── Basic combat ────────────────────────────────────────────────────────
@@ -361,7 +394,7 @@ static func _can_move(grid: Grid, actor: Combatant, other: Combatant, tile: Vect
 # move fizzles and its energy is refunded. (It still counts toward the shared
 # pulse, which is tallied from the planned actions, not from success.)
 static func _do_move(s: Dictionary, actor: Combatant, target: Combatant,
-		group: Array, grid: Grid, dead_tick: Dictionary, tick: int, events: Array) -> void:
+		group: Array, grid: Grid, damaged_tick: Dictionary, dead_tick: Dictionary, tick: int, events: Array) -> void:
 	# ROOTED (grenade): this move is cancelled and the root is spent. Covers "grenade lands before
 	# your move this turn -> cancelled" and "a root carried from last turn blocks your first move".
 	if actor.statuses.has("rooted"):
@@ -387,12 +420,68 @@ static func _do_move(s: Dictionary, actor: Combatant, target: Combatant,
 		events.append(_ev("move", tick, actor.id, {"to": actor.pos, "swap": true}))
 		events.append(_ev("move", tick, target.id, {"to": target.pos, "swap": true}))
 		return
+	# ── CONTESTED TILE (Fra's RPS): both step onto the SAME empty tile at the SAME
+	# tick. If BOTH steps are FORWARD-relative, the pre-declared stances clash:
+	#   PUSH  beats PULL   (the shove breaks the grab)      -> tile + 10 raw damage
+	#   PULL  beats FEINT  (the grab catches the half-step) -> tile + forced swap + face me
+	#   FEINT beats PUSH   (the charge whiffs)              -> concede tile, foe STAGGERED
+	# Same stance -> both bounce, -10 energy each. Non-forward collisions just bounce.
+	if foe_unresolved and Vector2i(foe_move["tile"]) == T and target.pos != T and actor.pos != T:
+		var fwd_a := Config.rel_of(int(s["facing"]), actor.pos, T) == "front"
+		var fwd_b := Config.rel_of(int(foe_move["facing"]), target.pos, T) == "front"
+		s["_resolved"] = true
+		foe_move["_resolved"] = true
+		if not (fwd_a and fwd_b):
+			actor.energy = mini(Config.MAX_ENERGY, actor.energy + int(s.get("energy_cost", 0)))
+			target.energy = mini(Config.MAX_ENERGY, target.energy + int(foe_move.get("energy_cost", 0)))
+			events.append(_ev("move_blocked", tick, actor.id, {"reason": "contested"}))
+			events.append(_ev("move_blocked", tick, target.id, {"reason": "contested"}))
+			return
+		var sa := String(s.get("stance", "push"))
+		var sb := String(foe_move.get("stance", "push"))
+		if sa == sb:
+			actor.energy = maxi(0, actor.energy - Config.CLASH_BOUNCE_COST)
+			target.energy = maxi(0, target.energy - Config.CLASH_BOUNCE_COST)
+			events.append(_ev("clash", tick, actor.id, {"stance": sa, "result": "bounce"}))
+			events.append(_ev("clash", tick, target.id, {"stance": sb, "result": "bounce"}))
+			return
+		var beats := {"push": "pull", "pull": "feint", "feint": "push"}
+		var a_wins: bool = beats[sa] == sb
+		var w: Combatant = actor if a_wins else target
+		var l: Combatant = target if a_wins else actor
+		var ws: String = sa if a_wins else sb
+		var w_origin := w.pos
+		match ws:
+			"push":
+				w.pos = T
+				_apply_damage(l, Config.CLASH_PUSH_DAMAGE, tick, damaged_tick, dead_tick)
+				events.append(_ev("move", tick, w.id, {"to": T}))
+				events.append(_ev("clash", tick, w.id, {"stance": ws, "result": "win", "damage": Config.CLASH_PUSH_DAMAGE}))
+			"pull":
+				w.pos = T
+				l.pos = w_origin                              # yanked into the winner's wake
+				l.facing = _face_toward(l.pos, w.pos)         # forced to face the grabber
+				events.append(_ev("move", tick, w.id, {"to": T}))
+				events.append(_ev("move", tick, l.id, {"to": l.pos, "pulled": true}))
+				events.append(_ev("clash", tick, w.id, {"stance": ws, "result": "win"}))
+			"feint":
+				l.pos = T                                     # the feinter CONCEDES the tile...
+				l.statuses["staggered"] = int(Config.status_def("staggered").get("duration", 1))
+				events.append(_ev("move", tick, l.id, {"to": T}))
+				events.append(_ev("clash", tick, w.id, {"stance": ws, "result": "win", "staggered": l.id}))
+		return
 	# Foe sits on the destination and is moving elsewhere this tick: the one being
 	# moved into resolves first, then we take the vacated tile.
 	if target.pos == T and foe_unresolved and _alive_at(target, dead_tick, tick):
 		_simple_move(foe_move, target, actor, grid, tick, events)
 		foe_move["_resolved"] = true
 	_simple_move(s, actor, target, grid, tick, events)
+
+static func _face_toward(from: Vector2i, to: Vector2i) -> int:
+	var d := to - from
+	if absi(d.x) >= absi(d.y):
+		return Config.Facing.EAST if d.x >= 0 else Config.Facing.WEST
+	return Config.Facing.SOUTH if d.y >= 0 else Config.Facing.NORTH
 
 static func _move_in_group(group: Array, owner_id: String):
 	for e in group:

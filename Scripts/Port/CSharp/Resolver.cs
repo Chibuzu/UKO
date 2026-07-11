@@ -24,7 +24,8 @@ public sealed class PlanAction
 	public string Id;
 	public Vec2I? Tile;
 	public int? Facing;
-	public PlanAction(string id, Vec2I? tile = null, int? facing = null) { Id = id; Tile = tile; Facing = facing; }
+	public string Stance = "push";   // clash rider on forward moves
+	public PlanAction(string id, Vec2I? tile = null, int? facing = null, string stance = "push") { Id = id; Tile = tile; Facing = facing; Stance = stance; }
 	public bool HasTile => Tile.HasValue;
 	public bool HasFacing => Facing.HasValue;
 }
@@ -40,6 +41,7 @@ public sealed class SchedEntry
 	public Vec2I Tile;
 	public int Facing;
 	public bool Resolved;        // _resolved
+	public string Stance = "push";
 	public int EnergyCost;       // for move-fizzle refund
 	// projectile / blink injected fields:
 	public Vec2I Dest, Origin, From;
@@ -134,8 +136,12 @@ public static class Resolver
 					events.Add(Ev("guard_dropped", tick, s.Owner));
 				}
 
+			// TRUE SIMULTANEITY: phase 1 = state (pivots/moves/arrivals/rest/wait),
+			// phase 2 = violence, ALL judging the post-phase-1 board.
 			foreach (var s in group)
 			{
+				if (s.Category == "attack" || s.Category == "spell" || s.Category == "projectile")
+					continue;   // phase 2
 				Combatant actor = s.Owner == "A" ? a : b;
 				Combatant target = s.Owner == "A" ? b : a;
 				if (deadTick[actor.Id] != -1 && deadTick[actor.Id] < tick)
@@ -164,25 +170,12 @@ public static class Resolver
 						{
 							Vec2I aWas = actor.Pos;
 							Vec2I tWas = target.Pos;
-							DoMove(s, actor, target, group, grid, deadTick, tick, events);
+							DoMove(s, actor, target, group, grid, damagedTick, deadTick, tick, events);
 							if (actor.Pos != aWas)
 								MoveIntoProjectile(actor, sched, tick, projConsumed, damagedTick, deadTick, events);
 							if (target.Pos != tWas)
 								MoveIntoProjectile(target, sched, tick, projConsumed, damagedTick, deadTick, events);
 						}
-						break;
-					case "attack":
-						Attack(actor, target, s, tick, guarding, guardBlocked, damagedTick, deadTick, events);
-						break;
-					case "spell":
-						CastSpell(grid, actor, target, s, tick, damagedTick, deadTick, freshStatus, events);
-						if (Config.IsProjectile(s.Id))
-							LaunchProjectile(grid, s, actor, sched, i, events);
-						else if (Config.IsBlink(s.Id))
-							LaunchBlink(grid, s, actor, target, sched, i, tick, events);
-						break;
-					case "projectile":
-						ProjectileStep(s, actor, target, tick, projConsumed, grid, damagedTick, deadTick, events);
 						break;
 					case "blink_arrive":
 						actor.Pos = BlinkSettle(grid, target, s.Origin, s.Dest);
@@ -201,6 +194,38 @@ public static class Resolver
 				}
 
 				// The grenade root bites only the target's NEXT action; clear it after any non-move action.
+				if (actor.Statuses.ContainsKey("rooted"))
+					actor.Statuses.Remove("rooted");
+			}
+
+			// ── PHASE 2: violence, judging the settled board ──
+			foreach (var s in group)
+			{
+				if (!(s.Category == "attack" || s.Category == "spell" || s.Category == "projectile"))
+					continue;
+				Combatant actor = s.Owner == "A" ? a : b;
+				Combatant target = s.Owner == "A" ? b : a;
+				if (deadTick[actor.Id] != -1 && deadTick[actor.Id] < tick)
+				{
+					events.Add(Ev("dead_skip", tick, actor.Id));
+					continue;
+				}
+				switch (s.Category)
+				{
+					case "attack":
+						Attack(actor, target, s, tick, guarding, guardBlocked, damagedTick, deadTick, events);
+						break;
+					case "spell":
+						CastSpell(grid, actor, target, s, tick, damagedTick, deadTick, freshStatus, events);
+						if (Config.IsProjectile(s.Id))
+							LaunchProjectile(grid, s, actor, sched, i, events);
+						else if (Config.IsBlink(s.Id))
+							LaunchBlink(grid, s, actor, target, sched, i, tick, events);
+						break;
+					case "projectile":
+						ProjectileStep(s, actor, target, tick, projConsumed, grid, damagedTick, deadTick, events);
+						break;
+				}
 				if (actor.Statuses.ContainsKey("rooted"))
 					actor.Statuses.Remove("rooted");
 			}
@@ -342,6 +367,16 @@ public static class Resolver
 		bool seenGuard = false;
 		bool seenNoGuardSpell = false;
 
+		// STAGGERED (lost a clash feint): capped to ONE action this turn. Consumed now.
+		if (c.Statuses.ContainsKey("staggered"))
+		{
+			c.Statuses.Remove("staggered");
+			if (seq.Count > 1)
+			{
+				events.Add(Ev("illegal_action", -1, c.Id));
+				seq = seq.GetRange(0, 1);
+			}
+		}
 		foreach (var raw0 in seq)
 		{
 			PlanAction raw = raw0;
@@ -367,6 +402,9 @@ public static class Resolver
 			bool boost = c.SpeedBoost && slot == 0;
 			var entry = Schedule(c, act, slot, vpos, vfacing, boost);
 			entry.EnergyCost = paid;
+			// VERSATILITY TAX: a different-id second action costs +80 ticks.
+			if (slot == 1 && entries.Count > 0 && entries[0].Id != aid && aid != "_noop")
+				entry.Tick += Config.TAX_SECOND_DIFFERENT;
 			cum += entry.Tick;      // this action's own duration
 			entry.Tick = cum;       // strike time = cumulative (= a blink's DEPART tick)
 			if (Config.IsBlink(aid)) cum += Config.BlinkTravel(aid);
@@ -393,9 +431,8 @@ public static class Resolver
 	{
 		var d = Config.Def(action.Id);
 		int within = d.BaseTick;
-		if (d.Category == "move" && action.HasTile)
-			if (action.Tile.Value == vpos - Config.FACING_VEC[vfacing])
-				within += Config.BACK_MOVE_TAX;
+		int dtax = action.HasTile
+			? Config.DirTax(action.Id, d.Category, vfacing, vpos, action.Tile.Value) : 0;
 		if (boost) within = 0;
 		int facing = vfacing;
 		bool blinkEff = d.Effect != null && d.Effect.Type == "blink";
@@ -406,14 +443,23 @@ public static class Resolver
 			Owner = c.Id,
 			Id = action.Id,
 			Category = d.Category,
-			Tick = Config.FinalTick(d.Band, within),
+			Tick = Config.FinalTick(d.Band, within) + dtax,
 			BandPriority = Config.BAND_PRIORITY[(int)d.Band],
 			Tile = action.HasTile ? action.Tile.Value : c.Pos,
 			Facing = facing,
+			Stance = action.Stance ?? "push",
 		};
 	}
 
 	// ── Basic combat ────────────────────────────────────────────────────────
+	private static int FaceToward(Vec2I from, Vec2I to)
+	{
+		Vec2I d = to - from;
+		if (Math.Abs(d.X) >= Math.Abs(d.Y))
+			return d.X >= 0 ? (int)Config.Facing.EAST : (int)Config.Facing.WEST;
+		return d.Y >= 0 ? (int)Config.Facing.SOUTH : (int)Config.Facing.NORTH;
+	}
+
 	private static bool CanMove(Grid grid, Combatant actor, Combatant other, Vec2I tile)
 	{
 		if (Grid.Dist(actor.Pos, tile) != 1) return false;
@@ -423,7 +469,7 @@ public static class Resolver
 	}
 
 	private static void DoMove(SchedEntry s, Combatant actor, Combatant target,
-			List<SchedEntry> group, Grid grid, Dictionary<string, int> deadTick, int tick, List<Event> events)
+			List<SchedEntry> group, Grid grid, Dictionary<string, int> damagedTick, Dictionary<string, int> deadTick, int tick, List<Event> events)
 	{
 		if (actor.Statuses.ContainsKey("rooted"))
 		{
@@ -452,6 +498,62 @@ public static class Resolver
 			foeMove.Resolved = true;
 			events.Add(Ev("move", tick, actor.Id));
 			events.Add(Ev("move", tick, target.Id));
+			return;
+		}
+		// ── CONTESTED TILE (mirrors Resolver.gd's clash RPS exactly) ──
+		if (foeUnresolved && foeMove.Tile == T && target.Pos != T && actor.Pos != T)
+		{
+			bool fwdA = Config.RelOf(s.Facing, actor.Pos, T) == "front";
+			bool fwdB = Config.RelOf(foeMove.Facing, target.Pos, T) == "front";
+			s.Resolved = true;
+			foeMove.Resolved = true;
+			if (!(fwdA && fwdB))
+			{
+				actor.Energy = Math.Min(Config.MAX_ENERGY, actor.Energy + s.EnergyCost);
+				target.Energy = Math.Min(Config.MAX_ENERGY, target.Energy + foeMove.EnergyCost);
+				events.Add(Ev("move_blocked", tick, actor.Id));
+				events.Add(Ev("move_blocked", tick, target.Id));
+				return;
+			}
+			string sa = s.Stance ?? "push";
+			string sb = foeMove.Stance ?? "push";
+			if (sa == sb)
+			{
+				actor.Energy = Math.Max(0, actor.Energy - Config.CLASH_BOUNCE_COST);
+				target.Energy = Math.Max(0, target.Energy - Config.CLASH_BOUNCE_COST);
+				events.Add(Ev("clash", tick, actor.Id));
+				events.Add(Ev("clash", tick, target.Id));
+				return;
+			}
+			var beats = new Dictionary<string, string> { ["push"] = "pull", ["pull"] = "feint", ["feint"] = "push" };
+			bool aWins = beats[sa] == sb;
+			Combatant w = aWins ? actor : target;
+			Combatant l = aWins ? target : actor;
+			string ws = aWins ? sa : sb;
+			Vec2I wOrigin = w.Pos;
+			switch (ws)
+			{
+				case "push":
+					w.Pos = T;
+					ApplyDamage(l, Config.CLASH_PUSH_DAMAGE, tick, damagedTick, deadTick);
+					events.Add(Ev("move", tick, w.Id));
+					events.Add(Ev("clash", tick, w.Id));
+					break;
+				case "pull":
+					w.Pos = T;
+					l.Pos = wOrigin;
+					l.Facing = FaceToward(l.Pos, w.Pos);
+					events.Add(Ev("move", tick, w.Id));
+					events.Add(Ev("move", tick, l.Id));
+					events.Add(Ev("clash", tick, w.Id));
+					break;
+				case "feint":
+					l.Pos = T;
+					l.Statuses["staggered"] = Config.StatusDef("staggered")?.Duration ?? 1;
+					events.Add(Ev("move", tick, l.Id));
+					events.Add(Ev("clash", tick, w.Id));
+					break;
+			}
 			return;
 		}
 		// Foe sits on the destination and is moving elsewhere this tick: it resolves first.

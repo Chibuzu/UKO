@@ -185,7 +185,8 @@ public partial class BrainBridge : RefCounted
 			int? facing = null;
 			if (d.ContainsKey("tile")) { var t = d["tile"].AsVector2I(); tile = new Vec2I(t.X, t.Y); }
 			if (d.ContainsKey("facing")) facing = d["facing"].AsInt32();
-			outp.Add(new PlanAction(id, tile, facing));
+			string stance = d.ContainsKey("stance") ? d["stance"].AsString() : "push";
+			outp.Add(new PlanAction(id, tile, facing, stance));
 		}
 		return outp;
 	}
@@ -198,6 +199,7 @@ public partial class BrainBridge : RefCounted
 			var d = new GC.Dictionary { { "id", a.Id } };
 			if (a.HasTile) d["tile"] = new Vector2I(a.Tile.Value.X, a.Tile.Value.Y);
 			if (a.HasFacing) d["facing"] = a.Facing.Value;
+			if (a.Stance != null && a.Stance != "push") d["stance"] = a.Stance;
 			outp.Add(d);
 		}
 		return outp;

@@ -76,7 +76,47 @@ const GUARD_REFUND := 15
 # a back hit refunds nothing, so the guard was simply wasted.
 const GUARD_BLOCK := { "front": 1.0, "side": 0.5, "back": 0.0 }
 const GUARD_REFUND_TIER := { "front": GUARD_REFUND, "side": 10, "back": 0 }
-const BACK_MOVE_TAX := 0     # within-band duration penalty on backstep (reserve lever)
+const BACK_MOVE_TAX := 0     # RETIRED (subsumed by DIR_TAX below; kept so old refs read 0)
+
+# ── THE TICK BUNDLE (Fra-ratified) ────────────────────────────────────────────
+# "You act fastest toward where you face": every AIMED action pays a tick tax when
+# its aim is to the actor's side or back. Diagonals are FRONT tier (the grenade is
+# the anti-kite tool and keeps its speed). Taxes are added AFTER final_tick (they
+# are pure time, not band position). Ladder: moves 520/570/620; attacks 350/540/640.
+const TAX_SECOND_DIFFERENT := 80   # slot 2 pays this when its id differs from slot 1
+const CLASH_PUSH_DAMAGE := 10      # the shove's chip (raw: a body check, not a flanked strike)
+const CLASH_BOUNCE_COST := 10      # same-stance shoulder check: both bounce, both pay
+const DIR_TAX := {
+	"move":  { "front": 0, "side": 50,  "back": 100 },
+	"aimed": { "front": 0, "side": 190, "back": 290 },
+}
+
+# Aim direction relative to a facing: "front" / "side" / "back".
+# Diagonals and self-tiles are "front" BY DESIGN (ratified: grenade stays fast).
+static func rel_of(facing: int, from: Vector2i, to: Vector2i) -> String:
+	var d := to - from
+	if d == Vector2i.ZERO or (d.x != 0 and d.y != 0):
+		return "front"
+	var dir := Vector2i(signi(d.x), signi(d.y))
+	var f: Vector2i = FACING_VEC[facing]
+	if dir == f:
+		return "front"
+	if dir == -f:
+		return "back"
+	return "side"
+
+# The directional tick tax for one action. Applies to moves and to every
+# TILE-AIMED action (attack, tile spells, blinks). Direction-less actions
+# (guard, wait, rest, self-buffs, around-bursts) pay nothing.
+static func dir_tax(id: String, category: String, facing: int, from: Vector2i, to: Vector2i) -> int:
+	var rel := rel_of(facing, from, to)
+	if category == "move":
+		return int(DIR_TAX["move"][rel])
+	var d := def(id)
+	var aimed: bool = category == "attack" or bool(d.get("needs_tile", false)) or is_blink(id)
+	if aimed:
+		return int(DIR_TAX["aimed"][rel])
+	return 0
 
 # ── Facing & flanking (ruleset 6) ───────────────────────────────────────
 enum Facing { NORTH, EAST, SOUTH, WEST }

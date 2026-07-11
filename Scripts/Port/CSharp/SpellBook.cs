@@ -10,7 +10,8 @@ public sealed class StatusDef
 {
 	public int Duration;
 	public int EnergyCostReduction;   // energy_discount
-	public bool BlocksMove;           // rooted
+	public bool BlocksMove;
+	public int? ActionLimit;           // rooted
 }
 
 public static class SpellBook
@@ -69,5 +70,6 @@ public static class SpellBook
 	{
 		["energy_discount"] = new StatusDef { Duration = 3, EnergyCostReduction = 5 },
 		["rooted"]          = new StatusDef { Duration = 2, BlocksMove = true },
+		["staggered"]       = new StatusDef { Duration = 2, ActionLimit = 1 },   // clash feint's prize
 	};
 }

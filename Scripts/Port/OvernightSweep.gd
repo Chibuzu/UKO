@@ -10,10 +10,13 @@ extends SceneTree
 
 const FULL_GEAR := ["discount_charm", "burst_node", "blink_boots", "dark_focus"]
 const MATCHES_PER_PHASE := 110   # ~10-12h total; interruption-safe (kill it when you're back, partials count)
+const HARVEST_MATCHES := 450     # harvest mode: mirror champion selfplay, ~9-10h
 const MAX_TURNS := 80          # cap -> draw (no zone stall runs forever)
 const SEED_BASE := 770001
 const OUT := "user://sweep_results.txt"
-const CSV := "user://selfplay_cs.csv"
+# v2: NEW-PHYSICS training data with the autopsy features (flank/pulse/lockout/cds).
+# Never mixes with the old-rules selfplay_cs.csv -- different game, different file.
+const CSV := "user://selfplay_v2.csv"
 
 var bridge = null
 var _csv_rows: Array = []      # per-match buffer; flushed with the outcome filled in
@@ -23,6 +26,16 @@ func _init() -> void:
 	bridge.SetProfile("extreme")
 	bridge.LoadCalibration()
 	_csv_header()
+	if OS.get_environment("UKO_MODE") == "harvest":
+		# HARVEST NIGHT: the live champion (d3@700) plays itself under the NEW physics.
+		# Every turn -> a v2 training row; the printout doubles as the new-rules
+		# telemetry (draw rate + match length = the stall-meta A/B evidence).
+		_log("==== HARVEST start %s | %d mirror matches (d3@700), max %d turns ====" %
+				[Time.get_datetime_string_from_system(), HARVEST_MATCHES, MAX_TURNS])
+		_phase("harvest_d3_700_mirror", "d3b700", "d3b700", HARVEST_MATCHES)
+		_log("==== HARVEST done %s ====" % Time.get_datetime_string_from_system())
+		quit(0)
+		return
 	_log("==== SWEEP start %s | %d matches/phase, max %d turns ====" %
 			[Time.get_datetime_string_from_system(), MATCHES_PER_PHASE, MAX_TURNS])
 	_phase("d3_1400_vs_d2_700", "d3b1400", "d2b700")
@@ -31,18 +44,20 @@ func _init() -> void:
 	_log("==== SWEEP done %s ====" % Time.get_datetime_string_from_system())
 	quit(0)
 
-func _phase(name: String, brain_x: String, brain_y: String) -> void:
+func _phase(name: String, brain_x: String, brain_y: String, n: int = MATCHES_PER_PHASE) -> void:
 	var wx := 0
 	var wy := 0
 	var dr := 0
 	var margin := 0.0   # avg (x hp - y hp) at match end, a finer signal than W/L
-	for mi in range(MATCHES_PER_PHASE):
+	var turns_sum := 0   # new-physics telemetry: average match length
+	for mi in range(n):
 		# Seat alternation: even matches X sits in seat A, odd in seat B.
 		var x_is_a := (mi % 2 == 0)
 		var r := _run_match(SEED_BASE + mi, brain_x if x_is_a else brain_y, brain_y if x_is_a else brain_x)
 		var x_hp: int = r["a_hp"] if x_is_a else r["b_hp"]
 		var y_hp: int = r["b_hp"] if x_is_a else r["a_hp"]
 		margin += float(x_hp - y_hp)
+		turns_sum += int(r.get("turns", 0))
 		match r["result"]:
 			"a_wins": if x_is_a: wx += 1
 			else: wy += 1
@@ -50,11 +65,13 @@ func _phase(name: String, brain_x: String, brain_y: String) -> void:
 			else: wx += 1
 			_: dr += 1
 		if (mi + 1) % 10 == 0:
-			_log("[%s] %d/%d  %s %d - %d %s (draws %d)  avg-margin %+.1f" %
-					[name, mi + 1, MATCHES_PER_PHASE, brain_x, wx, wy, brain_y, dr, margin / float(mi + 1)])
-	_log("[%s] FINAL  %s %d - %d %s (draws %d)  winrate %.1f%%  avg-margin %+.1f" %
+			_log("[%s] %d/%d  %s %d - %d %s (draws %d)  avg-margin %+.1f  avg-turns %.1f" %
+					[name, mi + 1, n, brain_x, wx, wy, brain_y, dr, margin / float(mi + 1),
+					float(turns_sum) / float(mi + 1)])
+	_log("[%s] FINAL  %s %d - %d %s (draws %d)  winrate %.1f%%  avg-margin %+.1f  avg-turns %.1f  draw-rate %.1f%%" %
 			[name, brain_x, wx, wy, brain_y, dr,
-			100.0 * float(wx) / maxf(1.0, float(wx + wy)), margin / float(MATCHES_PER_PHASE)])
+			100.0 * float(wx) / maxf(1.0, float(wx + wy)), margin / float(n),
+			float(turns_sum) / float(n), 100.0 * float(dr) / float(n)])
 
 func _run_match(match_seed: int, brain_a: String, brain_b: String) -> Dictionary:
 	var rng := RandomNumberGenerator.new()
@@ -76,7 +93,7 @@ func _run_match(match_seed: int, brain_a: String, brain_b: String) -> Dictionary
 		b = out["b"]
 		if String(out["result"]) != "ongoing":
 			_flush_csv(String(out["result"]))
-			return {"result": out["result"], "a_hp": a.hp, "b_hp": b.hp}
+			return {"result": out["result"], "a_hp": a.hp, "b_hp": b.hp, "turns": turn}
 		# The live rotation/zone clock (mirrors GameController._rotate_map).
 		if turn % Config.MAP_ROTATE_EVERY == 0:
 			var res := g.rotate_blockers([a.pos, b.pos])
@@ -87,7 +104,7 @@ func _run_match(match_seed: int, brain_a: String, brain_b: String) -> Dictionary
 				who.hp = maxi(1, who.hp - Config.MAP_CRUSH_DAMAGE)
 				who.rest_ready = false
 	_flush_csv("draw")
-	return {"result": "draw", "a_hp": a.hp, "b_hp": b.hp}
+	return {"result": "draw", "a_hp": a.hp, "b_hp": b.hp, "turns": MAX_TURNS}
 
 # Brain tag format: d<depth>b<budget_ms>, e.g. "d3b1400".
 func _choose(brain: String, me: Combatant, foe: Combatant, g: Grid) -> Array:
@@ -117,12 +134,27 @@ func _cd(c: Combatant) -> Dictionary:
 		"cooldowns": c.cooldowns.duplicate(), "statuses": c.statuses.duplicate(),
 		"spent_once": c.spent_once.duplicate(), "gear": c.gear.duplicate()}
 
-# One training row: features FROM `me`'s seat; outcome filled at flush (+1 win / 0 draw / -1 loss).
+# One v2 training row: features FROM `me`'s seat; outcome filled at flush (+1/0/-1).
+# v2 adds the AUTOPSY features the model must see to learn Fra's concepts:
+# flank tiers, pulse clocks, lockout/guardability, rest paths, cooldowns, statuses.
 func _harvest(seed_v: int, turn: int, seat: String, me: Combatant, foe: Combatant, g: Grid) -> void:
-	_csv_rows.append({"seat": seat, "line": "%d,%d,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d" % [
+	var rel_map := {"front": 0, "side": 1, "back": 2}
+	var my_flank: int = rel_map[Config.rel_of(foe.facing, foe.pos, me.pos)]   # tier MY hits land at
+	var foe_flank: int = rel_map[Config.rel_of(me.facing, me.pos, foe.pos)]  # tier THEIR hits land at
+	var epa := Config.ENERGY_PULSE_ACTIONS
+	_csv_rows.append({"seat": seat, "line": "%d,%d,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d" % [
 		seed_v, turn, seat, me.hp, me.mp, me.energy, foe.hp, foe.mp, foe.energy,
 		Grid.dist(me.pos, foe.pos), g.shrink_level, me.action_count, foe.action_count,
-		0 if me.spent_once.has("grenade") else 1, 0 if foe.spent_once.has("grenade") else 1]})
+		0 if me.spent_once.has("grenade") else 1, 0 if foe.spent_once.has("grenade") else 1,
+		my_flank, foe_flank,
+		epa - (me.action_count % epa), epa - (foe.action_count % epa),
+		1 if me.energy < Config.COST_ATTACK else 0, 1 if foe.energy < Config.COST_ATTACK else 0,
+		1 if me.energy < Config.COST_GUARD else 0, 1 if foe.energy < Config.COST_GUARD else 0,
+		1 if me.rest_ready else 0, 1 if foe.rest_ready else 0,
+		int(me.cooldowns.get("aoe_burst", 0)), int(me.cooldowns.get("dark_bolt", 0)),
+		int(foe.cooldowns.get("aoe_burst", 0)), int(foe.cooldowns.get("dark_bolt", 0)),
+		1 if me.statuses.has("rooted") or me.statuses.has("staggered") else 0,
+		1 if foe.statuses.has("rooted") or foe.statuses.has("staggered") else 0]})
 
 func _flush_csv(result: String) -> void:
 	var f := FileAccess.open(CSV, FileAccess.READ_WRITE)
@@ -146,7 +178,7 @@ func _csv_header() -> void:
 		return
 	var f := FileAccess.open(CSV, FileAccess.WRITE)
 	if f != null:
-		f.store_line("seed,turn,seat,hp,mp,energy,foe_hp,foe_mp,foe_energy,dist,shrink,my_ac,foe_ac,my_nade,foe_nade,outcome")
+		f.store_line("seed,turn,seat,hp,mp,energy,foe_hp,foe_mp,foe_energy,dist,shrink,my_ac,foe_ac,my_nade,foe_nade,my_flank,foe_flank,my_to_pulse,foe_to_pulse,my_locked,foe_locked,my_noguard,foe_noguard,my_rest_ready,foe_rest_ready,my_cd_burst,my_cd_bolt,foe_cd_burst,foe_cd_bolt,my_cc,foe_cc,outcome")
 		f.close()
 
 func _log(s: String) -> void:

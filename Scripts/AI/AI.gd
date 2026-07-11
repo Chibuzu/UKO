@@ -34,6 +34,14 @@ static func _get_bridge():
 		push_warning("[AI] BrainBridge.cs unavailable -- EXTREME falls back to GDScript.")
 		return null
 	_bridge = script.new()
+	# A broken export (missing .NET assemblies) can boot GDScript-only: load() then
+	# "succeeds" but the C# instance is dead. Verify before touching it -- fall back
+	# instead of crashing the match (this was the friend-build turn-1 crash).
+	if _bridge == null or not _bridge.has_method("ChooseSequence"):
+		_bridge = null
+		_bridge_failed = true
+		push_warning("[AI] BrainBridge could not instantiate (no .NET runtime?) -- EXTREME falls back to GDScript.")
+		return null
 	_bridge.SetProfile("extreme")
 	_bridge.LoadCalibration()   # sets the C# Eval.CAL_A from user://calibration.cfg
 	_bridge.LoadModel()         # warm-start from what past matches learned (same cfg the GD model writes)

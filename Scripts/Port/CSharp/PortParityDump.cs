@@ -237,6 +237,23 @@ public partial class PortParityDump : Node
 		// 24 energy starvation noop
 		f.Add(new Case { Grid = Open(), A = C("A", new(3, 4), E, 100, 100, 5), B = C("B", new(4, 4), W, 100, 100, 100),
 			Sa = Seq(new PlanAction("attack", new Vec2I(4, 4))), Sb = Seq(new PlanAction("wait")), Turn = 3 });
+		// ── TICK BUNDLE fixtures (mirror ParityDump.gd exactly) ──
+		// Dodge by arithmetic: side-aimed swing (540) whiffs on a forward runner (520).
+		f.Add(new Case { Grid = Open(), A = C("A", new(3, 4), N, 100, 100, 100), B = C("B", new(4, 4), E, 100, 100, 100),
+			Sa = Seq(new PlanAction("attack", new Vec2I(4, 4))), Sb = Seq(new PlanAction("move", new Vec2I(5, 4))), Turn = 3 });
+		// Clash: PUSH beats PULL.
+		f.Add(new Case { Grid = Open(), A = C("A", new(3, 4), E, 100, 100, 100), B = C("B", new(5, 4), W, 100, 100, 100),
+			Sa = Seq(new PlanAction("move", new Vec2I(4, 4), null, "push")), Sb = Seq(new PlanAction("move", new Vec2I(4, 4), null, "pull")), Turn = 3 });
+		// Clash: FEINT beats PUSH -> pusher staggered.
+		f.Add(new Case { Grid = Open(), A = C("A", new(3, 4), E, 100, 100, 100), B = C("B", new(5, 4), W, 100, 100, 100),
+			Sa = Seq(new PlanAction("move", new Vec2I(4, 4), null, "push")), Sb = Seq(new PlanAction("move", new Vec2I(4, 4), null, "feint")), Turn = 3 });
+		// Clash: same stance -> both bounce, both pay 10.
+		f.Add(new Case { Grid = Open(), A = C("A", new(3, 4), E, 100, 100, 100), B = C("B", new(5, 4), W, 100, 100, 100),
+			Sa = Seq(new PlanAction("move", new Vec2I(4, 4))), Sb = Seq(new PlanAction("move", new Vec2I(4, 4))), Turn = 3 });
+		// Staggered carried in: the 2-action plan is capped to ONE (status consumed).
+		f.Add(new Case { Grid = Open(), A = C("A", new(3, 4), E, 100, 100, 100, 0, true, false, new Dictionary<string, int> { ["staggered"] = 2 }),
+			B = C("B", new(6, 6), W, 100, 100, 100),
+			Sa = Seq(new PlanAction("move", new Vec2I(4, 4)), new PlanAction("move", new Vec2I(5, 4))), Sb = Seq(new PlanAction("wait")), Turn = 3 });
 		return f;
 	}
 }
