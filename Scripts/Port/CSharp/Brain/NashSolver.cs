@@ -17,6 +17,17 @@ public static class NashSolver
 		if (n == 0) return Array.Empty<double>();
 		int m = M[0].Length;
 		if (m == 0) return Uniform(n);
+		// PAYOFF QUANTIZATION -- mirrors NashSolver.gd exactly (see its comment):
+		// round to a 1e-6 grid so ulp-level eval drift between the two engines can
+		// never flip equilibrium selection. Copy first: callers may reuse M.
+		var Q = new double[n][];
+		for (int r = 0; r < n; r++)
+		{
+			Q[r] = new double[m];
+			for (int c2 = 0; c2 < m; c2++)
+				Q[r][c2] = Math.Floor(M[r][c2] * 1e6 + 0.5) / 1e6;
+		}
+		M = Q;
 
 		var regR = new double[n];
 		var regC = new double[m];

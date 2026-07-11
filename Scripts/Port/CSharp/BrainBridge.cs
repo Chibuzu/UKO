@@ -139,7 +139,7 @@ public partial class BrainBridge : RefCounted
 		foreach (var c in r.Cands) cands.Add(SeqStr(c));
 		var mix = new GC.Array();
 		foreach (var p in r.Mix) mix.Add(p);
-		return new GC.Dictionary { { "cands", cands }, { "mix", mix } };
+		return new GC.Dictionary { { "cands", cands }, { "mix", mix }, { "value", r.GuaranteedValue } };
 	}
 
 	// ── marshaling (same contract as ResolverBridge) ─────────────────────────

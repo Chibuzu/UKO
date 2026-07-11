@@ -46,11 +46,15 @@ public static class ExtremeAI
 		return r.Cands[Sample(r.Mix)];
 	}
 
+	// GuaranteedValue: min over foe columns of mixᵀM -- the floor this mix secures.
+	// Equilibrium "twins" (equally valid equilibria selected under fp drift) share
+	// this value, so the agreement harness compares IT rather than raw mix indices.
 	public sealed class MixResult
 	{
 		public List<List<PlanAction>> Cands;
 		public double[] Mix;
-	}
+	
+		public double GuaranteedValue;}
 
 	// The whole pipeline up to (but not including) the random sample -- deterministic
 	// given unlimited budget, which is what the agreement harness exploits.
@@ -60,7 +64,7 @@ public static class ExtremeAI
 		var myCands = Clean(AIToolkit.Candidates(me, foe, grid));
 		var foeCands = Clean(AIToolkit.Candidates(foe, me, grid));
 		if (myCands.Count == 0)
-			return new MixResult { Cands = new() { new() { new PlanAction("rest") } }, Mix = new[] { 1.0 } };
+			return new MixResult { Cands = new() { new() { new PlanAction("rest") } }, Mix = new[] { 1.0 }, GuaranteedValue = 0.0 };
 		if (foeCands.Count == 0)
 			foeCands = new List<List<PlanAction>> { new() { new PlanAction("rest") } };
 		long t0 = Environment.TickCount64;
@@ -152,7 +156,14 @@ public static class ExtremeAI
 		}
 
 		mix = PruneSupport(mix, MIN_MIX);
-		return new MixResult { Cands = myCands, Mix = mix };
+		double gv = double.PositiveInfinity;
+		for (int j = 0; j < m; j++)
+		{
+			double col = 0.0;
+			for (int i2 = 0; i2 < n; i2++) col += mix[i2] * M[i2][j];
+			if (col < gv) gv = col;
+		}
+		return new MixResult { Cands = myCands, Mix = mix, GuaranteedValue = gv };
 	}
 
 	private static List<List<PlanAction>> Clean(List<List<PlanAction>> cands)

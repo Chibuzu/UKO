@@ -1,6 +1,6 @@
 Godot Engine v4.7.stable.mono.official.5b4e0cb0f - https://godotengine.org
 
-[parity] wrote 673 cases -> C:/Users/franc/AppData/Roaming/Godot/app_userdata/UKO/parity_gd.txt
+[parity] wrote 678 cases -> C:/Users/franc/AppData/Roaming/Godot/app_userdata/UKO/parity_gd.txt
 [parity] done
 SCRIPT ERROR: Cannot call method 'get_path' on a null value.
    at: NodeInstantiator._ready (res://addons/GD-Sync/Scripts/Types/NodeInstantiator.gd:115)
