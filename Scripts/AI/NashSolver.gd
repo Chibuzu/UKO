@@ -24,6 +24,18 @@ static func solve_iters(M: Array, iters: int) -> Array:
 	var n := M.size()
 	if n == 0:
 		return []
+	# PAYOFF QUANTIZATION (both engines, identical): Nash equilibria are
+	# DISCONTINUOUS in payoffs -- a last-bit float difference between the GD and
+	# C# evals can legally flip which equivalent equilibrium regret-matching
+	# converges to (support flips of whole percentage points from 1e-6 drift).
+	# Rounding the matrix to a 1e-6 grid BEFORE solving makes both solvers see
+	# bit-identical inputs forever, so every future eval term stays agreement-safe.
+	# 1e-6 payoff precision is far beyond any behavioral meaning.
+	M = M.duplicate(true)
+	for r in range(n):
+		var row: Array = M[r]
+		for cc in range(row.size()):
+			row[cc] = floorf(float(row[cc]) * 1e6 + 0.5) / 1e6
 	var m: int = (M[0] as Array).size()
 	if m == 0:
 		return _uniform(n)

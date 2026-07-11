@@ -244,6 +244,10 @@ public static class ExtremeAI
 	}
 
 	// Rows with the best WORST-CASE value; STABLE descending (GDScript insertion sort).
+	// Mirrors ExtremeAI.gd._rq: selection ranks on a 1e-4 grid so ulp-scale eval
+	// drift between the engines can never pick different cells to deepen.
+	private static double Rq(double v) => Math.Floor(v * 1e4 + 0.5) / 1e4;
+
 	private static List<int> TopRows(double[][] M, int k)
 	{
 		var worst = new double[M.Length];
@@ -251,7 +255,7 @@ public static class ExtremeAI
 		{
 			double w = double.PositiveInfinity;
 			foreach (var v in M[i]) w = Math.Min(w, v);
-			worst[i] = w;
+			worst[i] = Rq(w);
 		}
 		var idx = new List<int>();
 		for (int i = 0; i < M.Length; i++) idx.Add(i);
@@ -264,9 +268,11 @@ public static class ExtremeAI
 	// The k lowest cells of a row; STABLE ascending.
 	private static List<int> WorstCols(double[] row, int k)
 	{
+		var q = new double[row.Length];
+		for (int j = 0; j < row.Length; j++) q[j] = Rq(row[j]);
 		var idx = new List<int>();
 		for (int j = 0; j < row.Length; j++) idx.Add(j);
-		idx.Sort((a, b) => { int c = row[a].CompareTo(row[b]); return c != 0 ? c : a.CompareTo(b); });
+		idx.Sort((a, b) => { int c = q[a].CompareTo(q[b]); return c != 0 ? c : a.CompareTo(b); });
 		var outp = new List<int>();
 		for (int n2 = 0; n2 < Math.Min(k, idx.Count); n2++) outp.Add(idx[n2]);
 		return outp;

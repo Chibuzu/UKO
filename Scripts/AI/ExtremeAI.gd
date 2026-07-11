@@ -269,13 +269,20 @@ static func _expand(mix: Array, rows: Array, n: int) -> Array:
 	return out
 
 # Indices of the rows with the best WORST-CASE value -- the moves worth deepening.
+# Ranks are computed on QUANTIZED scores (1e-4 grid): the GD and C# evals drift by
+# ~1e-7, and raw-score ranking let that drift pick DIFFERENT cells to deepen on
+# knife-edge positions -- materially different matrices, 2-point value gaps
+# (agreement pos2). Quantized ranks + index tiebreak = identical selection.
+static func _rq(v: float) -> float:
+	return floorf(v * 1e4 + 0.5) / 1e4
+
 static func _top_rows(M: Array, k: int) -> Array:
 	var rows: Array = []
 	for i in M.size():
 		var worst := INF
 		for v in M[i]:
 			worst = minf(worst, float(v))
-		rows.append({"i": i, "w": worst})
+		rows.append({"i": i, "w": _rq(worst)})
 	# Stable tie-break (index asc): sort_custom is unstable; ties here decide which
 	# rows get the deep look, so the order must be DEFINED (and match the C# port).
 	rows.sort_custom(func(x, y):
@@ -292,7 +299,7 @@ static func _top_rows(M: Array, k: int) -> Array:
 static func _worst_cols(row: Array, k: int) -> Array:
 	var cols: Array = []
 	for j in row.size():
-		cols.append({"j": j, "v": float(row[j])})
+		cols.append({"j": j, "v": _rq(float(row[j]))})
 	cols.sort_custom(func(x, y):
 		if float(x["v"]) != float(y["v"]):
 			return float(x["v"]) < float(y["v"])
