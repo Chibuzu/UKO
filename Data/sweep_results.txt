@@ -37,3 +37,51 @@
 [d3_700_vs_d2_700] 110/110  d3b700 41 - 35 d2b700 (draws 34)  avg-margin +2.6
 [d3_700_vs_d2_700] FINAL  d3b700 41 - 35 d2b700 (draws 34)  winrate 53.9%  avg-margin +2.6
 ==== SWEEP done 2026-07-11T08:08:21 ====
+==== HARVEST start 2026-07-12T02:14:10 | 450 mirror matches (d3@700), max 80 turns ====
+[harvest_d3_700_mirror] 10/450  d3b700 5 - 1 d3b700 (draws 4)  avg-margin +28.6  avg-turns 53.0
+[harvest_d3_700_mirror] 20/450  d3b700 8 - 5 d3b700 (draws 7)  avg-margin +15.8  avg-turns 54.1
+[harvest_d3_700_mirror] 30/450  d3b700 9 - 8 d3b700 (draws 13)  avg-margin +7.6  avg-turns 57.6
+[harvest_d3_700_mirror] 40/450  d3b700 14 - 9 d3b700 (draws 17)  avg-margin +8.8  avg-turns 59.4
+[harvest_d3_700_mirror] 50/450  d3b700 15 - 12 d3b700 (draws 23)  avg-margin +2.6  avg-turns 61.4
+[harvest_d3_700_mirror] 60/450  d3b700 19 - 13 d3b700 (draws 28)  avg-margin +5.2  avg-turns 62.8
+[harvest_d3_700_mirror] 70/450  d3b700 21 - 15 d3b700 (draws 34)  avg-margin +4.0  avg-turns 64.5
+[harvest_d3_700_mirror] 80/450  d3b700 24 - 17 d3b700 (draws 39)  avg-margin +3.0  avg-turns 63.9
+[harvest_d3_700_mirror] 90/450  d3b700 24 - 20 d3b700 (draws 46)  avg-margin +2.5  avg-turns 65.0
+[harvest_d3_700_mirror] 100/450  d3b700 25 - 23 d3b700 (draws 52)  avg-margin +1.2  avg-turns 64.8
+[harvest_d3_700_mirror] 110/450  d3b700 28 - 25 d3b700 (draws 57)  avg-margin +1.7  avg-turns 64.6
+[harvest_d3_700_mirror] 120/450  d3b700 32 - 26 d3b700 (draws 62)  avg-margin +3.0  avg-turns 64.4
+[harvest_d3_700_mirror] 130/450  d3b700 37 - 27 d3b700 (draws 66)  avg-margin +3.9  avg-turns 63.9
+[harvest_d3_700_mirror] 140/450  d3b700 42 - 28 d3b700 (draws 70)  avg-margin +5.4  avg-turns 63.6
+[harvest_d3_700_mirror] 150/450  d3b700 42 - 32 d3b700 (draws 76)  avg-margin +4.1  avg-turns 64.1
+[harvest_d3_700_mirror] 160/450  d3b700 44 - 34 d3b700 (draws 82)  avg-margin +4.2  avg-turns 64.4
+[harvest_d3_700_mirror] 170/450  d3b700 47 - 36 d3b700 (draws 87)  avg-margin +3.7  avg-turns 64.3
+[harvest_d3_700_mirror] 180/450  d3b700 50 - 39 d3b700 (draws 91)  avg-margin +3.8  avg-turns 63.9
+[harvest_d3_700_mirror] 190/450  d3b700 51 - 44 d3b700 (draws 95)  avg-margin +3.0  avg-turns 63.7
+[harvest_d3_700_mirror] 200/450  d3b700 53 - 47 d3b700 (draws 100)  avg-margin +2.8  avg-turns 63.6
+[harvest_d3_700_mirror] 210/450  d3b700 54 - 50 d3b700 (draws 106)  avg-margin +2.7  avg-turns 63.8
+[harvest_d3_700_mirror] 220/450  d3b700 56 - 52 d3b700 (draws 112)  avg-margin +2.9  avg-turns 63.8
+[harvest_d3_700_mirror] 230/450  d3b700 58 - 55 d3b700 (draws 117)  avg-margin +2.4  avg-turns 63.5
+[harvest_d3_700_mirror] 240/450  d3b700 59 - 55 d3b700 (draws 126)  avg-margin +3.0  avg-turns 63.9
+[harvest_d3_700_mirror] 250/450  d3b700 61 - 58 d3b700 (draws 131)  avg-margin +3.5  avg-turns 64.0
+[harvest_d3_700_mirror] 260/450  d3b700 64 - 59 d3b700 (draws 137)  avg-margin +4.0  avg-turns 63.9
+[harvest_d3_700_mirror] 270/450  d3b700 67 - 62 d3b700 (draws 141)  avg-margin +3.8  avg-turns 63.7
+[harvest_d3_700_mirror] 280/450  d3b700 71 - 64 d3b700 (draws 145)  avg-margin +4.3  avg-turns 63.6
+[harvest_d3_700_mirror] 290/450  d3b700 76 - 66 d3b700 (draws 148)  avg-margin +4.9  avg-turns 63.2
+[harvest_d3_700_mirror] 300/450  d3b700 81 - 68 d3b700 (draws 151)  avg-margin +5.2  avg-turns 63.3
+[harvest_d3_700_mirror] 310/450  d3b700 82 - 73 d3b700 (draws 155)  avg-margin +4.4  avg-turns 63.2
+[harvest_d3_700_mirror] 320/450  d3b700 84 - 76 d3b700 (draws 160)  avg-margin +4.3  avg-turns 63.3
+[harvest_d3_700_mirror] 330/450  d3b700 87 - 80 d3b700 (draws 163)  avg-margin +4.0  avg-turns 63.1
+[harvest_d3_700_mirror] 340/450  d3b700 88 - 82 d3b700 (draws 170)  avg-margin +4.0  avg-turns 63.3
+[harvest_d3_700_mirror] 350/450  d3b700 92 - 84 d3b700 (draws 174)  avg-margin +4.0  avg-turns 63.4
+[harvest_d3_700_mirror] 360/450  d3b700 96 - 85 d3b700 (draws 179)  avg-margin +4.2  avg-turns 63.4
+[harvest_d3_700_mirror] 370/450  d3b700 100 - 86 d3b700 (draws 184)  avg-margin +4.4  avg-turns 63.5
+[harvest_d3_700_mirror] 380/450  d3b700 101 - 89 d3b700 (draws 190)  avg-margin +4.2  avg-turns 63.5
+[harvest_d3_700_mirror] 390/450  d3b700 103 - 91 d3b700 (draws 196)  avg-margin +4.0  avg-turns 63.5
+[harvest_d3_700_mirror] 400/450  d3b700 107 - 93 d3b700 (draws 200)  avg-margin +4.1  avg-turns 63.5
+[harvest_d3_700_mirror] 410/450  d3b700 109 - 94 d3b700 (draws 207)  avg-margin +4.2  avg-turns 63.7
+[harvest_d3_700_mirror] 420/450  d3b700 113 - 94 d3b700 (draws 213)  avg-margin +4.9  avg-turns 63.8
+[harvest_d3_700_mirror] 430/450  d3b700 115 - 98 d3b700 (draws 217)  avg-margin +4.7  avg-turns 63.7
+[harvest_d3_700_mirror] 440/450  d3b700 115 - 101 d3b700 (draws 224)  avg-margin +4.4  avg-turns 63.6
+[harvest_d3_700_mirror] 450/450  d3b700 116 - 105 d3b700 (draws 229)  avg-margin +3.9  avg-turns 63.6
+[harvest_d3_700_mirror] FINAL  d3b700 116 - 105 d3b700 (draws 229)  winrate 52.5%  avg-margin +3.9  avg-turns 63.6  draw-rate 50.9%
+==== HARVEST done 2026-07-12T11:16:00 ====
