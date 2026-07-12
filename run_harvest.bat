@@ -10,7 +10,7 @@ if not exist "%GODOT%" (
 )
 echo.
 echo ==================== 1/2  Building C# ====================
-dotnet build -c Debug > harvest_build.txt 2>&1
+dotnet build -c Debug -t:Rebuild > harvest_build.txt 2>&1
 findstr /C:"Build succeeded" harvest_build.txt >nul
 if errorlevel 1 (
     echo [BUILD FAILED] Showing errors:

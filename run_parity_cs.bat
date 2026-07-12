@@ -18,7 +18,7 @@ if not exist "Scripts\Port\CSharp\PortParityDump.cs" (
 
 echo.
 echo ==================== 1/3  Building C# (dotnet build) ====================
-dotnet build -c Debug > parity_cs_build.txt 2>&1
+dotnet build -c Debug -t:Rebuild > parity_cs_build.txt 2>&1
 findstr /C:"Build succeeded" parity_cs_build.txt >nul
 if errorlevel 1 (
     echo [BUILD FAILED] Showing errors:

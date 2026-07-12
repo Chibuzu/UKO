@@ -25,6 +25,10 @@ public partial class BrainBridge : RefCounted
 
 	public void SetDepth(int d) => Eval.LOOKAHEAD_DEPTH = d;
 
+	// Force the calibration knob (agreement harness pins BOTH sides to 0 so raw
+	// margins are compared; SetProfile auto-loads a fitted calibration otherwise).
+	public void SetCal(double a) => Eval.CAL_A = a;
+
 	public void SetBudget(int ms) => ExtremeAI.BudgetOverrideMs = ms;   // -1 = profile default
 
 	public void LoadCalibration()

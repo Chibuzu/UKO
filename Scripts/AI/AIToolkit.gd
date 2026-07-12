@@ -33,9 +33,14 @@ static func apply_projection(c: Combatant, action: Dictionary) -> void:
 		if cd > 0:
 			c.cooldowns[id] = cd
 
-# Ready = off cooldown AND affordable.
+# Ready = off cooldown, not already spent (once-per-match), AND affordable.
 static func can_use(me: Combatant, id: String) -> bool:
 	if int(me.cooldowns.get(id, 0)) > 0:
+		return false
+	# Once-per-match items (grenade): a SPENT item is not a candidate. The C# port
+	# always had this line; its absence here made GD subgames keep phantom
+	# "throw it again" rows after a grenade was spent -- the pos2 divergence.
+	if Config.def(id).get("once_per_match", false) and me.spent_once.has(id):
 		return false
 	return Config.can_afford(me.energy, me.mp, me.statuses, id)
 

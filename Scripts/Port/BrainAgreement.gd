@@ -26,10 +26,26 @@ func _chk(name: String, ok: bool, detail: String = "") -> void:
 		print("FAIL: %s %s" % [name, detail])
 
 func _init() -> void:
+	print("[harness] v5 -- v4 + deep-cell probe on the exact deepened cells")
+	# ── ENVIRONMENT SELF-CHECK: refuse to run against stale files. Tonight proved
+	# that a silent old file wastes an hour; now the harness names the culprit.
+	var env_ok := true
+	env_ok = _need("res://Scripts/AI/ExtremeAI.gd", "_rq(") and env_ok
+	env_ok = _need("res://Scripts/Port/CSharp/Brain/ExtremeAI.cs", "Rq(") and env_ok
+	env_ok = _need("res://Scripts/AI/NashSolver.gd", "1e6") and env_ok
+	env_ok = _need("res://Scripts/Port/CSharp/Brain/NashSolver.cs", "1e6") and env_ok
+	env_ok = _need("res://Scripts/Port/CSharp/BrainBridge.cs", "GuaranteedValue") and env_ok
+	if not env_ok:
+		print("[harness] STALE FILES DETECTED -- replace the file(s) named above, rebuild, rerun.")
+		quit(1)
+		return
+	print("[harness] environment OK: all tonight's files are in place.")
 	var bridge = load("res://Scripts/Port/CSharp/BrainBridge.cs").new()
 	bridge.SetProfile("extreme")
+	bridge.SetCal(0.0)                # defensive: pin calibration to 0 on the C# side too
 	Eval.set_weights(Eval.DEFAULTS)   # mirror what SetProfile does on the C# side
 	Eval.CAL_A = 0.0                  # calibration off on BOTH sides for exactness
+	print("[env] CAL_A pinned to 0 on both sides (gd=%.3f)" % Eval.CAL_A)
 
 	var positions := _positions()
 	for pi in range(positions.size()):
@@ -100,8 +116,58 @@ func _init() -> void:
 				max_d = maxf(max_d, absf(float(gd_full["mix"][i]) - float(cs_m[i])))
 			if max_d > 1e-6:
 				print("  [info] pos%d mix max-delta %.6f (equilibrium selection; value is the invariant)" % [pi, max_d])
-			_chk("pos%d full VALUE" % pi, absf(float(gd_full["value"]) - float(cs_full["value"])) < 1e-3,
+			var v_ok := absf(float(gd_full["value"]) - float(cs_full["value"])) < 1e-3
+			_chk("pos%d full VALUE" % pi, v_ok,
 					"%.6f vs %.6f" % [float(gd_full["value"]), float(cs_full["value"])])
+			if not v_ok:
+				# ── DIVERGENCE HUNT: scan EVERY rich cell GD-vs-C# and name the
+				# exact candidate pairs where the engines disagree. Slow (once).
+				print("  [hunt] scanning full rich matrix for pos%d ... (~1-2 min)" % pi)
+				var hg := AIToolkit.candidates(me, foe, g)
+				var hf := AIToolkit.candidates(foe, me, g)
+				var worst: Array = []
+				for hi in range(hg.size()):
+					for hj in range(hf.size()):
+						var a_gd := Eval.score_rich(me, foe, g, hg[hi], hf[hj])
+						var a_cs: float = bridge.ScoreRich(rows, brows, g.rot_step, g.shrink_level, _cd(me), _cd(foe), hg[hi], hf[hj])
+						var dd := absf(a_gd - a_cs)
+						if dd > 1e-4:
+							worst.append({"d": dd, "i": hi, "j": hj, "gd": a_gd, "cs": a_cs})
+				worst.sort_custom(func(x, y): return float(x["d"]) > float(y["d"]))
+				print("  [hunt] rich: %d divergent cell(s) > 1e-4" % worst.size())
+				for w in range(mini(6, worst.size())):
+					var W: Dictionary = worst[w]
+					print("  [hunt] rich cell(%d,%d) gd=%.6f cs=%.6f  Δ=%.6f" % [int(W["i"]), int(W["j"]), float(W["gd"]), float(W["cs"]), float(W["d"])])
+					print("         me : %s" % _seq_str(hg[int(W["i"])]))
+					print("         foe: %s" % _seq_str(hf[int(W["j"])]))
+				# ── DEEP-CELL PROBE: compare score_deep on the EXACT cells the
+				# pipeline deepens (rich already proven identical everywhere).
+				var hM: Array = []
+				for hi2 in range(hg.size()):
+					var hrow: Array = []
+					for hj2 in range(hf.size()):
+						hrow.append(Eval.score_rich(me, foe, g, hg[hi2], hf[hj2]))
+					hM.append(hrow)
+				var p_rows := int(ExtremeAI.P["rows_end"]) if g.shrink_level >= 2 else int(ExtremeAI.P["rows"])
+				var p_cols := int(ExtremeAI.P["cols_end"]) if g.shrink_level >= 2 else int(ExtremeAI.P["cols"])
+				var p_leaf := Eval.LOOKAHEAD_DEPTH - 1
+				if g.shrink_level >= 3:
+					p_leaf = Eval.LOOKAHEAD_DEPTH
+				var deep_bad := 0
+				for di in ExtremeAI._top_rows(hM, p_rows):
+					for dj in ExtremeAI._worst_cols(hM[di], p_cols):
+						Eval.clear_cache()
+						var g_d := Eval.score_deep(me, foe, g, hg[di], hf[dj], p_leaf)
+						var c_d: float = bridge.ScoreDeep(rows, brows, g.rot_step, g.shrink_level, _cd(me), _cd(foe), hg[di], hf[dj], p_leaf)
+						if absf(g_d - c_d) > 1e-4:
+							deep_bad += 1
+							if deep_bad <= 6:
+								print("  [hunt] DEEP cell(%d,%d) gd=%.6f cs=%.6f  Δ=%.6f" % [di, dj, g_d, c_d, absf(g_d - c_d)])
+								print("         me : %s" % _seq_str(hg[di]))
+								print("         foe: %s" % _seq_str(hf[dj]))
+				print("  [hunt] deep: %d divergent deepened cell(s) > 1e-4" % deep_bad)
+				if deep_bad == 0:
+					print("  [hunt] rich AND deep agree on all pipeline cells -> divergence is POST-matrix (dominance/solve/prune/value) -- report this line.")
 
 	print("")
 	if _fails == 0:
@@ -109,6 +175,19 @@ func _init() -> void:
 	else:
 		print("[agreement] %d / %d checks FAILED." % [_fails, _checks])
 	quit(0 if _fails == 0 else 1)
+
+func _need(path: String, marker: String) -> bool:
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		print("[env] MISSING FILE: %s" % path)
+		return false
+	var ok := f.get_as_text().contains(marker)
+	f.close()
+	if not ok:
+		print("[env] STALE: %s is an OLD version (marker '%s' not found) -- replace it." % [path, marker])
+	else:
+		print("[env] ok: %s" % path)
+	return ok
 
 # GDScript mirror of ExtremeAI.choose_sequence: unlimited budget, no opp model, no
 # sampling -- uses ExtremeAI's own statics so the pipeline is the real one.
@@ -128,6 +207,7 @@ func _gd_choose_mix(me: Combatant, foe: Combatant, grid: Grid) -> Dictionary:
 		M.append(row)
 	if Eval.LOOKAHEAD_DEPTH >= 2:
 		var deep_rows := int(ExtremeAI.P["rows_end"]) if grid.shrink_level >= 2 else int(ExtremeAI.P["rows"])
+		print("  [gd] deep rows pick: %s" % str(ExtremeAI._top_rows(M, deep_rows)))
 		var deep_cols := int(ExtremeAI.P["cols_end"]) if grid.shrink_level >= 2 else int(ExtremeAI.P["cols"])
 		var leaf := Eval.LOOKAHEAD_DEPTH - 1
 		if grid.shrink_level >= 3:
