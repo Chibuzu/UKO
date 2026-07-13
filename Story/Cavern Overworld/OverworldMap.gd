@@ -14,7 +14,15 @@ const BORDER := 1                # the outer ring of tiles is always wall
 # ── The BOSS PORTAL (Fra): a purple pad set INTO the right border wall. Stepping
 # on it hands you to a SEPARATE small arena map (StoryController owns the world
 # swap); the world map contains no boss room, and the boss spawns only there.
-const BOSS_DOOR := Vector2i(59, 30)     # the purple portal, set INTO the right border wall itself
+# ── THE CAVERN (Fra, final spec): an 8x8 BOX of blockers in the TOP-RIGHT of the
+# map. ONE open tile -- the door, on the south face -- is the only way in or out.
+# The serpent lives inside and does not stir until you cross that door.
+const CAVERN_BOX := Rect2i(48, 3, 8, 8)       # walls x48..55, y3..10; interior 6x6
+const CAVERN_DOOR := Vector2i(51, 10)         # the single opening, south face
+const CAVERN_BOSS := Vector2i(51, 6)          # where the serpent coils
+
+static func in_cavern(t: Vector2i) -> bool:
+	return CAVERN_BOX.has_point(t)
 
 # The spawn VILLAGE: the mob-free safe zone at world center. This is a FOUNDING BLOCK -- one
 # definition that world-gen, tile scatter, mob roaming, NPC placement and the controller all
@@ -117,8 +125,17 @@ func generate(seed_value: int) -> void:
 
 	# BOSS PORTAL: the arena is its OWN small map (StoryController swaps worlds), so
 	# nothing is carved here -- just the purple pad set into the border + its approach.
-	blocked[BOSS_DOOR.y][BOSS_DOOR.x] = false       # the portal pad is steppable
-	blocked[BOSS_DOOR.y][BOSS_DOOR.x - 1] = false   # guarantee a walkable approach
+	# THE CAVERN BOX: walls all round, open floor inside, ONE door on the south
+	# face -- plus a small cleared apron outside the door so blobs never seal it.
+	for cy in range(CAVERN_BOX.position.y, CAVERN_BOX.end.y):
+		for cx2 in range(CAVERN_BOX.position.x, CAVERN_BOX.end.x):
+			var edge := cx2 == CAVERN_BOX.position.x or cx2 == CAVERN_BOX.end.x - 1 \
+					or cy == CAVERN_BOX.position.y or cy == CAVERN_BOX.end.y - 1
+			blocked[cy][cx2] = edge
+	blocked[CAVERN_DOOR.y][CAVERN_DOOR.x] = false
+	for ay in range(CAVERN_DOOR.y + 1, CAVERN_DOOR.y + 3):
+		for ax in range(CAVERN_DOOR.x - 1, CAVERN_DOOR.x + 2):
+			blocked[ay][ax] = false
 
 	# Golden sanctuary tiles: a rare scattered few, all OUT in the wilds (never in the
 	# mob-free village), so mobs can always approach them -- they're a risk/reward rest, not a
@@ -161,7 +178,10 @@ func generate(seed_value: int) -> void:
 # A random open-range tile inside the playable border (never the outer wall ring). One helper
 # so every scatter pass draws from the same coordinate range.
 func _random_inner_tile(rng: RandomNumberGenerator) -> Vector2i:
-	return Vector2i(rng.randi_range(BORDER + 1, SIZE - 2 - BORDER), rng.randi_range(BORDER + 1, SIZE - 2 - BORDER))
+	var t := Vector2i(rng.randi_range(BORDER + 1, SIZE - 2 - BORDER), rng.randi_range(BORDER + 1, SIZE - 2 - BORDER))
+	while in_cavern(t):   # the serpent's chamber gets no gems/rests/mushrooms
+		t = Vector2i(rng.randi_range(BORDER + 1, SIZE - 2 - BORDER), rng.randi_range(BORDER + 1, SIZE - 2 - BORDER))
+	return t
 
 # ── gemstone nodes ────────────────────────────────────────────────────────────
 func _try_add_gem(t: Vector2i) -> void:

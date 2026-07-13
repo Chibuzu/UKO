@@ -21,12 +21,12 @@ const DEATH_GOLD_PENALTY := 25
 # Procedural spawning. Mob look/stats/behavior live in MobBrain.PROFILES (single source);
 # here we only decide HOW MANY and WHICH TYPES, then scatter them on open ground.
 const MOB_COUNT := 60
-const TYPE_WEIGHTS := [["bat", 50], ["slime", 38], ["serpent", 12]]
+const TYPE_WEIGHTS := [["bat", 55], ["slime", 45]]   # the serpent is the CAVE BOSS -- never in the wilds
 
 # Mobs wander the world while you roam. They step on this cadence (slower than you, so
 # you can outrun them), beeline toward you within MOB_AGGRO tiles, else drift randomly.
 const MOB_ROAM_CD := 0.55
-const MOB_AGGRO := 6              # mobs engage within 6 tiles of you (Chebyshev), not by window
+const MOB_AGGRO := 3              # mobs engage within 3 tiles (Chebyshev); stay wide and you can slip past
 
 # Passive recovery: every REGEN_EVERY actions YOU take (roam steps + combat actions), only
 # ENERGY comes back -- moving never heals. HP/MP are recovered by resting or a sanctuary tile.
@@ -46,11 +46,8 @@ const REST_SAFE := 5             # a sanctuary tile only rests you if no mob is 
 
 # ── Boss arena: a separate small map swapped in over the world (Fra spec). One
 # window-sized grid so nothing scrolls; the WARLORD exists ONLY here. ──
-const ARENA_SIZE := 12                       # 12x12 grid = exactly one board window
-const ARENA_FLOOR := Rect2i(2, 2, 8, 8)      # the open 8x8 fighting floor
-const ARENA_PLAYER := Vector2i(3, 5)         # you arrive here, facing the boss
-const ARENA_BOSS := Vector2i(8, 5)
-const ARENA_RETURN := Vector2i(9, 8)         # purple exit pad; appears once the boss is dead
+# The boss cavern is carved INTO the world map (OverworldMap.CAVERN_*): you walk
+# in through the mouth + corridor, fight, and walk out. No world-swap machinery.
 
 enum Phase { ROAM, COMBAT }
 
@@ -79,8 +76,8 @@ var _quests: Array = []               # live QuestKind objects for currently-act
 var _talk_npc: String = ""            # id of the NPC whose dialog is open (for re-refresh)
 var _paused: bool = false
 var _mob_cd: float = 0.0              # countdown to the next world-wander step for all mobs
-var _in_arena := false                # inside the boss arena (world stashed)
-var _world_stash: Dictionary = {}     # everything needed to restore the world on exit
+var _boss_slain := false              # the cavern serpent stays dead once slain (saved)
+var _boss_awake := false              # it does not stir until you cross the cavern door
 var _actions: int = 0                 # your actions since the last passive-regen tick
 var _day_clock: int = 0               # actions elapsed in the current day/night cycle
 var _is_night: bool = false
@@ -121,7 +118,9 @@ func _ready() -> void:
 	board.gem_set = omap.gem_set                   # purple gemstone nodes drawn on the board
 	board.mushroom_set = omap.mushroom_set         # rare mushroom nodes drawn on the board
 	board.building_set = omap.building_set         # village building footprints -> floor + sprites
-	board.portal_set = {OverworldMap.BOSS_DOOR: true}   # the purple boss portal in the border wall
+	# The boss entrance is a natural CAVE MOUTH (an open gap in the border wall),
+	# drawn as a dark opening so the break in the wall reads from a distance.
+	board.portal_set = {}
 
 	var start: Vector2i
 	if resuming:
@@ -151,10 +150,14 @@ func _ready() -> void:
 	res_hud.bind(player)
 
 	if resuming:
+		_boss_slain = bool(save.get("boss_slain", false))
 		_spawn_from_save(save.get("mobs", []))
 		turn_num = int(save.get("turn", 0))
+		if not _boss_slain:
+			_spawn_cavern_boss()               # the serpent keeps its lair across loads
 	else:
-		_spawn_mobs_procedural()   # the WARLORD is NOT here: he spawns only inside the arena
+		_spawn_mobs_procedural()
+		_spawn_cavern_boss()                   # the serpent exists ONLY in the cavern
 
 	fx = Fx.new()
 	board.add_child(fx)
@@ -242,8 +245,8 @@ func _tail_spot(head: Vector2i) -> Vector2i:
 	var occ := _occupied_tiles()
 	for d: Vector2i in [Vector2i(-1, 0), Vector2i(1, 0), Vector2i(0, -1), Vector2i(0, 1)]:
 		var t := head + d
-		if not omap.is_solid(t) and not occ.has(t):
-			return t
+		if not grid.is_blocked(t) and not occ.has(t):
+			return t                    # uses the CURRENT grid (works in the cavern too)
 	return head
 
 func _sync_tail_from(e: Dictionary, old_head: Vector2i, new_head: Vector2i) -> void:
@@ -269,7 +272,7 @@ func _spawn_mobs_procedural() -> void:
 	while placed < MOB_COUNT and guard < MOB_COUNT * 40:
 		guard += 1
 		var t := Vector2i(rng.randi_range(1, OverworldMap.SIZE - 2), rng.randi_range(1, OverworldMap.SIZE - 2))
-		if omap.is_solid(t) or OverworldMap.in_village(t) or taken.has(t):
+		if omap.is_solid(t) or OverworldMap.in_village(t) or OverworldMap.in_cavern(t) or taken.has(t):
 			continue
 		taken[t] = true
 		_add_mob(_roll_type(rng), t)
@@ -277,7 +280,11 @@ func _spawn_mobs_procedural() -> void:
 
 # Resume: rebuild each saved mob at its exact type/tile/state.
 func _spawn_from_save(mob_data: Array) -> void:
+	# Pre-cavern saves stored WILD serpents; those ghosts are purged -- the one true
+	# serpent respawns in its lair via _spawn_cavern_boss (unless already slain).
 	for md in mob_data:
+		if String(md.get("type", "")) == "serpent":
+			continue   # pre-cavern ghost -- the boss is respawned separately
 		var e := _add_mob(String(md["type"]), _v2i(md["pos"]))
 		var c: Combatant = e["combatant"]
 		c.facing = int(md.get("facing", Config.Facing.SOUTH))
@@ -351,8 +358,6 @@ func _refresh_rest_prompt() -> void:
 	menu.set_roam_extras(extras)
 
 func _pause_save() -> void:
-	if _in_arena:
-		return                          # no saving inside the boss arena (the world is stashed)
 	StorySave.write(_gather_save())    # SAVE button: write, then let the overlay confirm
 	pause_menu.note_saved()
 
@@ -374,11 +379,9 @@ func _roam(delta: float) -> void:
 		return
 	player.pos = target
 	player_uv.tween_to(target)
-	# ── BOSS ARENA doors (Fra) ────────────────────────────────────────────────
-	if not _in_arena and target == OverworldMap.BOSS_DOOR:
-		_enter_boss_arena()                        # the world is stashed; the arena map swaps in
-	elif _in_arena and target == ARENA_RETURN and _boss_dead():
-		_exit_boss_arena()                         # kill confirmed: back to the story map
+	if not _boss_awake and OverworldMap.in_cavern(target):
+		_boss_awake = true             # you crossed the door: the serpent stirs
+		board.spawn_number(player_uv.position + Vector2(0, -20), "The serpent stirs!", ViewConfig.COL_DMG)
 	_bump_actions(1)                   # a step is an action -> feeds the every-6 regen
 	_follow_window()                   # scroll only near the window edge -> you visibly walk
 	if omap.is_rest(player.pos):
@@ -474,10 +477,15 @@ func _combat_turn(engaged: Array) -> void:
 			engaged[i]["uv"].tween_span(m_after.pos, engaged[i]["tail"])   # incl. the nearest: re-center the span
 		elif i > 0:
 			engaged[i]["uv"].tween_to(m_after.pos)   # nearest already moved via play.play
+		_face_toward(engaged[i]["combatant"], engaged[i]["uv"], p_end)   # heads track you in combat too
+		var tried: int = int(res.get("attempts_by_mob", [])[i]) if i < res.get("attempts_by_mob", []).size() else (1 if int(dmg[i]) > 0 else 0)
+		if tried > 0:
+			engaged[i]["uv"].play_attack(Vector2(p_end - m_after.pos))   # every ATTEMPT shows (ooze: directional spit)
 		if int(dmg[i]) > 0:
-			engaged[i]["uv"].play_attack(Vector2(p_end - m_after.pos))   # ooze: directional spit; others: plain attack
 			player_uv.flash(ViewConfig.FLASH_HIT)
 			board.spawn_number(player_uv.position, "-%d" % int(dmg[i]), ViewConfig.COL_DMG)
+		elif tried > 0:
+			board.spawn_number(engaged[i]["uv"].position + Vector2(0, -14), "MISS", ViewConfig.COL_TEXT)
 		engaged[i]["uv"].set_display_hp(m_after.hp)
 
 	# Commit state (resources persist), run per-mob post-turn hooks (splits etc.), clear/loot dead.
@@ -493,7 +501,6 @@ func _combat_turn(engaged: Array) -> void:
 		_face_toward(e["combatant"], e["uv"], player.pos)   # end of turn: mobs turn to face you
 	_bump_actions(player_seq.size())   # your actions this turn feed the every-6 regen
 	_clear_dead()
-	_refresh_boss_exit()
 	# The mob strikes bypass the resolver, so synthesise a hit line for each so the log shows
 	# them too -- with the same directional flank tier that scaled the damage.
 	var log_events: Array = res["primary_events"].duplicate()
@@ -521,6 +528,9 @@ func _combat_turn(engaged: Array) -> void:
 			combat_log.add_note("%s held its ground" % name, ViewConfig.COL_TEXT)
 		if i < strikes.size() and int(strikes[i]) >= 2:
 			combat_log.add_note("%s struck x%d!" % [name, int(strikes[i])], ViewConfig.COL_DMG)
+	for sl in res.get("strike_log", []):
+		if not bool(sl["hit"]):
+			combat_log.add_note("%s strike @%d missed -- %s" % [_mob_label(engaged[int(sl["mob"])]), int(sl["tick"]), String(sl["why"])], ViewConfig.COL_TEXT)
 	for e in res["primary_events"]:
 		if String(e.get("type", "")) == "illegal_action" and String(e.get("owner", "")) == "A":
 			combat_log.add_note("One of your actions fizzled (cost/cooldown)", ViewConfig.COL_DMG)
@@ -539,75 +549,12 @@ func _teleport(t: Vector2i) -> void:
 	player_uv.init_state(player)       # snap, not a tween across the whole world
 	_follow_window()
 
-func _boss_dead() -> bool:
-	for m in mobs:
-		if String(m.get("type", "")) == "boss":
-			return m["combatant"].is_dead()
-	return true                        # not in the live list (looted/removed) -> dead
-
-# Once the WARLORD is down, the purple EXIT pad appears inside the arena
-# (portal_set is board-drawn, so per-turn highlight clears can't eat it).
-func _refresh_boss_exit() -> void:
-	if _in_arena and _boss_dead() and not board.portal_set.has(ARENA_RETURN):
-		board.portal_set[ARENA_RETURN] = true
-		board.queue_redraw()
-
-# ── Boss arena swap (Fra): step the wall portal -> fight on a separate 8x8 map ──
-func _enter_boss_arena() -> void:
-	_in_arena = true
-	_world_stash = {
-		"grid": grid, "player_pos": player.pos, "win": _win,
-		"rest": board.rest_set, "gem": board.gem_set, "mush": board.mushroom_set,
-		"build": board.building_set, "portal": board.portal_set,
-	}
-	for m in mobs:
-		m["uv"].visible = false
-	for n in npcs:
-		if n["uv"] != null:
-			n["uv"].visible = false
-	var ag := WorldGrid.new()
-	ag.build_arena(ARENA_SIZE, ARENA_FLOOR)
-	grid = ag
-	board.rest_set = {}
-	board.gem_set = {}
-	board.mushroom_set = {}
-	board.building_set = {}
-	board.portal_set = {}
-	board.setup_world(grid)
-	player.pos = ARENA_PLAYER
-	player.facing = Config.Facing.EAST
-	player_uv.init_state(player)
-	_win = Vector2i.ZERO
-	_apply_window()
-	var b := _add_mob("boss", ARENA_BOSS)      # the WARLORD exists ONLY here
-	b["arena"] = true
-
-func _exit_boss_arena() -> void:
-	_in_arena = false
-	for m in mobs:                              # scrub any arena entry (boss corpse is
-		if m.get("arena", false) and is_instance_valid(m["uv"]):
-			m["uv"].queue_free()                # normally already looted+freed by _clear_dead)
-	mobs = mobs.filter(func(m): return not m.get("arena", false))
-	grid = _world_stash["grid"]
-	board.rest_set = _world_stash["rest"]
-	board.gem_set = _world_stash["gem"]
-	board.mushroom_set = _world_stash["mush"]
-	board.building_set = _world_stash["build"]
-	board.portal_set = _world_stash["portal"]
-	board.setup_world(grid)
-	player.pos = OverworldMap.BOSS_DOOR + Vector2i(-1, 0)   # back beside the wall portal
-	player_uv.init_state(player)
-	_init_window()
-	for m in mobs:
-		m["uv"].visible = _in_window(m["combatant"].pos, _win)
-	for n in npcs:
-		if n["uv"] != null:
-			n["uv"].visible = _in_window(n["tile"], _win) and not _npcs_sleeping
-	_world_stash = {}
+# The serpent: spawned in the cavern on a new world, and again on load unless slain.
+func _spawn_cavern_boss() -> void:
+	var b := _add_mob("serpent", OverworldMap.CAVERN_BOSS)
+	b["boss"] = true                    # slaying it is remembered in the save
 
 func _die() -> void:
-	if _in_arena:
-		_exit_boss_arena()               # never die trapped: restore the world first
 	# A setback: you forfeit some gold (that lives on your profile, so it persists) and return
 	# to the menu. Story progress is NOT auto-written -- you resume from your last manual save.
 	PlayerProfile.spend_gold(mini(DEATH_GOLD_PENALTY, PlayerProfile.gold()))
@@ -656,15 +603,13 @@ func _in_window(p: Vector2i, o: Vector2i) -> bool:
 func _engaged() -> Array:
 	var out: Array = []
 	for m in mobs:
-		if _in_arena:
-			if m.get("arena", false):
-				out.append(m)                       # arena: the boss, nothing else
-		else:
-			var ad := _cheb(m["combatant"].pos)
-			if m.get("tiles", 1) >= 2:
-				ad = mini(ad, _cheb(m["tail"]))     # the body counts: brush the tail, wake the beast
-			if ad <= MOB_AGGRO:
-				out.append(m)                       # world: 6-tile aggro, not the window
+		if m.get("boss", false) and not _boss_awake:
+			continue                                # asleep: untouchable until you enter
+		var ad := _cheb(m["combatant"].pos)
+		if m.get("tiles", 1) >= 2:
+			ad = mini(ad, _cheb(m["tail"]))         # the body counts: brush the tail, wake the beast
+		if ad <= MOB_AGGRO:
+			out.append(m)
 	out.sort_custom(func(x, y):
 		return _cheb(x["combatant"].pos) < _cheb(y["combatant"].pos))
 	return out
@@ -676,6 +621,8 @@ func _clear_dead() -> void:
 	var keep: Array = []
 	for m in mobs:
 		if m["combatant"].is_dead():
+			if m.get("boss", false):
+				_boss_slain = true                    # the cavern stays quiet forever after
 			_grant_loot(m)
 			_quest_event("kill", String(m["type"]))   # advance any active kill quests
 			m["uv"].queue_free()
@@ -949,14 +896,17 @@ func _face_toward(c: Combatant, uv: UnitView, target: Vector2i) -> void:
 # otherwise drift. They never enter the village (your safe zone) and never overlap. A mob
 # that steps into your window starts combat, exactly like walking into one yourself.
 func _mob_roam(delta: float) -> void:
-	if mobs.is_empty() or _in_arena:
-		return   # the world is stashed while you fight the boss; nothing wanders
+	if mobs.is_empty():
+		return
 	_mob_cd -= delta
 	if _mob_cd > 0.0:
 		return
 	_mob_cd = MOB_ROAM_CD
 	var occ := _occupied_tiles()
 	for m in mobs:
+		if m.get("boss", false) and not _boss_awake:
+			m["uv"].visible = _mob_visible(m)
+			continue   # the serpent sleeps until you cross its door
 		var c: Combatant = m["combatant"]
 		var step := _wander_step(c.pos, occ)
 		if step != c.pos:
@@ -1090,7 +1040,7 @@ func _spawn_night_mobs(rng: RandomNumberGenerator, count: int) -> void:
 	while placed < count and guard < count * 60:
 		guard += 1
 		var t := Vector2i(rng.randi_range(1, OverworldMap.SIZE - 2), rng.randi_range(1, OverworldMap.SIZE - 2))
-		if omap.is_solid(t) or OverworldMap.in_village(t):
+		if omap.is_solid(t) or OverworldMap.in_village(t) or OverworldMap.in_cavern(t):
 			continue
 		_add_mob(_roll_type(rng), t)
 		placed += 1
@@ -1164,6 +1114,7 @@ func _gather_save() -> Dictionary:
 	return {
 		"version": 1,
 		"seed": _seed,
+		"boss_slain": _boss_slain,
 		"turn": turn_num,
 		"player": {
 			"pos": [player.pos.x, player.pos.y],

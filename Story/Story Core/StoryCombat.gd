@@ -47,20 +47,29 @@ static func resolve_turn(grid: WorldGrid, player_in: Combatant, mobs: Array,
 	var dmg_by_mob: Array = []
 	var dmg_total: int = 0
 	var strikes_by_mob: Array = []
+	var attempts_by_mob: Array = []
+	var strike_log: Array = []
 	for i in mobs.size():
-		var budget: int = clampi(2 - _move_count(mob_seqs[i]), 0, 2)
-		var ticks: Array = [900] if budget == 1 else ([350, 900] if budget == 2 else [])
+		# Strike ticks follow the mob's ACTION ORDER, not just its budget: an
+		# attack in slot 1 lands at 350, in slot 2 at 900. ([attack, move] used to
+		# be judged at 900 -- dodging attack-first mobs was mistimed.)
+		var ticks: Array = _strike_ticks(mob_seqs[i])
 		var landed: int = 0
 		var d: int = 0
 		for st in ticks:
 			var snap := _player_at(timeline, int(st), player_final)
 			if snap == null:
+				strike_log.append({"mob": i, "tick": int(st), "hit": false, "why": "you were mid-blink"})
 				continue                    # in transit (mid-blink): untargetable -> miss
 			var hit: int = mob_kinds[i].attack_damage(out_mobs[i], snap, grid, guarded)
 			if hit > 0:
 				landed += 1
 				d += hit
+				strike_log.append({"mob": i, "tick": int(st), "hit": true, "dmg": hit})
+			else:
+				strike_log.append({"mob": i, "tick": int(st), "hit": false, "why": "out of reach at that tick"})
 		strikes_by_mob.append(landed)
+		attempts_by_mob.append(ticks.size())
 		dmg_by_mob.append(d)
 		dmg_total += d
 
@@ -84,12 +93,26 @@ static func resolve_turn(grid: WorldGrid, player_in: Combatant, mobs: Array,
 		"primary_events": primary_events,
 		"dmg_by_mob": dmg_by_mob,
 		"strikes_by_mob": strikes_by_mob,
+		"attempts_by_mob": attempts_by_mob,
+		"strike_log": strike_log,
 		"guard_refund": guard_refund,
 		"result": result,
 	}
 
 # The player's (pos, facing) at every change-tick this turn, from the pair-0 events.
 # Entries: {tick, pos, facing, transit}. transit=true between blink_depart and blink.
+# Mob plans are MOVE-ONLY by design (MobKind: an attack is never a resolver action).
+# Strikes come from the UNUSED action budget: 2 actions per turn, moves consume them,
+# what's left strikes -- in the LATER slots (you move first, then bite). So:
+#   0 moves -> strikes at [350, 900];  1 move -> [900];  2 moves -> none.
+static func _strike_ticks(seq: Array) -> Array:
+	var budget: int = clampi(2 - _move_count(seq), 0, 2)
+	if budget >= 2:
+		return [350, 900]
+	if budget == 1:
+		return [900]
+	return []
+
 static func _player_timeline(start: Combatant, events: Array) -> Array:
 	var tl: Array = [{"tick": -1, "pos": start.pos, "facing": start.facing, "transit": false}]
 	for e in events:

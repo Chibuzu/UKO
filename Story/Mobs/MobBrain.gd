@@ -15,7 +15,7 @@ const PROFILES := {
 	},
 	"slime": {
 		"name": "Slime", "hp": 80, "scale": 0.90, "tint": Color(0.55, 1.00, 0.62), "art": "ooze",
-		"dmg": 15,
+		"dmg": 10,   # x flank multiplier (front 1.0 / side 1.5 / back 2.0), like a duel
 		"loot": [ { "item": "slime_gel", "chance": 0.70 } ],
 	},
 	# The boss (Fra: fight designed later -- base melee behavior as the placeholder).
