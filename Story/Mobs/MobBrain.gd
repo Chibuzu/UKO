@@ -25,7 +25,7 @@ const PROFILES := {
 		"loot": [ { "item": "serpent_fang", "chance": 1.00 } ],
 	},
 	"serpent": {
-		"name": "Serpent", "hp": 100, "scale": 1.15, "tint": Color(0.90, 0.52, 0.55),
+		"name": "Serpent", "art": "serpent", "tiles": 2, "hp": 100, "scale": 1.15, "tint": Color(0.90, 0.52, 0.55),
 		"dmg": 15,
 		"loot": [ { "item": "serpent_scale", "chance": 1.00 }, { "item": "serpent_fang", "chance": 0.20 } ],
 	},

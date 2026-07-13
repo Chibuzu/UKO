@@ -7,11 +7,15 @@
 class_name NPCBook
 extends RefCounted
 
+# IDs are STABLE (quests + saves reference them); only display names and art change.
+# "art": idle frames from Assets/Sprites/Village Characters/ (1 frame = still, 2 = sway).
 const NPCS := {
-	"warden": { "name": "Warden", "color": Color(0.45, 0.62, 0.95), "offset": Vector2i(-3, -2), "quest": "cull_bats" },
-	"scout":  { "name": "Scout",  "color": Color(0.50, 0.85, 0.55), "offset": Vector2i( 3, -2), "quest": "find_shrines" },
-	"trader": { "name": "Trader", "color": Color(0.95, 0.80, 0.35), "offset": Vector2i(-3,  3), "quest": "gel_delivery" },
-	"miner":  { "name": "Miner",  "color": Color(0.60, 0.45, 0.80), "offset": Vector2i( 3,  3), "quest": "gem_haul" },
+	"warden": { "name": "Ancient",  "color": Color(0.45, 0.62, 0.95), "offset": Vector2i(-3, -2), "quest": "cull_bats",   "art": ["Ancient.png"] },
+	"scout":  { "name": "Cowboy",   "color": Color(0.50, 0.85, 0.55), "offset": Vector2i( 3, -2), "quest": "find_shrines", "art": ["Cowboy_1.png", "Cowboy_2.png"] },
+	"trader": { "name": "Chief",    "color": Color(0.95, 0.80, 0.35), "offset": Vector2i(-3,  3), "quest": "gel_delivery", "art": ["Chief_1.png", "Chief_2.png"] },
+	"miner":  { "name": "Miner",    "color": Color(0.60, 0.45, 0.80), "offset": Vector2i( 3,  3), "quest": "gem_haul",    "art": ["Miner_1.png", "Miner_2.png"] },
+	# The Merchant: no quest yet -- talking gives a flavor line until the shop role lands.
+	"merchant": { "name": "Merchant", "color": Color(0.90, 0.55, 0.30), "offset": Vector2i(0, 3), "quest": "", "art": ["Merchant.png"] },
 }
 
 static func ids() -> Array:

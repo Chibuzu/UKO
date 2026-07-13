@@ -18,6 +18,8 @@ var portal_set: Dictionary = {}   # Vector2i boss-portal pads -> true (drawn glo
 var building_set: Dictionary = {} # Vector2i village building footprints -> floor here + sprite on top
 const GEM_PATH := "res://Assets/Sprites/Gemstone_sprite.png"
 var gem_tex: Texture2D = null     # gemstone node art; falls back to the purple tile if absent
+var mush_tex: Texture2D = null    # mushroom node art; falls back to the drawn cap+stem
+const MUSH_PATH := "res://Assets/Sprites/Mushroom_1.png"
 # Village art (houses/market/player home static; well + belt are 4-frame animations at 4 FPS).
 const VILLAGE_DIR := "res://Assets/Sprites/Village/"
 const HOUSE_FILES := ["Double_home_1.png", "Double_home_2.png", "Double_home_3.png"]
@@ -42,6 +44,8 @@ func setup_world(g: Grid) -> void:
 		texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	if gem_tex == null and ResourceLoader.exists(GEM_PATH):
 		gem_tex = load(GEM_PATH)
+	if mush_tex == null and ResourceLoader.exists(MUSH_PATH):
+		mush_tex = load(MUSH_PATH)
 		texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	if border_tex == null and ResourceLoader.exists(BORDER_BLOCKER_PATH):
 		border_tex = load(BORDER_BLOCKER_PATH)
@@ -128,11 +132,14 @@ func _draw() -> void:
 					draw_rect(rect, Color(0.42, 0.18, 0.66))
 					draw_rect(Rect2(rect.position + Vector2(T * 0.18, T * 0.18), Vector2(T * 0.64, T * 0.64)), Color(0.72, 0.42, 1.0))
 					draw_rect(rect, Color(0.90, 0.62, 1.0), false, 2.0)
-				elif mushroom_set.has(Vector2i(wx, wy)):  # mushroom node (rare): red cap + pale stem
-					var stem := Rect2(rect.position + Vector2(T * 0.40, T * 0.52), Vector2(T * 0.20, T * 0.30))
-					var cap := Rect2(rect.position + Vector2(T * 0.20, T * 0.22), Vector2(T * 0.60, T * 0.34))
-					draw_rect(stem, ViewConfig.COL_MUSH_STEM)
-					draw_rect(cap, ViewConfig.COL_MUSH)
+				elif mushroom_set.has(Vector2i(wx, wy)):  # mushroom node (rare)
+					if mush_tex:
+						draw_texture_rect(mush_tex, rect, false)
+					else:
+						var stem := Rect2(rect.position + Vector2(T * 0.40, T * 0.52), Vector2(T * 0.20, T * 0.30))
+						var cap := Rect2(rect.position + Vector2(T * 0.20, T * 0.22), Vector2(T * 0.60, T * 0.34))
+						draw_rect(stem, ViewConfig.COL_MUSH_STEM)
+						draw_rect(cap, ViewConfig.COL_MUSH)
 			draw_rect(rect, ViewConfig.COL_GRID_LINE, false, 1.0)
 	_draw_village(T)
 	for pos in highlights:

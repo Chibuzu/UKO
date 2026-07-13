@@ -230,8 +230,34 @@ func _add_mob(type: String, tile: Vector2i) -> Dictionary:
 	var sc: float = float(prof.get("scale", 1.0))
 	uv.scale = Vector2(sc, sc)
 	var entry := {"combatant": c, "uv": uv, "kind": MobBrain.make_kind(type), "type": type}
+	if int(prof.get("tiles", 1)) >= 2:
+		entry["tiles"] = 2
+		entry["tail"] = _tail_spot(tile)           # the body behind the head
+		uv.set_span(tile, entry["tail"])           # wide art centered across both tiles
 	mobs.append(entry)
 	return entry
+
+# A free cardinal neighbor for a two-tile body's tail; the head's own tile if boxed in.
+func _tail_spot(head: Vector2i) -> Vector2i:
+	var occ := _occupied_tiles()
+	for d: Vector2i in [Vector2i(-1, 0), Vector2i(1, 0), Vector2i(0, -1), Vector2i(0, 1)]:
+		var t := head + d
+		if not omap.is_solid(t) and not occ.has(t):
+			return t
+	return head
+
+func _sync_tail_from(e: Dictionary, old_head: Vector2i, new_head: Vector2i) -> void:
+	if e.get("tiles", 1) >= 2 and new_head != old_head:
+		e["tail"] = old_head
+
+func _sync_tail(e: Dictionary, old_head: Vector2i) -> void:
+	if e.get("tiles", 1) >= 2 and e["combatant"].pos != old_head:
+		e["tail"] = old_head                        # the body follows the path
+
+func _mob_visible(e: Dictionary) -> bool:
+	if _in_window(e["combatant"].pos, _win):
+		return true
+	return e.get("tiles", 1) >= 2 and _in_window(e["tail"], _win)
 
 # New game: scatter mobs on open tiles outside the spawn village, types by weight.
 func _spawn_mobs_procedural() -> void:
@@ -261,6 +287,9 @@ func _spawn_from_save(mob_data: Array) -> void:
 		c.statuses = _int_dict(md.get("statuses", {}))
 		e["uv"].init_state(c)
 		e["uv"].set_facing(c.facing)
+		if e.get("tiles", 1) >= 2:
+			e["tail"] = _tail_spot(c.pos)          # tails aren't saved; re-derive beside the head
+			e["uv"].set_span(c.pos, e["tail"])
 
 # ── roam (real-time WASD) until a monster is in view, then the loop flips to COMBAT ─
 func _process(delta: float) -> void:
@@ -417,10 +446,21 @@ func _combat_turn(engaged: Array) -> void:
 		# kites to range-2 and pokes; SlimeKind brawls adjacent and owns the split).
 		mob_seqs.append(engaged[i]["kind"].plan(engaged[i]["combatant"], player, g))
 
+	# Two-tile bodies: aiming at a serpent's TAIL is aiming at the serpent -- remap
+	# the action's tile to its head so the resolver connects; tails become walls.
+	var tails: Array = []
+	for i in engaged.size():
+		if engaged[i].get("tiles", 1) >= 2:
+			tails.append(engaged[i]["tail"])
+			for act in player_seq:
+				if act.has("tile") and Vector2i(act["tile"]) == Vector2i(engaged[i]["tail"]):
+					act["tile"] = engaged[i]["combatant"].pos
+	var pre_pos: Array = []
 	var pre_hp: Array = []
 	for c in mob_cs:
+		pre_pos.append(c.pos)
 		pre_hp.append(c.hp)
-	var res := StoryCombat.resolve_turn(grid, player, mob_cs, player_seq, mob_seqs, mob_kinds)
+	var res := StoryCombat.resolve_turn(grid, player, mob_cs, player_seq, mob_seqs, mob_kinds, tails)
 	var dmg: Array = res["dmg_by_mob"]
 	var p_end: Vector2i = res["player"].pos
 
@@ -429,7 +469,10 @@ func _combat_turn(engaged: Array) -> void:
 	await play.play(res["primary_events"], res["player"], res["mobs"][0])
 	for i in engaged.size():
 		var m_after: Combatant = res["mobs"][i]
-		if i > 0:
+		_sync_tail_from(engaged[i], Vector2i(pre_pos[i]), m_after.pos)
+		if engaged[i].get("tiles", 1) >= 2:
+			engaged[i]["uv"].tween_span(m_after.pos, engaged[i]["tail"])   # incl. the nearest: re-center the span
+		elif i > 0:
 			engaged[i]["uv"].tween_to(m_after.pos)   # nearest already moved via play.play
 		if int(dmg[i]) > 0:
 			engaged[i]["uv"].play_attack(Vector2(p_end - m_after.pos))   # ooze: directional spit; others: plain attack
@@ -616,8 +659,12 @@ func _engaged() -> Array:
 		if _in_arena:
 			if m.get("arena", false):
 				out.append(m)                       # arena: the boss, nothing else
-		elif _cheb(m["combatant"].pos) <= MOB_AGGRO:
-			out.append(m)                           # world: 6-tile aggro, not the window
+		else:
+			var ad := _cheb(m["combatant"].pos)
+			if m.get("tiles", 1) >= 2:
+				ad = mini(ad, _cheb(m["tail"]))     # the body counts: brush the tail, wake the beast
+			if ad <= MOB_AGGRO:
+				out.append(m)                       # world: 6-tile aggro, not the window
 	out.sort_custom(func(x, y):
 		return _cheb(x["combatant"].pos) < _cheb(y["combatant"].pos))
 	return out
@@ -658,6 +705,7 @@ func _spawn_npcs() -> void:
 		uv.disc_only = true
 		uv.disc_color = nd.get("color", Color.WHITE)
 		uv.prop = true                             # no facing/HP bars -- villagers, not fighters
+		uv.npc_art = nd.get("art", [])             # character sprite (falls back to the disc)
 		uv.init_state(marker)
 		uv.unit_id = String(nd.get("name", "?"))
 		npcs.append({"id": id, "uv": uv, "tile": tile})
@@ -778,6 +826,13 @@ func _talk_nearby() -> void:
 		return
 	_talk_npc = npc
 	_paused = true
+	if NPCBook.quest_of(npc) == "":
+		# Questless villager (the Merchant, for now): a flavor line, no dialog panel.
+		for n in npcs:
+			if String(n["id"]) == npc:
+				board.spawn_number(n["uv"].position + Vector2(0, -18), "Wares soon, traveler.", ViewConfig.COL_GOLD)
+				break
+		return
 	quest_dialog.open_for(_npc_dialog_data(npc))
 
 # Snapshot of an NPC's quest for the dialog: which button to show + current progress text.
@@ -905,12 +960,19 @@ func _mob_roam(delta: float) -> void:
 		var c: Combatant = m["combatant"]
 		var step := _wander_step(c.pos, occ)
 		if step != c.pos:
-			occ.erase(c.pos)
-			occ[step] = true
-			c.pos = step
-			m["uv"].tween_to(step)
+			if m.get("tiles", 1) >= 2:
+				occ.erase(m["tail"])               # tail vacates; the old head becomes the tail
+				m["tail"] = c.pos
+				occ[step] = true
+				c.pos = step
+				m["uv"].tween_span(c.pos, m["tail"])
+			else:
+				occ.erase(c.pos)
+				occ[step] = true
+				c.pos = step
+				m["uv"].tween_to(step)
 		_face_toward(c, m["uv"], player.pos)         # always turned to face you
-		m["uv"].visible = _in_window(c.pos, _win)
+		m["uv"].visible = _mob_visible(m)
 	if not _engaged().is_empty():
 		_phase = Phase.COMBAT
 		_combat_loop()
@@ -938,6 +1000,8 @@ func _occupied_tiles() -> Dictionary:
 	var occ: Dictionary = { player.pos: true }
 	for m in mobs:
 		occ[m["combatant"].pos] = true
+		if m.get("tiles", 1) >= 2:
+			occ[m["tail"]] = true                  # the serpent's body is ground you can't take
 	return occ
 
 # The tile a single-target ATTACK in this sequence aims at (-1,-1 if none).

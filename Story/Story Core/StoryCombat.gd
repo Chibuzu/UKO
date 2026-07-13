@@ -15,12 +15,14 @@ extends RefCounted
 # mobs / mob_seqs / mob_kinds are parallel arrays, nearest first.
 # Returns { player, mobs:[Combatant], primary_events, dmg_by_mob:[int], result }.
 static func resolve_turn(grid: WorldGrid, player_in: Combatant, mobs: Array,
-		player_seq: Array, mob_seqs: Array, mob_kinds: Array) -> Dictionary:
+		player_seq: Array, mob_seqs: Array, mob_kinds: Array, extra_walls: Array = []) -> Dictionary:
 	var guarded: bool = _player_guarded(player_seq)
 	var player_final: Combatant = player_in.clone()
 	var out_mobs: Array = []
 	var primary_events: Array = []
 	var occupied: Dictionary = {}
+	for t in extra_walls:
+		occupied[t] = true            # two-tile bodies: every tail is solid ground
 
 	for i in mobs.size():
 		var g: WorldGrid = _grid_blocking_others(grid, mobs, occupied, i)

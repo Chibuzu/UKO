@@ -65,7 +65,9 @@ var art_key: String = ""               # non-empty -> build an animated body fro
 # directional_art: player art points UP and is rotated onto the move/attack vector; mob art is
 # drawn facing its own way, so it plays upright and is only flipped left/right.
 var directional_art: bool = true
-var prop: bool = false                 # NPCs: a labeled disc with no facing/HP bars (not a combatant)
+var prop: bool = false                 # NPCs: no facing/HP bars (not a combatant)
+var npc_art: Array = []                # NPC idle frames (Village Characters/); empty -> disc
+const NPC_ART_DIR := "res://Assets/Sprites/Village Characters/"
 var body: AnimatedSprite2D = null     # null = no art found, draw the disc instead
 var _body_offset_y: float = SPRITE_OFFSET_Y   # this body's seated offset (player -6; mobs from their set)
 var _anim_offset: Dictionary = {}     # per-animation vertical seat (player anims); mobs fall back to _body_offset_y
@@ -81,7 +83,9 @@ func init_state(c: Combatant) -> void:
 	unit_id = c.id
 	base_color = disc_color if disc_only else (ViewConfig.COL_A if c.id == "A" else ViewConfig.COL_B)
 	if body == null:
-		if art_key != "" and SpriteBook.has(art_key):
+		if prop and npc_art.size() > 0:
+			_build_npc_body()                                    # villager character art
+		elif art_key != "" and SpriteBook.has(art_key):
 			_build_mob_body(SpriteBook.set_of(art_key))          # animated monster from its sprite set
 		elif not disc_only and ResourceLoader.exists(BASE_DIR + "Idle_1.png"):
 			_build_player_body()                                 # the duelist sprite (+ effect overlay)
@@ -113,6 +117,24 @@ func _build_player_body() -> void:
 	overlay.visible = false
 	add_child(overlay)
 	overlay.animation_finished.connect(_on_overlay_finished)
+
+# A villager's little idle body: 1 frame = still portrait, 2 frames = gentle sway.
+func _build_npc_body() -> void:
+	var sf := SpriteFrames.new()
+	var files: Array = []
+	for f in npc_art:
+		files.append(String(f))
+	_add_anim(sf, NPC_ART_DIR, "idle", files, 1.6, true)
+	if sf.get_frame_count("idle") == 0:
+		return                                               # art missing -> keep the disc
+	body = AnimatedSprite2D.new()
+	body.sprite_frames = sf
+	body.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	body.centered = true
+	body.offset = Vector2(0, SPRITE_OFFSET_Y)                # feet on the tile, like fighters
+	body.show_behind_parent = true
+	add_child(body)
+	body.play("idle")
 
 # A story monster's animated body, built from its SpriteBook set. No effect overlay (mobs don't
 # pivot/cast); art plays upright (directional_art from the set). Falls back to a disc if the set
@@ -223,6 +245,25 @@ func play_attack(dir: Vector2) -> void:
 			play_anim(named)
 			return
 	play_anim("attack", dir)
+
+# ── Two-tile creatures (the serpent): the view sits at the MIDPOINT of head+tail
+# and the wide art faces the head (boss art is drawn facing RIGHT; flip when the
+# head is to the LEFT of the tail). Vertical spans keep the horizontal pose (v1).
+func set_span(head: Vector2i, tail: Vector2i) -> void:
+	position = ViewConfig.tile_center(head).lerp(ViewConfig.tile_center(tail), 0.5)
+	if body:
+		body.flip_h = head.x < tail.x
+
+func tween_span(head: Vector2i, tail: Vector2i) -> void:
+	var target := ViewConfig.tile_center(head).lerp(ViewConfig.tile_center(tail), 0.5)
+	var delta := target - position
+	if body:
+		body.flip_h = head.x < tail.x
+		if delta.length() > 0.5:
+			play_anim("move", delta)
+	var t := create_tween()
+	t.tween_property(self, "position", target, ViewConfig.MOVE_DUR) \
+		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
 
 func tween_to(pos: Vector2i) -> void:
 	var target := ViewConfig.tile_center(pos)

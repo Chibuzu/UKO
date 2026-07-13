@@ -46,6 +46,20 @@ const SETS := {
 			"summon": { "fps": 5.0, "loop": false, "files": ["Ooze_summon_1.png", "Ooze_summon_2.png", "Ooze_Summon_3.png", "Ooze_summon_4.png", "Ooze_summon_5.png"] },
 		},
 	},
+	"serpent": {
+		# The First Boss animation set, worn by the serpent (Fra). Two-tile creature:
+		# UnitView spans it across head+tail via set_span/tween_span.
+		"dir": "res://Assets/Sprites/First Boss/",
+		"directional": false,
+		"offset_y": 0.0,
+		"anims": {
+			"idle":     { "fps": 2.0, "loop": true,  "files": ["BossMove_1.png", "BossMove_2.png"] },
+			"move":     { "fps": 7.0, "loop": false, "files": ["BossMove_1.png", "BossMove_2.png", "BossMove_3.png", "BossMove_4.png", "BossMove_5.png", "BossMove_6.png", "BossMove_7.png"] },
+			"sidemove": { "fps": 7.0, "loop": false, "files": ["BossSideMove_1.png", "BossSideMove_2.png", "BossSideMove_3.png", "BossSideMove_4.png", "BossSideMove_5.png", "BossSideMove_6.png", "BossSideMove_7.png"] },
+			"attack":   { "fps": 8.0, "loop": false, "files": ["BossMelee_1.png", "BossMelee_2.png", "BossMelee_3.png", "BossMelee_4.png", "BossMelee_5.png", "BossMelee_6.png", "BossMelee_7.png", "BossMelee_8.png"] },
+			"aoe":      { "fps": 8.0, "loop": false, "files": ["BossAoE_1.png", "BossAoE_2.png", "BossAoE_3.png", "BossAoE_4.png", "BossAoE_5.png", "BossAoE_6.png", "BossAoE_7.png", "BossAoE_8.png", "BossAoE_9.png", "BossAoE_10.png", "BossAoE_11.png"] },
+		},
+	},
 }
 
 static func has(key: String) -> bool:
