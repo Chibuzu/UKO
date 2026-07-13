@@ -36,7 +36,13 @@ const SETS := {
 		"anims": {
 			"idle":   { "fps": 2.0, "loop": true,  "files": ["Ooze_idle_1.png", "Ooze_Idle_2.png"] },
 			"move":   { "fps": 5.0, "loop": false, "files": ["Ooze_move_1.png", "Ooze_Move_2.png", "Ooze_Move_3.png", "Ooze_move_5.png", "Ooze_move_6.png"] },
-			"attack": { "fps": 5.0, "loop": false, "files": ["Ooze_Attack_1.png", "Ooze_Attack_2.png", "Ooze_Attack_3.png", "Ooze_Attack_4.png", "Ooze_Attack_5.png"] },
+			# The attack IS the spit (Fra): one directional frame picked by the strike
+			# vector via UnitView.play_attack. The old Attack_1..5 wind-up leads into it.
+			"attack":       { "fps": 8.0, "loop": false, "files": ["Ooze_Attack_1.png", "Ooze_Attack_2.png", "Ooze_Attack_3.png", "Ooze_Attack_4.png", "Ooze_Attack_5.png"] },
+			"attack_up":    { "fps": 8.0, "loop": false, "files": ["Ooze_Attack_1.png", "Ooze_Attack_2.png", "Ooze_Attack_3.png", "Ooze_Spit_Up.png"] },
+			"attack_down":  { "fps": 8.0, "loop": false, "files": ["Ooze_Attack_1.png", "Ooze_Attack_2.png", "Ooze_Attack_3.png", "Ooze_Spit_Down.png"] },
+			"attack_left":  { "fps": 8.0, "loop": false, "files": ["Ooze_Attack_1.png", "Ooze_Attack_2.png", "Ooze_Attack_3.png", "Ooze_Spit_Left.png"] },
+			"attack_right": { "fps": 8.0, "loop": false, "files": ["Ooze_Attack_1.png", "Ooze_Attack_2.png", "Ooze_Attack_3.png", "Ooze_Spit_Right.png"] },
 			"summon": { "fps": 5.0, "loop": false, "files": ["Ooze_summon_1.png", "Ooze_summon_2.png", "Ooze_Summon_3.png", "Ooze_summon_4.png", "Ooze_summon_5.png"] },
 		},
 	},

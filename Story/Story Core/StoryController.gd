@@ -432,7 +432,7 @@ func _combat_turn(engaged: Array) -> void:
 		if i > 0:
 			engaged[i]["uv"].tween_to(m_after.pos)   # nearest already moved via play.play
 		if int(dmg[i]) > 0:
-			engaged[i]["uv"].play_anim("attack", Vector2(p_end - m_after.pos))
+			engaged[i]["uv"].play_attack(Vector2(p_end - m_after.pos))   # ooze: directional spit; others: plain attack
 			player_uv.flash(ViewConfig.FLASH_HIT)
 			board.spawn_number(player_uv.position, "-%d" % int(dmg[i]), ViewConfig.COL_DMG)
 		engaged[i]["uv"].set_display_hp(m_after.hp)
@@ -829,7 +829,10 @@ func spawn_split(parent: Dictionary, player_ref: Combatant) -> void:
 	var tile := _free_adjacent(player_ref.pos)
 	if tile == Vector2i(-1, -1):
 		return                                     # nowhere free -> skip the split this time
-	parent["uv"].play_anim("summon")               # the parent oozes out a copy (no-op if it has no summon art)
+	# Deferred one frame: the turn playback fires tween/attack anims THIS frame, and a
+	# same-frame play could be replaced before it ever rendered. Next frame, the
+	# summon takes the stage uncontested (it then returns to idle on finish).
+	parent["uv"].call_deferred("play_anim", "summon")
 	var pc: Combatant = parent["combatant"]
 	var e := _add_mob(String(parent["type"]), tile)
 	var c: Combatant = e["combatant"]

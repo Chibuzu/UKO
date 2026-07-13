@@ -208,6 +208,22 @@ func set_state(c: Combatant) -> void:
 		body.play("idle")
 	queue_redraw()
 
+# Attack with direction awareness: sets that ship per-direction attack art
+# (attack_up/down/left/right -- the ooze spit) get the frame matching the strike
+# vector; everyone else falls back to the plain "attack" (rotated/flipped as usual).
+func play_attack(dir: Vector2) -> void:
+	if body and dir != Vector2.ZERO:
+		var suffix := ""
+		if absf(dir.x) >= absf(dir.y):
+			suffix = "right" if dir.x >= 0.0 else "left"
+		else:
+			suffix = "down" if dir.y >= 0.0 else "up"
+		var named := "attack_" + suffix
+		if body.sprite_frames.has_animation(named) and body.sprite_frames.get_frame_count(named) > 0:
+			play_anim(named)
+			return
+	play_anim("attack", dir)
+
 func tween_to(pos: Vector2i) -> void:
 	var target := ViewConfig.tile_center(pos)
 	var delta := target - position
