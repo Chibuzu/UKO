@@ -10,7 +10,7 @@ extends RefCounted
 const PROFILES := {
 	"bat": {
 		"name": "Bat", "hp": 45, "scale": 0.72, "tint": Color(0.62, 0.80, 1.00), "art": "bat",
-		"atk_range": 1, "dmg": 10,
+		"atk_range": 2, "dmg": 10,   # a ranged skirmisher: bites from 2 tiles down a cardinal line
 		"loot": [ { "item": "bat_wing", "chance": 0.55 } ],
 	},
 	"slime": {
@@ -25,7 +25,7 @@ const PROFILES := {
 		"loot": [ { "item": "serpent_fang", "chance": 1.00 } ],
 	},
 	"serpent": {
-		"name": "Serpent", "art": "serpent", "tiles": 2, "hp": 100, "scale": 1.15, "tint": Color(0.90, 0.52, 0.55),
+		"name": "Serpent", "art": "serpent", "tiles": 2, "hp": 100, "scale": 1.0, "tint": Color(0.90, 0.52, 0.55),
 		"dmg": 15,
 		"loot": [ { "item": "serpent_scale", "chance": 1.00 }, { "item": "serpent_fang", "chance": 0.20 } ],
 	},
@@ -35,8 +35,9 @@ const PROFILES := {
 static func make_kind(type: String) -> MobKind:
 	var k: MobKind
 	match type:
-		"bat":   k = BatKind.new()
-		"slime": k = SlimeKind.new()
-		_:       k = MobKind.new()      # serpent + fallback: base melee behavior
+		"bat":     k = BatKind.new()
+		"slime":   k = SlimeKind.new()
+		"serpent": k = SerpentKind.new()   # two-tile boss: strikes straight out from both heads
+		_:         k = MobKind.new()
 	k.setup(type, PROFILES.get(type, {}))
 	return k

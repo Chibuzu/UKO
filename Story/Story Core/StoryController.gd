@@ -92,6 +92,21 @@ func _ready() -> void:
 
 	omap = OverworldMap.new()
 	omap.generate(_seed)                           # same seed -> same map, so a save restores exactly
+	# --- CAVERN CAGE SELF-CHECK (prints to the Godot Output panel on load) ---
+	var _cage_walls := 0
+	for _cy in range(OverworldMap.CAVERN_BOX.position.y, OverworldMap.CAVERN_BOX.end.y):
+		for _cx in range(OverworldMap.CAVERN_BOX.position.x, OverworldMap.CAVERN_BOX.end.x):
+			if omap.is_solid(Vector2i(_cx, _cy)):
+				_cage_walls += 1
+	print("========================================================")
+	print("[CAVERN] box=", OverworldMap.CAVERN_BOX, " door=", OverworldMap.CAVERN_DOOR)
+	print("[CAVERN] grid wall_tiles=", _cage_walls, " (expect 27)")
+	if _cage_walls == 27:
+		print("[CAVERN] OK -- the cage is carved. Walk to the TOP-RIGHT corner (x~48-55, y~3-10).")
+	else:
+		print("[CAVERN] !! CARVE FAILED -- grid has ", _cage_walls, " walls, not 27. The map code did not run.")
+	print("[CAVERN] This build also DRAWS the cage ring in bright purple regardless, so you WILL see it.")
+	print("========================================================")
 	grid = WorldGrid.new()
 	grid.build(omap)
 
@@ -455,6 +470,11 @@ func _combat_turn(engaged: Array) -> void:
 	for i in engaged.size():
 		if engaged[i].get("tiles", 1) >= 2:
 			tails.append(engaged[i]["tail"])
+			# Tell the serpent's brain where its second head is, so its directional
+			# strike (straight out from both heads) is computed against the real body.
+			var k = engaged[i]["kind"]
+			if k is SerpentKind:
+				k.tail = engaged[i]["tail"]
 			for act in player_seq:
 				if act.has("tile") and Vector2i(act["tile"]) == Vector2i(engaged[i]["tail"]):
 					act["tile"] = engaged[i]["combatant"].pos
@@ -480,7 +500,11 @@ func _combat_turn(engaged: Array) -> void:
 		_face_toward(engaged[i]["combatant"], engaged[i]["uv"], p_end)   # heads track you in combat too
 		var tried: int = int(res.get("attempts_by_mob", [])[i]) if i < res.get("attempts_by_mob", []).size() else (1 if int(dmg[i]) > 0 else 0)
 		if tried > 0:
-			engaged[i]["uv"].play_attack(Vector2(p_end - m_after.pos))   # every ATTEMPT shows (ooze: directional spit)
+			if String(engaged[i].get("type", "")) == "slime":
+				engaged[i]["uv"].play_anim("attack")                     # body wind-up...
+				_ooze_spit_burst(m_after.pos)                            # ...then a spit on each open neighbor
+			else:
+				engaged[i]["uv"].play_attack(Vector2(p_end - m_after.pos))
 		if int(dmg[i]) > 0:
 			player_uv.flash(ViewConfig.FLASH_HIT)
 			board.spawn_number(player_uv.position, "-%d" % int(dmg[i]), ViewConfig.COL_DMG)
@@ -850,6 +874,26 @@ func spawn_split(parent: Dictionary, player_ref: Combatant) -> void:
 	e["no_split"] = true                           # the copy can't split again -> no runaway
 	e["uv"].set_display_hp(c.hp)
 	_apply_window()                                # reveal it if it's inside the view
+
+# The ooze spits at its four neighbors IN SEQUENCE (N -> E -> S -> W), each glob
+# landing on its own tile a beat after the last. A direction whose tile is a WALL or
+# BLOCKER is skipped -- if something sits to the ooze's right, only N, S, W play.
+const _OOZE_DIR := "res://Assets/Sprites/Mobs Animation/Ooze Anims/"
+const _SPIT_STEP := 0.11   # seconds between consecutive spits
+func _ooze_spit_burst(origin: Vector2i) -> void:
+	var dirs := [
+		[Vector2i(0, -1), "Ooze_Spit_Up.png"],
+		[Vector2i(1, 0),  "Ooze_Spit_Right.png"],
+		[Vector2i(0, 1),  "Ooze_Spit_Down.png"],
+		[Vector2i(-1, 0), "Ooze_Spit_Left.png"],
+	]
+	var delay := 0.0
+	for pair in dirs:
+		var tile: Vector2i = origin + pair[0]
+		if grid.is_blocked(tile):
+			continue                     # wall/blocker that way -> no spit in that direction
+		board.spawn_tile_effect_delayed(tile, _OOZE_DIR + String(pair[1]), delay, 0.22)
+		delay += _SPIT_STEP
 
 func _free_adjacent(p: Vector2i) -> Vector2i:
 	for d: Vector2i in [Vector2i(0, -1), Vector2i(1, 0), Vector2i(0, 1), Vector2i(-1, 0),

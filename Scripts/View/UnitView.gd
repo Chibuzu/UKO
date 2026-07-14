@@ -238,6 +238,15 @@ func set_state(c: Combatant) -> void:
 # (attack_up/down/left/right -- the ooze spit) get the frame matching the strike
 # vector; everyone else falls back to the plain "attack" (rotated/flipped as usual).
 func play_attack(dir: Vector2) -> void:
+	# Unified: the mob has already pivoted to face its target, so the attack simply
+	# plays oriented by facing (bat art points east, rotated onto the facing vector).
+	if art_key == "bat":
+		if body and body.sprite_frames.has_animation("attack"):
+			body.offset.y = float(_anim_offset.get("attack", _body_offset_y))
+			body.flip_h = false
+			body.rotation = _mob_facing_rotation()
+			body.play("attack")
+		return
 	if body and dir != Vector2.ZERO:
 		var suffix := ""
 		if absf(dir.x) >= absf(dir.y):
@@ -258,36 +267,51 @@ func play_attack(dir: Vector2) -> void:
 #   vertical span, head below tail   -> vertical art flip_v
 #   horizontal span, "move"          -> the native SIDEMOVE set, flip_h when head is LEFT
 #   horizontal span, other anims     -> vertical art rotated ±90° toward the head
+# ── TWO-TILE SYMMETRIC SERPENT (Fra's final spec). It has TWO identical heads and
+# NO facing: the only thing that matters is which AXIS its two tiles lie along.
+#   tiles stacked vertically   -> the "move" art (drawn vertical), no flip
+#   tiles side by side          -> the "sidemove" art (drawn horizontal), no flip
+# Movement chooses the anim by TURN ANGLE: continuing straight (same axis) = "move";
+# turning 90 deg (axis change) = "sidemove". No rotation, no mirroring -- the art is
+# symmetric end-to-end, so whichever tile it moved into simply reads as the head.
 var _span_axis := ""    # "" = single-tile unit; "v" / "h" while spanning
-var _span_sign := 1     # +1 = head at the greater coordinate along the axis
-var _sp_head := Vector2i(-99, -99)   # last known head (detects TURNS vs straight slithers)
+var _span_heads: Array = []   # the two head tiles (Vector2i), for the dual facing bars
+
+func _axis_of(a: Vector2i, b: Vector2i) -> String:
+	return "h" if a.y == b.y and a.x != b.x else "v"
 
 func set_span(head: Vector2i, tail: Vector2i) -> void:
 	position = ViewConfig.tile_center(head).lerp(ViewConfig.tile_center(tail), 0.5)
-	_span_axis = "h" if head.y == tail.y and head.x != tail.x else "v"
-	_span_sign = 1 if (head.x + head.y) > (tail.x + tail.y) else -1
-	if head == tail:
-		_span_axis = "v"
-		_span_sign = -1                          # boxed-in degenerate: stand tall, head up
-	_sp_head = head
+	_span_axis = _axis_of(head, tail)
+	_span_heads = [head, tail]
+	queue_redraw()
+	# The serpent has NO idle animation: at rest it shows a SINGLE still frame of the
+	# current axis's set (paused on frame 0), so it just sits in its two tiles. The
+	# cycle only runs while it is actually moving (tween_span plays it).
+	if body:
+		var want := "sidemove" if _span_axis == "h" else "move"
+		if body.sprite_frames.has_animation(want):
+			body.animation = want
+			body.frame = 0
+			body.pause()                         # still pose, not a running cycle
 	_apply_span_pose()
 
 func tween_span(head: Vector2i, tail: Vector2i) -> void:
 	var target := ViewConfig.tile_center(head).lerp(ViewConfig.tile_center(tail), 0.5)
 	var delta := target - position
+	var new_axis := _axis_of(head, tail)
 	var old_axis := _span_axis
-	_span_axis = "h" if head.y == tail.y and head.x != tail.x else "v"
-	_span_sign = 1 if (head.x + head.y) > (tail.x + tail.y) else -1
-	if body and delta.length() > 0.5:
-		# A straight slither continues the body's axis -> "move"; changing axis is a
-		# TURN -> the SideMove set IS the turning animation (Fra).
-		var turning := old_axis != "" and old_axis != _span_axis
-		var mv := "move"
-		if turning and body.sprite_frames.has_animation("sidemove") \
-				and body.sprite_frames.get_frame_count("sidemove") > 0:
-			mv = "sidemove"
-		play_anim(mv)
-	_sp_head = head
+	# THE RULE (Fra):
+	#  - moving ALONG the current axis  -> "move" (the straight slither), axis unchanged
+	#  - moving so the axis CHANGES (a 90-deg turn) -> "sidemove" (the TURN animation);
+	#    the body then ADOPTS the new axis after the turn.
+	var turning := old_axis != "" and new_axis != old_axis
+	var want := "sidemove" if turning else "move"
+	_span_axis = new_axis
+	_span_heads = [head, tail]
+	queue_redraw()
+	if body and body.sprite_frames.has_animation(want) and body.sprite_frames.get_frame_count(want) > 0:
+		body.play(want)                          # run the cycle for this step
 	_apply_span_pose()
 	var t := create_tween()
 	t.tween_property(self, "position", target, ViewConfig.MOVE_DUR) \
@@ -296,35 +320,24 @@ func tween_span(head: Vector2i, tail: Vector2i) -> void:
 func _apply_span_pose() -> void:
 	if body == null or _span_axis == "":
 		return
-	var side := body.animation == "sidemove"
-	if _span_axis == "v":
-		if side:
-			# The turn INTO a vertical axis: rotate the head-RIGHT art toward the head.
-			body.flip_h = false
-			body.flip_v = false
-			body.rotation = (PI / 2.0) * float(_span_sign)
-		else:
-			body.rotation = 0.0
-			body.flip_h = false
-			body.flip_v = _span_sign > 0         # y grows DOWN: head below tail -> mirror head-up art
-	else:
-		body.flip_v = false
-		if side:
-			body.rotation = 0.0
-			body.flip_h = _span_sign < 0         # native head-RIGHT; flip when the head leads left
-		else:
-			body.flip_h = false
-			body.rotation = (PI / 2.0) * float(_span_sign)   # head-up art rotated toward the head
-	# Seat the body ON its two tiles: when unrotated, anchor the art's BOTTOM to the
-	# span's bottom edge (v-span: +1 tile below center; h-span: half a tile). Rotated
-	# frames stay centered -- they're transitional (turns / a bite while horizontal).
-	if body.rotation == 0.0 and body.sprite_frames.has_animation(body.animation) \
+	# Symmetric art: never rotate/flip. Scale the frame to fill EXACTLY its footprint
+	# (1 wide x 2 high for a vertical body; 2 wide x 1 high for a horizontal one) and
+	# center it on the span midpoint, so it sits squarely in its two tiles.
+	body.rotation = 0.0
+	body.flip_h = false
+	body.flip_v = false
+	body.offset = Vector2.ZERO
+	if body.sprite_frames.has_animation(body.animation) \
 			and body.sprite_frames.get_frame_count(body.animation) > 0:
 		var tex := body.sprite_frames.get_frame_texture(body.animation, 0)
-		var bottom := float(ViewConfig.TILE) if _span_axis == "v" else float(ViewConfig.TILE) * 0.5
-		body.offset = Vector2(0, bottom - tex.get_height() / 2.0)
-	else:
-		body.offset = Vector2.ZERO
+		var tw := float(tex.get_width())
+		var th := float(tex.get_height())
+		if tw > 0.0 and th > 0.0:
+			var foot_w := float(ViewConfig.TILE) * (2.0 if _span_axis == "h" else 1.0)
+			var foot_h := float(ViewConfig.TILE) * (1.0 if _span_axis == "h" else 2.0)
+			# Contain: one scale factor for both axes so the art keeps its proportions.
+			var sc: float = minf(foot_w / tw, foot_h / th)
+			body.scale = Vector2(sc, sc)
 
 func tween_to(pos: Vector2i) -> void:
 	var target := ViewConfig.tile_center(pos)
@@ -367,9 +380,20 @@ func _apply_facing() -> void:
 # Resting body transform for the current facing. Bats are drawn pointing NORTH, so they
 # ROTATE to aim their head where they face. Oozes are drawn facing EAST, so they only mirror
 # left/right -- east for E/S, west (mirrored) for W/N. Anything else just mirrors when facing west.
+# The angle each art is DRAWN facing (its head/front direction on the raw canvas).
+# Bat is drawn pointing EAST. (Ooze/others are symmetric or handled by flip.)
+func _native_facing_angle() -> float:
+	match art_key:
+		"bat":
+			return 0.0                            # bat_move_1: head points RIGHT (east)
+		_:
+			return 0.0
+
+# Rotation that turns the art's native front onto the current facing vector. One
+# value used by move, attack, AND idle so the head always points where it acts.
 func _mob_facing_rotation() -> float:
 	if art_key == "bat":
-		return _facing_angle(facing) + PI / 2.0   # sprite points up; turn UP onto the facing vector
+		return _facing_angle(facing) - _native_facing_angle()
 	return 0.0
 
 func _mob_facing_flip() -> bool:
@@ -424,11 +448,12 @@ func play_anim(name: String, dir: Vector2 = Vector2.ZERO, rot_offset: float = PI
 			# RIGHT, so it passes its facing with a 0 offset (see EventPlayer).
 			body.flip_h = false
 			body.rotation = dir.angle() + rof
-		elif art_key == "bat" and dir != Vector2.ZERO:
-			body.rotation = dir.angle() + PI / 2.0   # the bat flies HEAD-FIRST toward its travel
 		else:
-			body.rotation = _mob_facing_rotation()   # resting aim; oozes/others stay upright
-			body.flip_h = _mob_facing_flip()          # keep the facing mirror through the animation
+			# UNIFIED RULE: the sprite points along its FACING for every animation.
+			# The mob pivots to face its action before acting, so facing already is
+			# the move/attack direction -- move, attack, and idle all share this.
+			body.rotation = _mob_facing_rotation()
+			body.flip_h = _mob_facing_flip()
 		body.play(name)
 
 # Play an animation and FREEZE on its last frame (no return to idle) until
@@ -472,9 +497,19 @@ func _on_anim_finished() -> void:
 	if _held != "" and body.animation == _held:
 		return                       # freeze on the last frame (held guard cube) until released
 	if _span_axis != "":
-		_apply_span_pose()           # spanned creature: back to the span's pose, not to zero
+		# Settle onto the axis's STRAIGHT art (move) as a still frame. "move" is drawn
+		# vertical; for a horizontal body we need horizontal art -- the serpent's
+		# "sidemove" set is drawn horizontal, so a horizontal body rests on it.
+		var rest_anim := "move"
+		if _span_axis == "h" and body.sprite_frames.has_animation("sidemove"):
+			rest_anim = "sidemove"
+		if body.sprite_frames.has_animation(rest_anim):
+			body.animation = rest_anim
+		_apply_span_pose()           # seat + scale to the current axis footprint
+		body.frame = 0               # a STILL pose (no idle cycle)
+		body.pause()
 		return
-	body.rotation = _mob_facing_rotation()   # back to the RESTING pose (bats keep aiming)
+	body.rotation = _mob_facing_rotation()   # back to the RESTING pose (bat aims its head here)
 	body.flip_h = _mob_facing_flip()
 	body.offset.y = float(_anim_offset.get("idle", _body_offset_y))   # back to a seated figure
 	_apply_facing()              # restore idle facing (flip for west)
@@ -530,6 +565,28 @@ func _draw() -> void:
 	if prop:                                       # NPC marker: just the disc + name, no combat bars
 		draw_string(ThemeDB.fallback_font, Vector2(-6, ViewConfig.TILE * 0.5 + 14), unit_id,
 			HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color.WHITE)
+		return
+
+	# Two-tile serpent: a facing bar on BOTH heads at once (it has two heads and can
+	# strike from either). Each bar sits on the OUTER edge of its head tile.
+	if _span_axis != "" and _span_heads.size() == 2:
+		var ctr := (ViewConfig.tile_center(_span_heads[0]) + ViewConfig.tile_center(_span_heads[1])) * 0.5
+		for h in _span_heads:
+			var hc := ViewConfig.tile_center(h) - ctr          # head center, local to this node
+			var outward := (Vector2(hc)).normalized()
+			if outward == Vector2.ZERO:
+				outward = Vector2(0, -1)
+			var blen2 := ViewConfig.TILE * 0.72
+			var mid2 := hc + outward * (ViewConfig.TILE * 0.45)
+			var perp2 := Vector2(-outward.y, outward.x) * (blen2 * 0.5)
+			draw_line(mid2 - perp2, mid2 + perp2, Color.WHITE, 3.0)
+		# HP bar centered above the whole body.
+		var sw := ViewConfig.TILE * 0.8
+		var sx := -sw / 2.0
+		var sy := -ViewConfig.TILE * (1.0 if _span_axis == "v" else 0.5) - 4.0
+		draw_rect(Rect2(sx, sy, sw, 5.0), ViewConfig.COL_HP_BG)
+		var sfrac := clampf(shown_hp / float(Config.MAX_HP), 0.0, 1.0)
+		draw_rect(Rect2(sx, sy, sw * sfrac, 5.0), ViewConfig.COL_HP_FILL)
 		return
 
 	# Facing bar: sits on the tile edge in the facing direction (E=right,

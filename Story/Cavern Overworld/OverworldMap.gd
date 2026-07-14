@@ -122,20 +122,8 @@ func generate(seed_value: int) -> void:
 	for tt in transport_tiles():
 		if tt.x > 0 and tt.y > 0 and tt.x < SIZE - 1 and tt.y < SIZE - 1:
 			blocked[tt.y][tt.x] = false
-
-	# BOSS PORTAL: the arena is its OWN small map (StoryController swaps worlds), so
-	# nothing is carved here -- just the purple pad set into the border + its approach.
-	# THE CAVERN BOX: walls all round, open floor inside, ONE door on the south
-	# face -- plus a small cleared apron outside the door so blobs never seal it.
-	for cy in range(CAVERN_BOX.position.y, CAVERN_BOX.end.y):
-		for cx2 in range(CAVERN_BOX.position.x, CAVERN_BOX.end.x):
-			var edge := cx2 == CAVERN_BOX.position.x or cx2 == CAVERN_BOX.end.x - 1 \
-					or cy == CAVERN_BOX.position.y or cy == CAVERN_BOX.end.y - 1
-			blocked[cy][cx2] = edge
-	blocked[CAVERN_DOOR.y][CAVERN_DOOR.x] = false
-	for ay in range(CAVERN_DOOR.y + 1, CAVERN_DOOR.y + 3):
-		for ax in range(CAVERN_DOOR.x - 1, CAVERN_DOOR.x + 2):
-			blocked[ay][ax] = false
+	# BOSS PORTAL region is unused now; the cavern is a real in-map box.
+	_carve_cavern()                               # carve the cage (also re-run at night)
 
 	# Golden sanctuary tiles: a rare scattered few, all OUT in the wilds (never in the
 	# mob-free village), so mobs can always approach them -- they're a risk/reward rest, not a
@@ -255,6 +243,21 @@ func is_solid(t: Vector2i) -> bool:
 # Re-scatter the interior walls ("blockers move"). Border, village footprints and the belt are
 # preserved; gems, rest tiles, and the keep_clear tiles (+ their neighbours) stay open so nobody
 # gets walled in. Caller rebuilds the grid + redraws afterwards.
+# The boss cavern: an 8x8 wall ring in the top-right with ONE south door and a
+# cleared apron. Carved by BOTH build() and reseed_walls() so nightfall's wall
+# reshuffle can never erase the cage.
+func _carve_cavern() -> void:
+	for cy in range(CAVERN_BOX.position.y, CAVERN_BOX.end.y):
+		for cx2 in range(CAVERN_BOX.position.x, CAVERN_BOX.end.x):
+			var edge := cx2 == CAVERN_BOX.position.x or cx2 == CAVERN_BOX.end.x - 1 \
+					or cy == CAVERN_BOX.position.y or cy == CAVERN_BOX.end.y - 1
+			blocked[cy][cx2] = edge
+	blocked[CAVERN_DOOR.y][CAVERN_DOOR.x] = false
+	for ay in range(CAVERN_DOOR.y + 1, CAVERN_DOOR.y + 3):
+		for ax in range(CAVERN_DOOR.x - 1, CAVERN_DOOR.x + 2):
+			if ax >= 0 and ay >= 0 and ax < SIZE and ay < SIZE:
+				blocked[ay][ax] = false
+
 func reseed_walls(rng: RandomNumberGenerator, keep_clear: Dictionary) -> void:
 	var protect := {}
 	for t in keep_clear:

@@ -146,6 +146,27 @@ func _draw() -> void:
 						draw_rect(stem, ViewConfig.COL_MUSH_STEM)
 						draw_rect(cap, ViewConfig.COL_MUSH)
 			draw_rect(rect, ViewConfig.COL_GRID_LINE, false, 1.0)
+	# ── BOSS CAGE (drawn from the constant, always) ──────────────────────────────
+	# An 8x8 ring of bright blockers with one south door. Rendered here directly so
+	# it is visible even if grid carving is bypassed; grid collision is carved
+	# separately in OverworldMap so you can't walk through these.
+	var box := OverworldMap.CAVERN_BOX
+	var door := OverworldMap.CAVERN_DOOR
+	for cy in range(box.position.y, box.end.y):
+		for cx in range(box.position.x, box.end.x):
+			var on_ring: bool = cx == box.position.x or cx == box.end.x - 1 \
+					or cy == box.position.y or cy == box.end.y - 1
+			if not on_ring or Vector2i(cx, cy) == door:
+				continue
+			var cr := Rect2(cx * T, cy * T, T, T)
+			draw_rect(cr, Color(0.34, 0.20, 0.52))                                   # cage wall body
+			draw_rect(Rect2(cr.position + Vector2(2, 2), Vector2(T - 4, T - 4)), Color(0.20, 0.12, 0.34))
+			draw_rect(cr, Color(0.85, 0.55, 1.0), false, 2.0)                        # bright outline
+	# the door: a glowing threshold so the entrance is obvious from a distance
+	var dr := Rect2(door.x * T, door.y * T, T, T)
+	draw_rect(dr, Color(0.10, 0.08, 0.14))
+	draw_rect(dr, Color(0.95, 0.70, 1.0), false, 2.0)
+
 	_draw_village(T)
 	for pos in highlights:
 		draw_rect(Rect2(pos.x * T, pos.y * T, T, T), highlight_color)

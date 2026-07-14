@@ -35,11 +35,11 @@ const SETS := {
 		"offset_y": 0.0,
 		"anims": {
 			"idle":   { "fps": 2.0, "loop": true,  "files": ["Ooze_idle_1.png", "Ooze_Idle_2.png"] },
-			"move":   { "fps": 5.0, "loop": false, "files": ["Ooze_move_1.png", "Ooze_Move_2.png", "Ooze_Move_3.png", "Ooze_move_5.png", "Ooze_move_6.png"] },
-			# The ooze strikes ALL FOUR adjacent tiles at once (Fra), so its attack shows
-			# every spit: a short wind-up, then Up -> Right -> Down -> Left in one burst.
-			"attack": { "fps": 10.0, "loop": false, "files": ["Ooze_Attack_1.png", "Ooze_Attack_2.png", "Ooze_Attack_3.png", "Ooze_Spit_Up.png", "Ooze_Spit_Right.png", "Ooze_Spit_Down.png", "Ooze_Spit_Left.png"] },
-			"summon": { "fps": 5.0, "loop": false, "files": ["Ooze_summon_1.png", "Ooze_summon_2.png", "Ooze_Summon_3.png", "Ooze_summon_4.png", "Ooze_summon_5.png"] },
+			"move":   { "fps": 4.0, "loop": false, "files": ["Ooze_move_1.png", "Ooze_Move_2.png", "Ooze_Move_3.png", "Ooze_move_5.png", "Ooze_move_6.png"] },
+			# Body wind-up for the attack (the four directional SPITS are placed on the
+			# neighbor tiles by StoryController._ooze_spit_burst). Slowed to 4 fps.
+			"attack": { "fps": 4.0, "loop": false, "files": ["Ooze_Attack_1.png", "Ooze_Attack_2.png", "Ooze_Attack_3.png"] },
+			"summon": { "fps": 4.0, "loop": false, "files": ["Ooze_summon_1.png", "Ooze_summon_2.png", "Ooze_Summon_3.png", "Ooze_summon_4.png", "Ooze_summon_5.png"] },
 		},
 	},
 	"serpent": {
@@ -49,9 +49,12 @@ const SETS := {
 		"directional": false,
 		"offset_y": 0.0,
 		"anims": {
-			"idle":     { "fps": 2.0, "loop": true,  "files": ["BossMove_1.png", "BossMove_2.png"] },
-			"move":     { "fps": 7.0, "loop": false, "files": ["BossMove_1.png", "BossMove_2.png", "BossMove_3.png", "BossMove_4.png", "BossMove_5.png", "BossMove_6.png", "BossMove_7.png"] },
-			"sidemove": { "fps": 7.0, "loop": false, "files": ["BossSideMove_1.png", "BossSideMove_2.png", "BossSideMove_3.png", "BossSideMove_4.png", "BossSideMove_5.png", "BossSideMove_6.png", "BossSideMove_7.png"] },
+			# Symmetric two-head body. "move" = vertical slither, "sidemove" = horizontal
+			# (also the 90-deg turn). The view picks by axis and never flips/rotates.
+			# move/sidemove play ONCE per step (loop:false) then settle to a still pose,
+			# so a motionless serpent is truly still. No idle key -> never auto-idles.
+			"move":     { "fps": 8.0, "loop": false, "files": ["BossMove_1.png", "BossMove_2.png", "BossMove_3.png", "BossMove_4.png", "BossMove_5.png", "BossMove_6.png", "BossMove_7.png"] },
+			"sidemove": { "fps": 8.0, "loop": false, "files": ["BossSideMove_1.png", "BossSideMove_2.png", "BossSideMove_3.png", "BossSideMove_4.png", "BossSideMove_5.png", "BossSideMove_6.png", "BossSideMove_7.png"] },
 			"attack":   { "fps": 8.0, "loop": false, "files": ["BossMelee_1.png", "BossMelee_2.png", "BossMelee_3.png", "BossMelee_4.png", "BossMelee_5.png", "BossMelee_6.png", "BossMelee_7.png", "BossMelee_8.png"] },
 			"aoe":      { "fps": 8.0, "loop": false, "files": ["BossAoE_1.png", "BossAoE_2.png", "BossAoE_3.png", "BossAoE_4.png", "BossAoE_5.png", "BossAoE_6.png", "BossAoE_7.png", "BossAoE_8.png", "BossAoE_9.png", "BossAoE_10.png", "BossAoE_11.png"] },
 		},

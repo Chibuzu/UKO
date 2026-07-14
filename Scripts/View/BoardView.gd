@@ -185,6 +185,36 @@ func _input(event: InputEvent) -> void:
 # Spawn a number (damage, healing) that floats up and fades. local_pos is in
 # board-local space — pass a unit's `position` directly, since units are
 # children of the board.
+# A one-shot sprite played ON a specific tile, then freed. The ooze uses it to glob
+# each of its four neighbor tiles at once (each spit frame is a 32x32 tile sprite).
+func spawn_tile_effect(tile: Vector2i, tex_path: String, life: float = 0.34) -> void:
+	if not ResourceLoader.exists(tex_path):
+		return
+	var spr := Sprite2D.new()
+	spr.texture = load(tex_path)
+	spr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	spr.position = ViewConfig.tile_center(tile)
+	add_child(spr)
+	var tw := spr.create_tween()
+	tw.tween_interval(life)
+	tw.tween_callback(spr.queue_free)
+
+# Like spawn_tile_effect but appears after `delay` seconds (for sequenced bursts).
+func spawn_tile_effect_delayed(tile: Vector2i, tex_path: String, delay: float, life: float = 0.34) -> void:
+	if not ResourceLoader.exists(tex_path):
+		return
+	var spr := Sprite2D.new()
+	spr.texture = load(tex_path)
+	spr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	spr.position = ViewConfig.tile_center(tile)
+	spr.visible = false
+	add_child(spr)
+	var tw := spr.create_tween()
+	tw.tween_interval(delay)
+	tw.tween_callback(func(): spr.visible = true)
+	tw.tween_interval(life)
+	tw.tween_callback(spr.queue_free)
+
 func spawn_number(local_pos: Vector2, text: String, color: Color) -> void:
 	var lbl := Label.new()
 	add_child(lbl)
