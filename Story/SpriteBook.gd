@@ -49,14 +49,17 @@ const SETS := {
 		"directional": false,
 		"offset_y": 0.0,
 		"anims": {
-			# Symmetric two-head body. "move" = vertical slither, "sidemove" = horizontal
-			# (also the 90-deg turn). The view picks by axis and never flips/rotates.
-			# move/sidemove play ONCE per step (loop:false) then settle to a still pose,
-			# so a motionless serpent is truly still. No idle key -> never auto-idles.
-			"move":     { "fps": 8.0, "loop": false, "files": ["BossMove_1.png", "BossMove_2.png", "BossMove_3.png", "BossMove_4.png", "BossMove_5.png", "BossMove_6.png", "BossMove_7.png"] },
-			"sidemove": { "fps": 8.0, "loop": false, "files": ["BossSideMove_1.png", "BossSideMove_2.png", "BossSideMove_3.png", "BossSideMove_4.png", "BossSideMove_5.png", "BossSideMove_6.png", "BossSideMove_7.png"] },
-			"attack":   { "fps": 8.0, "loop": false, "files": ["BossMelee_1.png", "BossMelee_2.png", "BossMelee_3.png", "BossMelee_4.png", "BossMelee_5.png", "BossMelee_6.png", "BossMelee_7.png", "BossMelee_8.png"] },
-			"aoe":      { "fps": 8.0, "loop": false, "files": ["BossAoE_1.png", "BossAoE_2.png", "BossAoE_3.png", "BossAoE_4.png", "BossAoE_5.png", "BossAoE_6.png", "BossAoE_7.png", "BossAoE_8.png", "BossAoE_9.png", "BossAoE_10.png", "BossAoE_11.png"] },
+			# CLEAN pre-sized art (Fra extracted to exact tile footprints, transparent bg):
+			#   idle/move = 32x64 VERTICAL body   (1 tile wide, 2 tall)
+			#   sidemove  = 64x32 HORIZONTAL body (2 tiles wide, 1 tall) -- the TURN
+			# No scaling needed: the sprite IS the footprint. move/sidemove loop while
+			# stepping, then settle to a still frame; idle plays only when motionless.
+			"idle":     { "fps": 3.0, "loop": true,  "files": ["Serpent_Idle_1.png", "Serpent_Idle_2.png", "Serpent_Idle_3.png", "Serpent_Idle_4.png"] },
+			"move":     { "fps": 8.0, "loop": false, "files": ["Serpent_Move_1.png", "Serpent_Move_2.png", "Serpent_Move_3.png", "Serpent_Move_4.png", "Serpent_Move_5.png", "Serpent_Move_6.png", "Serpent_Move_7.png"] },
+			# The TURN sweep: 88x59 frames drawn as vertical -> horizontal(east), pivoting
+			# on the bottom of the vertical body. Bigger than the footprint on purpose;
+			# the view anchors + flips it per turn direction (see _play_turn).
+			"sidemove": { "fps": 10.0, "loop": false, "sweep": true, "files": ["Serpent_SideMove_1.png", "Serpent_SideMove_2.png", "Serpent_SideMove_3.png", "Serpent_SideMove_4.png", "Serpent_SideMove_5.png", "Serpent_SideMove_6.png", "Serpent_SideMove_7.png"] },
 		},
 	},
 }

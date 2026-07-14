@@ -250,27 +250,43 @@ func _add_mob(type: String, tile: Vector2i) -> Dictionary:
 	var entry := {"combatant": c, "uv": uv, "kind": MobBrain.make_kind(type), "type": type}
 	if int(prof.get("tiles", 1)) >= 2:
 		entry["tiles"] = 2
-		entry["tail"] = _tail_spot(tile)           # the body behind the head
-		uv.set_span(tile, entry["tail"])           # wide art centered across both tiles
+		entry["tail"] = _rigid_tail(c)             # ALWAYS pos + facing: a rigid 2-tile body
+		uv.set_span(c.pos, entry["tail"])
 	mobs.append(entry)
 	return entry
 
-# A free cardinal neighbor for a two-tile body's tail; the head's own tile if boxed in.
-func _tail_spot(head: Vector2i) -> Vector2i:
-	var occ := _occupied_tiles()
-	for d: Vector2i in [Vector2i(-1, 0), Vector2i(1, 0), Vector2i(0, -1), Vector2i(0, 1)]:
-		var t := head + d
-		if not grid.is_blocked(t) and not occ.has(t):
-			return t                    # uses the CURRENT grid (works in the cavern too)
-	return head
+# The second body tile of a rigid two-tile creature: ALWAYS the tile in its FACING
+# direction from its primary tile. Deterministic -> head and tail can never drift.
+func _rigid_tail(c: Combatant) -> Vector2i:
+	return c.pos + Vector2i(Config.FACING_VEC[c.facing])
 
-func _sync_tail_from(e: Dictionary, old_head: Vector2i, new_head: Vector2i) -> void:
-	if e.get("tiles", 1) >= 2 and new_head != old_head:
-		e["tail"] = old_head
+# Refresh a rigid body's tail from its (possibly new) pos+facing.
+# Seal or open the cavern door (the cage traps you until the serpent is slain).
+func _seal_cavern(closed: bool) -> void:
+	var d := OverworldMap.CAVERN_DOOR
+	grid.blocked[d.y][d.x] = closed
+	omap.blocked[d.y][d.x] = closed
+	board.queue_redraw()
 
-func _sync_tail(e: Dictionary, old_head: Vector2i) -> void:
-	if e.get("tiles", 1) >= 2 and e["combatant"].pos != old_head:
-		e["tail"] = old_head                        # the body follows the path
+func _refresh_body(e: Dictionary) -> void:
+	if e.get("tiles", 1) < 2:
+		return
+	e["tail"] = _rigid_tail(e["combatant"])
+
+# Animate a serpent's turn per the recorded action. The body cells are already updated
+# (pos + facing); here we choose the ANIMATION: a straight 2-tile slither, the 90-deg
+# turn sweep, or a strike/idle in place. The view renders on the two body tiles.
+func _animate_serpent(e: Dictionary, act: Dictionary) -> void:
+	var c: Combatant = e["combatant"]
+	var head := c.pos
+	var tail: Vector2i = e["tail"]
+	match String(act.get("kind", "hold")):
+		"turn":
+			e["uv"].play_turn_from(Vector2i(act["from_pos"]), int(act["from_facing"]), head, tail)
+		"straight":
+			e["uv"].tween_span(head, tail)         # slither along the axis
+		_:
+			e["uv"].set_span(head, tail)           # strike/hold: settle in place (idle plays)
 
 func _mob_visible(e: Dictionary) -> bool:
 	if _in_window(e["combatant"].pos, _win):
@@ -310,7 +326,7 @@ func _spawn_from_save(mob_data: Array) -> void:
 		e["uv"].init_state(c)
 		e["uv"].set_facing(c.facing)
 		if e.get("tiles", 1) >= 2:
-			e["tail"] = _tail_spot(c.pos)          # tails aren't saved; re-derive beside the head
+			_refresh_body(e)                       # tails aren't saved; derive from pos+facing
 			e["uv"].set_span(c.pos, e["tail"])
 
 # ── roam (real-time WASD) until a monster is in view, then the loop flips to COMBAT ─
@@ -397,6 +413,8 @@ func _roam(delta: float) -> void:
 	if not _boss_awake and OverworldMap.in_cavern(target):
 		_boss_awake = true             # you crossed the door: the serpent stirs
 		board.spawn_number(player_uv.position + Vector2(0, -20), "The serpent stirs!", ViewConfig.COL_DMG)
+		if not _boss_slain:
+			_seal_cavern(true)         # the cage closes -- no exit until the boss falls
 	_bump_actions(1)                   # a step is an action -> feeds the every-6 regen
 	_follow_window()                   # scroll only near the window edge -> you visibly walk
 	if omap.is_rest(player.pos):
@@ -455,13 +473,30 @@ func _combat_turn(engaged: Array) -> void:
 		e["combatant"].energy = Config.MAX_ENERGY   # HP-only: refill so planning/moving never stalls
 		mob_cs.append(e["combatant"])
 		mob_kinds.append(e["kind"])
+	# ── SERPENT: a rigid two-tile boss the resolver can't express. Drive it HERE:
+	# compute its action, apply pos/facing (tail is always pos+facing), and record the
+	# animation. It acts fully now, so the resolver gets an empty sequence for it.
+	var serpent_anim: Dictionary = {}   # index -> {"kind":..., "from_pos":..., "from_facing":...}
+	for i in engaged.size():
+		if engaged[i]["kind"] is SerpentKind:
+			var sc: Combatant = engaged[i]["combatant"]
+			var mv: Dictionary = engaged[i]["kind"].plan_move(sc.pos, sc.facing, player.pos, grid)
+			serpent_anim[i] = {"kind": String(mv.get("kind", "hold")), "from_pos": sc.pos, "from_facing": sc.facing}
+			match String(mv.get("kind", "hold")):
+				"straight":
+					sc.pos = mv["pos"]                     # facing (axis) unchanged
+				"turn":
+					sc.pos = mv["pos"]
+					sc.facing = int(mv["facing"])          # body pivots to the new axis
+			engaged[i]["tail"] = _rigid_tail(sc)
 	var mob_seqs: Array = []
 	for i in engaged.size():
+		if engaged[i]["kind"] is SerpentKind:
+			mob_seqs.append([])                            # already acted above
+			continue
 		var g := StoryCombat._grid_blocking_others(grid, mob_cs, {}, i)
 		# DESIGN RULE (Fra): monsters use ONLY their own toolkit -- attack/pivot/move.
-		# The duelist brain (ExtremeAI) is BANNED here: it rests, guards, and casts,
-		# which mobs must never do. Each MobKind's plan() IS the mob's brain (BatKind
-		# kites to range-2 and pokes; SlimeKind brawls adjacent and owns the split).
+		# The duelist brain (ExtremeAI) is BANNED here: it rests, guards, and casts.
 		mob_seqs.append(engaged[i]["kind"].plan(engaged[i]["combatant"], player, g))
 
 	# Two-tile bodies: aiming at a serpent's TAIL is aiming at the serpent -- remap
@@ -492,9 +527,12 @@ func _combat_turn(engaged: Array) -> void:
 	await play.play(res["primary_events"], res["player"], res["mobs"][0])
 	for i in engaged.size():
 		var m_after: Combatant = res["mobs"][i]
-		_sync_tail_from(engaged[i], Vector2i(pre_pos[i]), m_after.pos)
-		if engaged[i].get("tiles", 1) >= 2:
-			engaged[i]["uv"].tween_span(m_after.pos, engaged[i]["tail"])   # incl. the nearest: re-center the span
+		engaged[i]["combatant"] = m_after
+		_refresh_body(engaged[i])   # rigid body: tail = new pos + facing (no drift)
+		if serpent_anim.has(i):
+			_animate_serpent(engaged[i], serpent_anim[i])   # straight slither / turn sweep / strike-in-place
+		elif engaged[i].get("tiles", 1) >= 2:
+			engaged[i]["uv"].tween_span(m_after.pos, engaged[i]["tail"])
 		elif i > 0:
 			engaged[i]["uv"].tween_to(m_after.pos)   # nearest already moved via play.play
 		_face_toward(engaged[i]["combatant"], engaged[i]["uv"], p_end)   # heads track you in combat too
@@ -575,8 +613,15 @@ func _teleport(t: Vector2i) -> void:
 
 # The serpent: spawned in the cavern on a new world, and again on load unless slain.
 func _spawn_cavern_boss() -> void:
-	var b := _add_mob("serpent", OverworldMap.CAVERN_BOSS)
+	# Start at the top-middle of the cage, body vertical, facing SOUTH -- down toward
+	# the door, so it "watches the entrance" from the first frame.
+	var box := OverworldMap.CAVERN_BOX
+	var top_mid := Vector2i(box.position.x + box.size.x / 2, box.position.y + 1)
+	var b := _add_mob("serpent", top_mid)
+	b["combatant"].facing = Config.Facing.SOUTH
 	b["boss"] = true                    # slaying it is remembered in the save
+	_refresh_body(b)
+	b["uv"].set_span(b["combatant"].pos, b["tail"])
 
 func _die() -> void:
 	# A setback: you forfeit some gold (that lives on your profile, so it persists) and return
@@ -653,6 +698,7 @@ func _clear_dead() -> void:
 		if m["combatant"].is_dead():
 			if m.get("boss", false):
 				_boss_slain = true                    # the cavern stays quiet forever after
+				_seal_cavern(false)                   # the cage opens -- you may leave
 			_grant_loot(m)
 			_quest_event("kill", String(m["type"]))   # advance any active kill quests
 			m["uv"].queue_free()
@@ -931,6 +977,12 @@ func _facing_for(dir: Vector2i) -> int:
 	return Config.Facing.SOUTH
 
 # Turn `c` to face `target` along the dominant axis (cardinal only), updating its view.
+# Cardinal direction vector -> Facing enum.
+func _face_dir(d: Vector2i) -> int:
+	if absi(d.x) >= absi(d.y):
+		return Config.Facing.EAST if d.x >= 0 else Config.Facing.WEST
+	return Config.Facing.SOUTH if d.y >= 0 else Config.Facing.NORTH
+
 func _face_toward(c: Combatant, uv: UnitView, target: Vector2i) -> void:
 	var dv := target - c.pos
 	var dir: Vector2i
@@ -961,10 +1013,14 @@ func _mob_roam(delta: float) -> void:
 		var step := _wander_step(c.pos, occ)
 		if step != c.pos:
 			if m.get("tiles", 1) >= 2:
-				occ.erase(m["tail"])               # tail vacates; the old head becomes the tail
-				m["tail"] = c.pos
-				occ[step] = true
+				# Rigid body: it faces its travel direction, and the tail is ALWAYS
+				# the tile behind (pos + facing points at the body's far end). We move
+				# both cells together -- no drift.
+				occ.erase(c.pos); occ.erase(m["tail"])
+				c.facing = _face_dir(step - c.pos)
 				c.pos = step
+				m["tail"] = _rigid_tail(c)
+				occ[c.pos] = true; occ[m["tail"]] = true
 				m["uv"].tween_span(c.pos, m["tail"])
 			else:
 				occ.erase(c.pos)
