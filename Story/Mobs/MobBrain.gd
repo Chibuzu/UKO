@@ -10,7 +10,7 @@ extends RefCounted
 const PROFILES := {
 	"bat": {
 		"name": "Bat", "hp": 45, "scale": 0.72, "tint": Color(0.62, 0.80, 1.00), "art": "bat",
-		"atk_range": 2, "dmg": 10,
+		"atk_range": 1, "dmg": 10,
 		"loot": [ { "item": "bat_wing", "chance": 0.55 } ],
 	},
 	"slime": {

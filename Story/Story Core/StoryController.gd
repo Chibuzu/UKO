@@ -605,14 +605,20 @@ func _engaged() -> Array:
 	for m in mobs:
 		if m.get("boss", false) and not _boss_awake:
 			continue                                # asleep: untouchable until you enter
-		var ad := _cheb(m["combatant"].pos)
+		var ad := _euc(m["combatant"].pos)
 		if m.get("tiles", 1) >= 2:
-			ad = mini(ad, _cheb(m["tail"]))         # the body counts: brush the tail, wake the beast
+			ad = mini(ad, _euc(m["tail"]))          # the body counts: brush the tail, wake the beast
 		if ad <= MOB_AGGRO:
 			out.append(m)
 	out.sort_custom(func(x, y):
 		return _cheb(x["combatant"].pos) < _cheb(y["combatant"].pos))
 	return out
+
+func _euc(p: Vector2i) -> int:
+	# Straight-line tiles between p and the player (rounded) -- what the eye perceives,
+	# unlike Chebyshev which lets diagonals reach a tile farther than they look.
+	var d := Vector2(p - player.pos)
+	return int(round(d.length()))
 
 func _cheb(p: Vector2i) -> int:
 	return maxi(abs(p.x - player.pos.x), abs(p.y - player.pos.y))
@@ -933,7 +939,7 @@ func _mob_roam(delta: float) -> void:
 # an occupied tile, or your own tile.
 func _wander_step(pos: Vector2i, occ: Dictionary) -> Vector2i:
 	var dirs: Array = [Vector2i(0, -1), Vector2i(1, 0), Vector2i(0, 1), Vector2i(-1, 0)]
-	if Grid.dist(pos, player.pos) <= MOB_AGGRO:
+	if int(round(Vector2(pos - player.pos).length())) <= MOB_AGGRO:
 		dirs.sort_custom(func(a, b): return Grid.dist(pos + a, player.pos) < Grid.dist(pos + b, player.pos))
 	else:
 		dirs.shuffle()
