@@ -229,12 +229,13 @@ func _ready() -> void:
 # Build one mob of `type` at `tile` and register it. Shared by procedural spawn and
 # save-restore, so both paths stay in lockstep.
 func _add_mob(type: String, tile: Vector2i) -> Dictionary:
-	var prof: Dictionary = MobBrain.PROFILES[type]
+	var prof: Dictionary = MobBrain.profile(type)   # characters live in MobSpec now
 	var c := Combatant.new("B", tile, Config.Facing.SOUTH)
 	c.equip([])                                    # NO gear -> no spells, ever
 	c.hp = int(prof.get("hp", 100))
 	c.mp = 0                                        # mobs have only HP...
 	c.energy = Config.MAX_ENERGY                    # ...and a full energy pool so moving never locks
+	MobSpec.apply_loadout(c, prof)                  # characters: loadout numbers onto the unit
 	var uv := UnitView.new()
 	board.add_child(uv)
 	var art := String(prof.get("art", ""))
@@ -243,6 +244,9 @@ func _add_mob(type: String, tile: Vector2i) -> Dictionary:
 	else:
 		uv.disc_only = true                        # no art yet -> a plain colored ball
 		uv.disc_color = prof.get("tint", Color.WHITE)
+	uv.show_facing = false                          # mobs have no facing (Fra): no bars, ever
+	if player != null:
+		uv.aim = Vector2(player.pos - c.pos)        # its idle looks at you from frame one
 	uv.init_state(c)
 	uv.unit_id = String(prof.get("name", "?"))
 	var sc: float = float(prof.get("scale", 1.0))
@@ -527,13 +531,6 @@ func _combat_turn(engaged: Array) -> void:
 				for t in serpent_prebody[i]:
 					if t not in hit_tiles:
 						hit_tiles.append(t)
-			var player_atk := _attack_tile(player_seq)
-			if player_atk != Vector2i(-1, -1):
-				var connected := player_atk in hit_tiles
-				combat_log.add_note("You aim (%d,%d); serpent body %s -> %s" % [
-					player_atk.x, player_atk.y,
-					str(hit_tiles), "HIT" if connected else "miss (aim at its body)"],
-					ViewConfig.COL_TEXT)
 			for act in player_seq:
 				if act.has("tile") and Vector2i(act["tile"]) in hit_tiles:
 					act["tile"] = engaged[i]["combatant"].pos
@@ -591,6 +588,8 @@ func _combat_turn(engaged: Array) -> void:
 	# them too -- with the same directional flank tier that scaled the damage.
 	var log_events: Array = res["primary_events"].duplicate()
 	for i in engaged.size():
+		if engaged[i]["kind"].has_method("uses_true_actions") and engaged[i]["kind"].uses_true_actions():
+			continue                            # a character's hit is already a real resolver line
 		if int(dmg[i]) > 0:
 			var mc: Combatant = res["mobs"][i]
 			log_events.append({
@@ -603,6 +602,8 @@ func _combat_turn(engaged: Array) -> void:
 	# ── completeness notes: everything the pairwise event stream can't show ──
 	var strikes: Array = res.get("strikes_by_mob", [])
 	for i in engaged.size():
+		if engaged[i]["kind"].has_method("uses_true_actions") and engaged[i]["kind"].uses_true_actions():
+			continue                            # characters: only the clean A/B lines, no notes
 		var name := _mob_label(engaged[i])
 		# your damage on NON-nearest mobs resolves in their own pair -> surface it
 		if i > 0 and int(pre_hp[i]) > res["mobs"][i].hp:
@@ -643,7 +644,7 @@ func _combat_turn(engaged: Array) -> void:
 # Readable name for a mob entry (used in the combat log), from its profile.
 func _mob_label(entry: Dictionary) -> String:
 	var t := String(entry.get("type", "mob"))
-	var prof: Dictionary = MobBrain.PROFILES.get(t, {})
+	var prof: Dictionary = MobBrain.profile(t)
 	return String(prof.get("name", t.capitalize()))
 
 # Instant relocation (used by the arena doors): snap the sprite, recenter the window.
@@ -1026,6 +1027,7 @@ func _face_dir(d: Vector2i) -> int:
 
 func _face_toward(c: Combatant, uv: UnitView, target: Vector2i) -> void:
 	var dv := target - c.pos
+	uv.aim = Vector2(dv)         # cosmetic: the resting art looks straight AT you
 	var dir: Vector2i
 	if absi(dv.x) >= absi(dv.y):
 		dir = Vector2i(signi(dv.x), 0)

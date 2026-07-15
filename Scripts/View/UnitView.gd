@@ -238,14 +238,10 @@ func set_state(c: Combatant) -> void:
 # (attack_up/down/left/right -- the ooze spit) get the frame matching the strike
 # vector; everyone else falls back to the plain "attack" (rotated/flipped as usual).
 func play_attack(dir: Vector2) -> void:
-	# Unified: the mob has already pivoted to face its target, so the attack simply
-	# plays oriented by facing (bat art points east, rotated onto the facing vector).
-	if art_key == "bat":
-		if body and body.sprite_frames.has_animation("attack"):
-			body.offset.y = float(_anim_offset.get("attack", _body_offset_y))
-			body.flip_h = false
-			body.rotation = _mob_facing_rotation()
-			body.play("attack")
+	# Attack art that declares which way it is DRAWN ("points") simply rotates onto the
+	# strike vector -- one path for every such creature, no per-direction files needed.
+	if String(ANIMS.get("attack", {}).get("points", "")) != "":
+		play_anim("attack", dir)
 		return
 	if body and dir != Vector2.ZERO:
 		var suffix := ""
@@ -274,6 +270,10 @@ func play_attack(dir: Vector2) -> void:
 # Movement chooses the anim by TURN ANGLE: continuing straight (same axis) = "move";
 # turning 90 deg (axis change) = "sidemove". No rotation, no mirroring -- the art is
 # symmetric end-to-end, so whichever tile it moved into simply reads as the head.
+var show_facing := true        # mobs: false -- mobs have no facing, so no bars
+# COSMETIC look vector: the direction this unit's RESTING art points. The story keeps it
+# aimed at the player. Art-only -- it never touches rules, legality, damage, or flank.
+var aim := Vector2.ZERO
 var _span_axis := ""    # "" = single-tile unit; "v" / "h" while spanning
 var _span_heads: Array = []   # the two head tiles (Vector2i), for the dual facing bars
 var _span_target := Vector2.ZERO     # where the body position settles after a step
@@ -443,24 +443,22 @@ func _apply_facing() -> void:
 		body.flip_h = _mob_facing_flip()
 		body.rotation = _mob_facing_rotation()
 
-# Resting body transform for the current facing. Bats are drawn pointing NORTH, so they
-# ROTATE to aim their head where they face. Oozes are drawn facing EAST, so they only mirror
-# left/right -- east for E/S, west (mirrored) for W/N. Anything else just mirrors when facing west.
-# The angle each art is DRAWN facing (its head/front direction on the raw canvas).
-# Bat is drawn pointing EAST. (Ooze/others are symmetric or handled by flip.)
-func _native_facing_angle() -> float:
-	match art_key:
-		"bat":
-			return 0.0                            # bat_move_1: head points RIGHT (east)
-		_:
-			return 0.0
+# ── ART ORIENTATION ──────────────────────────────────────────────────────────
+# THE one place that turns "which way the art was drawn" into "the rotation that
+# aims it at `dir`". Each animation row declares its drawn direction as "points"
+# (see SpriteBook); art without one plays exactly as drawn, so this is inert for
+# every existing set. Callers never carry art knowledge.
+func _rot_for(anim: String, dir: Vector2) -> float:
+	var pts := String(ANIMS.get(anim, {}).get("points", ""))
+	if pts == "" or dir == Vector2.ZERO:
+		return 0.0
+	var rof: float = {"up": PI / 2.0, "down": -PI / 2.0, "right": 0.0, "left": -PI}.get(pts, 0.0)
+	return dir.angle() + rof
 
-# Rotation that turns the art's native front onto the current facing vector. One
-# value used by move, attack, AND idle so the head always points where it acts.
+# The RESTING pose. Mobs have no mechanical facing any more: their idle art simply
+# looks along `aim`, which the story keeps pointed at the player.
 func _mob_facing_rotation() -> float:
-	if art_key == "bat":
-		return _facing_angle(facing) - _native_facing_angle()
-	return 0.0
+	return _rot_for("idle", aim)
 
 func _mob_facing_flip() -> bool:
 	match art_key:
@@ -507,7 +505,7 @@ func play_anim(name: String, dir: Vector2 = Vector2.ZERO, rot_offset: float = PI
 		if _span_axis != "":
 			# Spanned creature: pose is owned by the span, never by per-anim rotation.
 			call_deferred("_apply_span_pose")
-		elif directional_art and dir != Vector2.ZERO:
+		elif (directional_art or pts != "") and dir != Vector2.ZERO:
 			# Directional one-shot. `rot_offset` accounts for where the art's
 			# reference points by default: the move/attack figure points UP
 			# (+PI/2 turns UP onto `dir`); the guard shield's closed side points
@@ -515,10 +513,9 @@ func play_anim(name: String, dir: Vector2 = Vector2.ZERO, rot_offset: float = PI
 			body.flip_h = false
 			body.rotation = dir.angle() + rof
 		else:
-			# UNIFIED RULE: the sprite points along its FACING for every animation.
-			# The mob pivots to face its action before acting, so facing already is
-			# the move/attack direction -- move, attack, and idle all share this.
-			body.rotation = _mob_facing_rotation()
+			# No action vector for this play: rest the art on `aim`, so a mob keeps
+			# looking at the player between turns.
+			body.rotation = _rot_for(name, aim)
 			body.flip_h = _mob_facing_flip()
 		body.play(name)
 
@@ -632,13 +629,13 @@ func _draw() -> void:
 	# Two-tile serpent: a facing bar on BOTH heads at once (it has two heads and can
 	# strike from either). Each bar sits on the OUTER edge of its head tile.
 	if _span_axis != "":
-		# Draw the two head bars from the SAME axis the sprite uses (_span_axis), so
-		# bars and sprite can never disagree. The body spans one tile each side of the
-		# node center along the axis; a bar sits on the OUTER edge of each end.
+		# Body bars only if this unit shows facing at all (mobs never do).
 		var adir := Vector2(0, 1) if _span_axis == "v" else Vector2(1, 0)
+		if not show_facing:
+			adir = Vector2.ZERO   # skip the bar loop below; HP bar still draws
 		var half := float(ViewConfig.TILE) * 0.5
 		var blen2 := ViewConfig.TILE * 0.72
-		for sgn: float in [1.0, -1.0]:
+		for sgn: float in ([] if adir == Vector2.ZERO else [1.0, -1.0]):
 			var mid2: Vector2 = adir * (half * sgn * 2.0)      # outer edge of one head tile, local
 			var perp2: Vector2 = Vector2(-adir.y, adir.x) * (blen2 * 0.5)
 			draw_line(mid2 - perp2, mid2 + perp2, Color.WHITE, 3.0)
@@ -651,6 +648,8 @@ func _draw() -> void:
 		draw_rect(Rect2(sx, sy, sw * sfrac, 5.0), ViewConfig.COL_HP_FILL)
 		return
 
+	if not show_facing:
+		return                    # mobs: no facing bar (HP handled above for spans)
 	# Facing bar: sits on the tile edge in the facing direction (E=right,
 	# N=top, W=left, S=bottom) and swings around when the unit pivots.
 	var fd := Vector2(cos(face_angle), sin(face_angle))

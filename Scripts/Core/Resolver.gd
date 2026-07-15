@@ -383,8 +383,8 @@ static func _can_move(grid: Grid, actor: Combatant, other: Combatant, tile: Vect
 		return false
 	if grid.is_blocked(tile):
 		return false
-	if other.pos == tile:
-		return false
+	if _occupies(other, tile):
+		return false                     # any body cell blocks (single-tile: pos only)
 	return true
 
 # Resolve a move with the contested-tile rules. Moving into the foe's tile is
@@ -511,13 +511,13 @@ static func _attack(attacker: Combatant, target: Combatant, s: Dictionary,
 	if attacker.attack_all_adjacent:
 		# Ooze: the strike hits ALL 4 adjacent tiles at once -- foe is hit if CARDINALLY
 		# adjacent at strike time, wherever the aim tile pointed.
-		if Grid.dist(attacker.pos, target.pos) != 1:
+		if _near(target, attacker.pos) != 1:
 			events.append(_ev("attack_whiff", tick, attacker.id, {"tile": s["tile"], "dir": dir}))
 			return
 	elif Grid.dist(attacker.pos, s["tile"]) > attacker.attack_range:
 		events.append(_ev("attack_whiff", tick, attacker.id, {"tile": s["tile"], "dir": dir}))
 		return
-	if not attacker.attack_all_adjacent and target.pos != s["tile"]:
+	if not attacker.attack_all_adjacent and not _occupies(target, s["tile"]):
 		events.append(_ev("attack_whiff", tick, attacker.id, {"tile": s["tile"], "dir": dir}))
 		return
 	var rel := _flank(target, attacker.pos)
@@ -560,7 +560,7 @@ static func _cast_spell(grid: Grid, caster: Combatant, target: Combatant, s: Dic
 			# Spell damage is flat (no flank multiplier) by design.
 			if Config.is_projectile(id):
 				pass   # a projectile resolves its hits through its flight steps, not here
-			elif target.pos in tiles:
+			elif _hit_any(target, tiles):
 				var dmg := int(eff["amount"])
 				_apply_damage(target, dmg, tick, damaged_tick, dead_tick)
 				events.append(_ev("spell_hit", tick, caster.id, {"target": target.id, "damage": dmg, "spell": id}))
@@ -786,7 +786,7 @@ static func _projectile_step(s: Dictionary, actor: Combatant, target: Combatant,
 		return
 	var tile: Vector2i = s["tile"]
 	events.append(_ev("projectile_step", tick, actor.id, {"tile": tile, "from": s.get("from", tile), "step": int(s["step"]), "spell": s["id"]}))
-	if target.pos == tile and dead_tick[target.id] == -1:
+	if _occupies(target, tile) and dead_tick[target.id] == -1:
 		var eff: Dictionary = Config.def(s["id"]).get("effect", {})
 		if String(eff.get("type", "")) == "disrupt":
 			_apply_disrupt(eff, s, actor, target, tick, events, damaged_tick, dead_tick)
@@ -855,3 +855,75 @@ static func _ev(type: String, tick: int, owner: String, data: Dictionary = {}) -
 	for k in data:
 		e[k] = data[k]
 	return e
+
+# ══════════════════════════════════════════════════════════════════════════════
+# STORY FOOTPRINTS -- the unit's BODY (multi-tile story bosses), INERT IN DUELS.
+#
+# A unit IS its Combatant, and the Combatant HAS a body: `Combatant.body`, an
+# Array of local offsets in the unit's facing basis (x = its right, y = forward;
+# (0,0) = `pos`). Scale it freely -- the serpent is shape_line(2), a big boss is
+# shape_rect(4, 4); cells rotate with facing automatically. Duels never set a
+# body, so every helper below reduces to the exact single-tile expression it
+# replaced -- the duel engine is bit-identical (re-certify with run_parity.bat +
+# run_position_tests.bat after any edit here).
+#
+# WHAT A BODY MEANS (all six combat touch points):
+#   * every body cell is HITTABLE -- aimed melee, projectiles, and spell areas
+#     connect on ANY cell; adjacency is measured to the NEAREST cell
+#   * every body cell BLOCKS enemy movement
+#
+# V1 RULES (documented limits, revisit when the first 4x4 boss lands):
+#   * Flank tier is judged against the PRIMARY cell's facing/position.
+#   * The move-contest/swap niceties key on the primary cell (you cannot
+#     position-swap with a body cell -- but you CAN hit it).
+#   * A unit's own cells never block its own step (brains keep bodies rigid).
+# ══════════════════════════════════════════════════════════════════════════════
+
+# All world cells a unit occupies (primary first). Empty body -> [pos].
+static func _cells(u: Combatant) -> Array:
+	if u.body.is_empty():
+		return [u.pos]
+	var fwd := Vector2i(Config.FACING_VEC[u.facing])
+	var right := Vector2i(-fwd.y, fwd.x)
+	var out: Array = []
+	for off: Vector2i in u.body:
+		out.append(u.pos + right * off.x + fwd * off.y)
+	return out
+
+# Does the unit occupy tile t? (Empty body: exactly the old `u.pos == t`.)
+static func _occupies(u: Combatant, t: Vector2i) -> bool:
+	if u.body.is_empty():
+		return u.pos == t
+	return t in _cells(u)
+
+# Distance from `from` to the unit's NEAREST cell. (Empty body: old Grid.dist.)
+static func _near(u: Combatant, from: Vector2i) -> int:
+	if u.body.is_empty():
+		return Grid.dist(u.pos, from)
+	var best := 9999
+	for c: Vector2i in _cells(u):
+		best = mini(best, Grid.dist(c, from))
+	return best
+
+# Is any of the unit's cells inside `tiles`? (Empty body: old `pos in tiles`.)
+static func _hit_any(u: Combatant, tiles: Array) -> bool:
+	if u.body.is_empty():
+		return u.pos in tiles
+	for c: Vector2i in _cells(u):
+		if c in tiles:
+			return true
+	return false
+
+# ── shape builders (use these when equipping a mob) ─────────────────────────
+static func shape_line(length: int) -> Array:
+	var out: Array = []
+	for i in range(length):
+		out.append(Vector2i(0, i))               # extends FORWARD from the primary cell
+	return out
+
+static func shape_rect(w: int, h: int) -> Array:
+	var out: Array = []
+	for y in range(h):
+		for x in range(w):
+			out.append(Vector2i(x, y))           # primary cell = the near-left corner
+	return out

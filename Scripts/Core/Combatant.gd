@@ -35,6 +35,10 @@ var action_count: int = 0
 # Mob attack profile (duelists keep the defaults). Set by GameController for story mobs.
 var attack_range: int = 1              # bat = 2: strikes from two tiles away
 var attack_all_adjacent: bool = false  # ooze = true: every attack hits ALL 4 adjacent tiles
+# STORY FOOTPRINT: the unit's BODY as local offsets in its facing basis (x = its
+# right, y = forward); (0,0) is `pos`. Empty = single tile -- ALWAYS empty in duels.
+# Scale freely: the serpent is Resolver.shape_line(2); a big boss shape_rect(4, 4).
+var body: Array = []
 
 # Loadout: up to four gear slots (ids into GearBook). "" = empty/neutral block.
 # Spells are NOT stored on the fighter — they are derived from this gear, so
@@ -89,6 +93,7 @@ func clone() -> Combatant:
 	c.action_count = action_count
 	c.attack_range = attack_range
 	c.attack_all_adjacent = attack_all_adjacent
+	c.body = body.duplicate()
 	c.gear = gear.duplicate()
 	return c
 

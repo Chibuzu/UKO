@@ -7,12 +7,9 @@
 class_name MobBrain
 extends RefCounted
 
+# NOTE: species migrate to Story/Mobs2/MobSpec.gd as they become true CHARACTERS
+# (real resolver actions). Migrated so far: bat. This table keeps only the rest.
 const PROFILES := {
-	"bat": {
-		"name": "Bat", "hp": 45, "scale": 0.72, "tint": Color(0.62, 0.80, 1.00), "art": "bat",
-		"atk_range": 2, "dmg": 10,   # a ranged skirmisher: bites from 2 tiles down a cardinal line
-		"loot": [ { "item": "bat_wing", "chance": 0.55 } ],
-	},
 	"slime": {
 		"name": "Slime", "hp": 80, "scale": 0.90, "tint": Color(0.55, 1.00, 0.62), "art": "ooze",
 		"dmg": 10,   # x flank multiplier (front 1.0 / side 1.5 / back 2.0), like a duel
@@ -31,13 +28,20 @@ const PROFILES := {
 	},
 }
 
+# THE species lookup: characters (Story/Mobs2) come from MobSpec, the rest from
+# PROFILES above. Every caller uses this -- never index a table directly.
+static func profile(type: String) -> Dictionary:
+	if MobSpec.is_character(type):
+		return MobSpec.row(type)
+	return PROFILES.get(type, {})
+
 # The one place mapping a type id to its behavior. Add a case when you add a creature.
 static func make_kind(type: String) -> MobKind:
 	var k: MobKind
 	match type:
-		"bat":     k = BatKind.new()
+		"bat":     k = CharacterBat.new()  # true-action character (Story/Mobs2)
 		"slime":   k = SlimeKind.new()
 		"serpent": k = SerpentKind.new()   # two-tile boss: strikes straight out from both heads
 		_:         k = MobKind.new()
-	k.setup(type, PROFILES.get(type, {}))
+	k.setup(type, profile(type))           # one lookup for both tables
 	return k

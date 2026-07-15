@@ -24,9 +24,14 @@ const SETS := {
 		"directional": false,
 		"offset_y": 0.0,
 		"anims": {
-			"idle":   { "fps": 3.0, "loop": true,  "files": ["Bat_Idle_1.png", "Bat_idle_2.png", "Bat_idle_3.png", "Bat_idle_4.png"] },
-			"move":   { "fps": 5.0, "loop": false, "files": ["Bat_Move_1.png", "Bat_move_2.png", "Bat_move_3.png"] },
-			"attack": { "fps": 5.0, "loop": false, "files": ["Bat_Attack_1.png", "Bat_Attack_2.png", "Bat_attack_3.png", "Bat_attack_4.png", "Bat_attack_5.png", "Bat_Attack_6.png", "Bat_Attack_7.png"] },
+			# "points" = the direction each art set is DRAWN. The bat's sets are MIXED:
+			# the IDLE is drawn facing NORTH, while the MOVE and ATTACK figures are drawn
+			# facing EAST. The view rotates from "points" onto whatever the art should aim
+			# at, so no single "the bat faces X" rule is needed and re-drawing a sprite
+			# only ever means editing its "points" here.
+			"idle":   { "fps": 3.0, "loop": true,  "points": "up",    "files": ["Bat_Idle_1.png", "Bat_idle_2.png", "Bat_idle_3.png", "Bat_idle_4.png"] },
+			"move":   { "fps": 5.0, "loop": false, "points": "right", "files": ["Bat_Move_1.png", "Bat_move_2.png", "Bat_move_3.png"] },
+			"attack": { "fps": 5.0, "loop": false, "points": "right", "files": ["Bat_Attack_1.png", "Bat_Attack_2.png", "Bat_attack_3.png", "Bat_attack_4.png", "Bat_attack_5.png", "Bat_Attack_6.png", "Bat_Attack_7.png"] },
 		},
 	},
 	"ooze": {

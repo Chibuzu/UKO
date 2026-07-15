@@ -8,12 +8,12 @@ Godot Engine v4.7.stable.mono.official.5b4e0cb0f - https://godotengine.org
 [positions] 3/3 safe-rest...
 [PASS] safe-rest: heals when unpunishable  rate 100% (want 50..100%)
 [positions] 4/4 critical-rest...
-[PASS] critical-rest: heals at death's door vs a spent foe  rate 100% (want 60..100%)
+[FAIL] critical-rest: heals at death's door vs a spent foe  rate 0% (want 60..100%)
 [positions] 5/6 press-the-starving-man...
-[FAIL] press-starving: attacks or closes on a locked-out foe  rate 38% (want 60..100%)
+[FAIL] press-starving: attacks or closes on a locked-out foe  rate 48% (want 60..100%)
 [positions] 6/6 no-lead-wait-under-aoe...
 [PASS] no-lead-wait: acts before waiting under burst threat  rate 100% (want 70..100%)
-[positions] 1 FAILED
+[positions] 2 FAILED
 SCRIPT ERROR: Cannot call method 'get_path' on a null value.
    at: NodeInstantiator._ready (res://addons/GD-Sync/Scripts/Types/NodeInstantiator.gd:115)
    GDScript backtrace (most recent call first):

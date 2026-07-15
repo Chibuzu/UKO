@@ -24,13 +24,15 @@ static func resolve_turn(grid: WorldGrid, player_in: Combatant, mobs: Array,
 	for t in extra_walls:
 		occupied[t] = true            # two-tile bodies: every tail is solid ground
 
+	var kept_resolves: Array = []            # each mob's r-dict (event harvesting below)
 	for i in mobs.size():
 		var g: WorldGrid = _grid_blocking_others(grid, mobs, occupied, i)
 		var r: Dictionary = Resolver.resolve(g, player_in.clone(), mobs[i].clone(), player_seq, mob_seqs[i], 0)
+		kept_resolves.append(r)
 		out_mobs.append(r["b"])
 		occupied[r["b"].pos] = true
 		if i == 0:
-			player_final = r["a"].clone()        # includes any REST regen; mobs deal no resolver dmg
+			player_final = r["a"].clone()        # move-only mobs deal no resolver dmg; characters DO
 			primary_events = r["events"]
 			occupied[player_final.pos] = true    # your landing tile is now a wall for every other mob
 
@@ -49,7 +51,31 @@ static func resolve_turn(grid: WorldGrid, player_in: Combatant, mobs: Array,
 	var strikes_by_mob: Array = []
 	var attempts_by_mob: Array = []
 	var strike_log: Array = []
+	# ── TRUE-ACTION CHARACTERS (Story/Mobs2): their attacks went THROUGH the resolver
+	# like a duelist's, so we harvest the real attack_hit damage and skip the old
+	# budget-strike synthesis entirely for them.
 	for i in mobs.size():
+		if mob_kinds[i].has_method("uses_true_actions") and mob_kinds[i].uses_true_actions():
+			var hit_dmg := 0
+			var tried := 0
+			for ev in kept_resolves[i]["events"]:
+				if String(ev.get("owner", "")) != mobs[i].id and String(ev.get("owner", "")) != "B":
+					continue
+				match String(ev.get("type", "")):
+					"attack_hit":
+						hit_dmg += int(ev.get("damage", 0))
+						tried += 1
+					"attack_whiff", "attack_blocked":
+						tried += 1
+						strike_log.append({"mob": i, "tick": int(ev.get("tick", 0)), "hit": false,
+								"why": "blocked" if String(ev["type"]) == "attack_blocked" else "out of line"})
+			if i > 0 and hit_dmg > 0:
+				player_final.hp = maxi(0, player_final.hp - hit_dmg)   # i==0 already landed via r["a"]
+			strikes_by_mob.append(1 if hit_dmg > 0 else 0)
+			attempts_by_mob.append(tried)
+			dmg_by_mob.append(hit_dmg)
+			dmg_total += hit_dmg
+			continue
 		# Strike ticks follow the mob's ACTION ORDER, not just its budget: an
 		# attack in slot 1 lands at 350, in slot 2 at 900. ([attack, move] used to
 		# be judged at 900 -- dodging attack-first mobs was mistimed.)
