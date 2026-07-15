@@ -455,7 +455,11 @@ func _combat_turn(engaged: Array) -> void:
 	var atk_tile := _attack_tile(player_seq)
 	if atk_tile != Vector2i(-1, -1):
 		for i in engaged.size():
-			if engaged[i]["combatant"].pos == atk_tile:
+			# Match either body cell: a 2-tile serpent is hit by aiming at head OR tail.
+			var hit_body: bool = engaged[i]["combatant"].pos == atk_tile
+			if engaged[i].get("tiles", 1) >= 2 and Vector2i(engaged[i].get("tail", Vector2i(-1, -1))) == atk_tile:
+				hit_body = true
+			if hit_body:
 				if i != 0:
 					var picked: Dictionary = engaged[i]
 					engaged.remove_at(i)
@@ -477,9 +481,15 @@ func _combat_turn(engaged: Array) -> void:
 	# compute its action, apply pos/facing (tail is always pos+facing), and record the
 	# animation. It acts fully now, so the resolver gets an empty sequence for it.
 	var serpent_anim: Dictionary = {}   # index -> {"kind":..., "from_pos":..., "from_facing":...}
+	var serpent_prebody: Dictionary = {}  # index -> [pre-move head, pre-move tail] (hittable tiles)
 	for i in engaged.size():
 		if engaged[i]["kind"] is SerpentKind:
 			var sc: Combatant = engaged[i]["combatant"]
+			# The two tiles the serpent occupied when the player chose their action --
+			# an attack aimed at EITHER connects, even though the serpent then moves.
+			var pre_head: Vector2i = sc.pos
+			var pre_tail: Vector2i = sc.pos + Vector2i(Config.FACING_VEC[sc.facing])
+			serpent_prebody[i] = [pre_head, pre_tail]
 			var mv: Dictionary = engaged[i]["kind"].plan_move(sc.pos, sc.facing, player.pos, grid)
 			serpent_anim[i] = {"kind": String(mv.get("kind", "hold")), "from_pos": sc.pos, "from_facing": sc.facing}
 			match String(mv.get("kind", "hold")):
@@ -505,13 +515,27 @@ func _combat_turn(engaged: Array) -> void:
 	for i in engaged.size():
 		if engaged[i].get("tiles", 1) >= 2:
 			tails.append(engaged[i]["tail"])
-			# Tell the serpent's brain where its second head is, so its directional
-			# strike (straight out from both heads) is computed against the real body.
 			var k = engaged[i]["kind"]
 			if k is SerpentKind:
 				k.tail = engaged[i]["tail"]
+			# Hittable = the tiles the serpent OCCUPIES at the attacking tick (its
+			# destination: head + new tail). Also accept the tiles it visibly occupied
+			# when you chose to strike (pre-move), so aiming at the body always lands.
+			# Any such target is remapped to the mob's resolver pos so damage connects.
+			var hit_tiles: Array = [engaged[i]["combatant"].pos, engaged[i]["tail"]]
+			if serpent_prebody.has(i):
+				for t in serpent_prebody[i]:
+					if t not in hit_tiles:
+						hit_tiles.append(t)
+			var player_atk := _attack_tile(player_seq)
+			if player_atk != Vector2i(-1, -1):
+				var connected := player_atk in hit_tiles
+				combat_log.add_note("You aim (%d,%d); serpent body %s -> %s" % [
+					player_atk.x, player_atk.y,
+					str(hit_tiles), "HIT" if connected else "miss (aim at its body)"],
+					ViewConfig.COL_TEXT)
 			for act in player_seq:
-				if act.has("tile") and Vector2i(act["tile"]) == Vector2i(engaged[i]["tail"]):
+				if act.has("tile") and Vector2i(act["tile"]) in hit_tiles:
 					act["tile"] = engaged[i]["combatant"].pos
 	var pre_pos: Array = []
 	var pre_hp: Array = []
@@ -583,13 +607,30 @@ func _combat_turn(engaged: Array) -> void:
 		# your damage on NON-nearest mobs resolves in their own pair -> surface it
 		if i > 0 and int(pre_hp[i]) > res["mobs"][i].hp:
 			combat_log.add_note("You hit %s for %d" % [name, int(pre_hp[i]) - int(res["mobs"][i].hp)], ViewConfig.COL_TEXT)
-		var moved := StoryCombat._move_count(mob_seqs[i])
-		if moved > 0:
-			combat_log.add_note("%s moved x%d" % [name, moved], ViewConfig.COL_TEXT)
-		elif int(dmg[i]) == 0:
-			combat_log.add_note("%s held its ground" % name, ViewConfig.COL_TEXT)
-		if i < strikes.size() and int(strikes[i]) >= 2:
-			combat_log.add_note("%s struck x%d!" % [name, int(strikes[i])], ViewConfig.COL_DMG)
+		if serpent_anim.has(i):
+			# The serpent is driven by a descriptor, not the resolver sequence -- log
+			# its REAL action + body + strike tiles so its behavior is legible.
+			var sa: Dictionary = serpent_anim[i]
+			var sc2: Combatant = res["mobs"][i]
+			var body_a: Vector2i = sc2.pos
+			var body_b: Vector2i = sc2.pos + Vector2i(Config.FACING_VEC[sc2.facing])
+			var strikes_at: Array = SerpentKind.strike_tiles(body_a, body_b)
+			var kind := String(sa.get("kind", "hold"))
+			var verb: String = {"straight": "slithers", "turn": "turns", "strike": "strikes", "hold": "waits"}.get(kind, kind)
+			combat_log.add_note("%s %s -> body (%d,%d)-(%d,%d), aims %s & %s" % [
+				name, verb, body_a.x, body_a.y, body_b.x, body_b.y,
+				"(%d,%d)" % [strikes_at[0].x, strikes_at[0].y],
+				"(%d,%d)" % [strikes_at[1].x, strikes_at[1].y]], ViewConfig.COL_TEXT)
+			if int(dmg[i]) > 0:
+				combat_log.add_note("%s bites A for %d!" % [name, int(dmg[i])], ViewConfig.COL_DMG)
+		else:
+			var moved := StoryCombat._move_count(mob_seqs[i])
+			if moved > 0:
+				combat_log.add_note("%s moved x%d" % [name, moved], ViewConfig.COL_TEXT)
+			elif int(dmg[i]) == 0:
+				combat_log.add_note("%s held its ground" % name, ViewConfig.COL_TEXT)
+			if i < strikes.size() and int(strikes[i]) >= 2:
+				combat_log.add_note("%s struck x%d!" % [name, int(strikes[i])], ViewConfig.COL_DMG)
 	for sl in res.get("strike_log", []):
 		if not bool(sl["hit"]):
 			combat_log.add_note("%s strike @%d missed -- %s" % [_mob_label(engaged[int(sl["mob"])]), int(sl["tick"]), String(sl["why"])], ViewConfig.COL_TEXT)

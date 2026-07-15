@@ -302,13 +302,17 @@ func _span_rest() -> void:
 		body.pause()
 
 func tween_span(head: Vector2i, tail: Vector2i) -> void:
-	# STRAIGHT slither along the axis: play "move", tween the body to its new midpoint.
+	# STRAIGHT slither: play the art matching the body's AXIS (vertical body -> vertical
+	# "move" art; horizontal body -> horizontal "sidemove" art), then tween to the new
+	# midpoint. Playing "move" unconditionally drew vertical art on a horizontal body.
 	var target := ViewConfig.tile_center(head).lerp(ViewConfig.tile_center(tail), 0.5)
 	_span_axis = _axis_of(head, tail)
 	_span_heads = [head, tail]
 	queue_redraw()
-	if body and body.sprite_frames.has_animation("move"):
-		body.play("move")
+	if body:
+		var anim := "move" if _span_axis == "v" else "sidemove"
+		if body.sprite_frames.has_animation(anim):
+			body.play(anim)
 	_apply_span_pose()
 	var t := create_tween()
 	t.tween_property(self, "position", target, ViewConfig.MOVE_DUR) \
@@ -627,16 +631,16 @@ func _draw() -> void:
 
 	# Two-tile serpent: a facing bar on BOTH heads at once (it has two heads and can
 	# strike from either). Each bar sits on the OUTER edge of its head tile.
-	if _span_axis != "" and _span_heads.size() == 2:
-		var ctr := (ViewConfig.tile_center(_span_heads[0]) + ViewConfig.tile_center(_span_heads[1])) * 0.5
-		for h in _span_heads:
-			var hc := ViewConfig.tile_center(h) - ctr          # head center, local to this node
-			var outward := (Vector2(hc)).normalized()
-			if outward == Vector2.ZERO:
-				outward = Vector2(0, -1)
-			var blen2 := ViewConfig.TILE * 0.72
-			var mid2 := hc + outward * (ViewConfig.TILE * 0.45)
-			var perp2 := Vector2(-outward.y, outward.x) * (blen2 * 0.5)
+	if _span_axis != "":
+		# Draw the two head bars from the SAME axis the sprite uses (_span_axis), so
+		# bars and sprite can never disagree. The body spans one tile each side of the
+		# node center along the axis; a bar sits on the OUTER edge of each end.
+		var adir := Vector2(0, 1) if _span_axis == "v" else Vector2(1, 0)
+		var half := float(ViewConfig.TILE) * 0.5
+		var blen2 := ViewConfig.TILE * 0.72
+		for sgn: float in [1.0, -1.0]:
+			var mid2: Vector2 = adir * (half * sgn * 2.0)      # outer edge of one head tile, local
+			var perp2: Vector2 = Vector2(-adir.y, adir.x) * (blen2 * 0.5)
 			draw_line(mid2 - perp2, mid2 + perp2, Color.WHITE, 3.0)
 		# HP bar centered above the whole body.
 		var sw := ViewConfig.TILE * 0.8
