@@ -10,11 +10,6 @@ extends RefCounted
 # NOTE: species migrate to Story/Mobs2/MobSpec.gd as they become true CHARACTERS
 # (real resolver actions). Migrated so far: bat. This table keeps only the rest.
 const PROFILES := {
-	"slime": {
-		"name": "Slime", "hp": 80, "scale": 0.90, "tint": Color(0.55, 1.00, 0.62), "art": "ooze",
-		"dmg": 10,   # x flank multiplier (front 1.0 / side 1.5 / back 2.0), like a duel
-		"loot": [ { "item": "slime_gel", "chance": 0.70 } ],
-	},
 	# The boss (Fra: fight designed later -- base melee behavior as the placeholder).
 	"boss": {
 		"name": "WARLORD", "hp": 220, "scale": 1.5, "tint": Color(0.85, 0.55, 1.0),
@@ -40,7 +35,7 @@ static func make_kind(type: String) -> MobKind:
 	var k: MobKind
 	match type:
 		"bat":     k = CharacterBat.new()  # true-action character (Story/Mobs2)
-		"slime":   k = SlimeKind.new()
+		"slime":   k = CharacterOoze.new() # true-action character (Story/Mobs2)
 		"serpent": k = SerpentKind.new()   # two-tile boss: strikes straight out from both heads
 		_:         k = MobKind.new()
 	k.setup(type, profile(type))           # one lookup for both tables

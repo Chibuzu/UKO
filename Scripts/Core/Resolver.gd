@@ -385,6 +385,13 @@ static func _can_move(grid: Grid, actor: Combatant, other: Combatant, tile: Vect
 		return false
 	if _occupies(other, tile):
 		return false                     # any body cell blocks (single-tile: pos only)
+	# A BODIED unit must FIT where it lands: every cell it would occupy there must be
+	# open too. Empty body -> cells_at() is just [tile], already checked -> duels are
+	# byte-identical.
+	if not actor.body.is_empty():
+		for c: Vector2i in actor.cells_at(tile):
+			if grid.is_blocked(c) or _occupies(other, c):
+				return false
 	return true
 
 # Resolve a move with the contested-tile rules. Moving into the foe's tile is
@@ -514,14 +521,17 @@ static func _attack(attacker: Combatant, target: Combatant, s: Dictionary,
 		if _near(target, attacker.pos) != 1:
 			events.append(_ev("attack_whiff", tick, attacker.id, {"tile": s["tile"], "dir": dir}))
 			return
-	elif Grid.dist(attacker.pos, s["tile"]) > attacker.attack_range:
+	elif _near(attacker, s["tile"]) > attacker.attack_range:   # a body reaches from its NEAREST cell
 		events.append(_ev("attack_whiff", tick, attacker.id, {"tile": s["tile"], "dir": dir}))
 		return
 	if not attacker.attack_all_adjacent and not _occupies(target, s["tile"]):
 		events.append(_ev("attack_whiff", tick, attacker.id, {"tile": s["tile"], "dir": dir}))
 		return
 	var rel := _flank(target, attacker.pos)
-	var dmg := int(round(Config.ATTACK_DAMAGE * float(Config.FLANK_MULT[rel])))
+	# Per-unit attack POWER (story units carry their own via their MobSpec loadout).
+	# 0 = the duel default, so a duelist resolves the identical original expression.
+	var power: int = attacker.attack_power if attacker.attack_power > 0 else Config.ATTACK_DAMAGE
+	var dmg := int(round(power * float(Config.FLANK_MULT[rel])))
 	if guarding[target.id]:
 		# Directional guard: front fully blocks, side halves, back slips past. The
 		# refund latches by tier (front 15 / side 10 / back 0) for the end-of-turn payout.
@@ -816,7 +826,19 @@ static func _apply_disrupt(eff: Dictionary, s: Dictionary, actor: Combatant, tar
 
 static func _flank(defender: Combatant, attacker_pos: Vector2i) -> String:
 	# THE flank rule lives once in Config; this is just the resolver-side adapter.
-	return Config.flank_tier(defender.facing, defender.pos, attacker_pos)
+	#
+	# A BODIED unit (a story footprint) is SPECULAR: every end of its body line is a
+	# HEAD, so it has no back to stab. Standing on its line means trading with a head
+	# ("front", x1); anywhere off that line is a flank ("side", x1.5). So x1.5 is the
+	# most a body can ever be flanked for -- it can never take the x2 back tier.
+	# A duelist has no body -> the exact original expression, so duels are untouched.
+	if defender.body.is_empty():
+		return Config.flank_tier(defender.facing, defender.pos, attacker_pos)
+	var fwd := Vector2i(Config.FACING_VEC[defender.facing])
+	var right := Vector2i(-fwd.y, fwd.x)
+	var off := attacker_pos - defender.pos
+	var perp := off.x * right.x + off.y * right.y   # how far off the body's line you stand
+	return "front" if perp == 0 else "side"
 
 static func _rest_regen(c: Combatant, sched: Array, own: Dictionary, events: Array) -> void:
 	var enemy_tick := 0
@@ -879,16 +901,10 @@ static func _ev(type: String, tick: int, owner: String, data: Dictionary = {}) -
 #   * A unit's own cells never block its own step (brains keep bodies rigid).
 # ══════════════════════════════════════════════════════════════════════════════
 
-# All world cells a unit occupies (primary first). Empty body -> [pos].
+# All world cells a unit occupies. The geometry lives ON the unit (Combatant.cells),
+# so the engine, the view and every brain read one implementation.
 static func _cells(u: Combatant) -> Array:
-	if u.body.is_empty():
-		return [u.pos]
-	var fwd := Vector2i(Config.FACING_VEC[u.facing])
-	var right := Vector2i(-fwd.y, fwd.x)
-	var out: Array = []
-	for off: Vector2i in u.body:
-		out.append(u.pos + right * off.x + fwd * off.y)
-	return out
+	return u.cells()
 
 # Does the unit occupy tile t? (Empty body: exactly the old `u.pos == t`.)
 static func _occupies(u: Combatant, t: Vector2i) -> bool:

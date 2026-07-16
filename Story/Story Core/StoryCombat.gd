@@ -47,7 +47,9 @@ static func resolve_turn(grid: WorldGrid, player_in: Combatant, mobs: Array,
 	# (or being IN TRANSIT at strike time) makes it genuinely MISS.
 	var timeline := _player_timeline(player_in, primary_events)
 	var dmg_by_mob: Array = []
-	var dmg_total: int = 0
+	# ONLY the old move-only mobs' synthesized strike damage -- i.e. damage the resolver
+	# did NOT apply itself. True-action characters are excluded by design (see below).
+	var budget_dmg: int = 0
 	var strikes_by_mob: Array = []
 	var attempts_by_mob: Array = []
 	var strike_log: Array = []
@@ -69,12 +71,15 @@ static func resolve_turn(grid: WorldGrid, player_in: Combatant, mobs: Array,
 						tried += 1
 						strike_log.append({"mob": i, "tick": int(ev.get("tick", 0)), "hit": false,
 								"why": "blocked" if String(ev["type"]) == "attack_blocked" else "out of line"})
+			# THE RESOLVER ALREADY APPLIED THIS DAMAGE. It must NEVER enter `budget_dmg`
+			# (subtracted at the end of this function for the old move-only mobs), or a
+			# character's bite lands twice. The PRIMARY mob's hit is already inside
+			# player_final (cloned from its r["a"]); the others land theirs once here.
 			if i > 0 and hit_dmg > 0:
-				player_final.hp = maxi(0, player_final.hp - hit_dmg)   # i==0 already landed via r["a"]
+				player_final.hp = maxi(0, player_final.hp - hit_dmg)
 			strikes_by_mob.append(1 if hit_dmg > 0 else 0)
 			attempts_by_mob.append(tried)
-			dmg_by_mob.append(hit_dmg)
-			dmg_total += hit_dmg
+			dmg_by_mob.append(hit_dmg)          # reported for the log/anims -- NOT re-applied
 			continue
 		# Strike ticks follow the mob's ACTION ORDER, not just its budget: an
 		# attack in slot 1 lands at 350, in slot 2 at 900. ([attack, move] used to
@@ -97,7 +102,7 @@ static func resolve_turn(grid: WorldGrid, player_in: Combatant, mobs: Array,
 		strikes_by_mob.append(landed)
 		attempts_by_mob.append(ticks.size())
 		dmg_by_mob.append(d)
-		dmg_total += d
+		budget_dmg += d
 
 	# Successful guard refunds energy, exactly like a duel: if the player guarded and a mob
 	# that actually struck (spent an action attacking) hit a face the guard covers (front/side),
@@ -111,7 +116,7 @@ static func resolve_turn(grid: WorldGrid, player_in: Combatant, mobs: Array,
 		if guard_refund > 0:
 			player_final.energy = mini(Config.MAX_ENERGY, player_final.energy + guard_refund)
 
-	player_final.hp = clampi(player_final.hp - dmg_total, 0, Config.MAX_HP)
+	player_final.hp = clampi(player_final.hp - budget_dmg, 0, Config.MAX_HP)
 	var result: String = "player_dead" if player_final.hp <= 0 else "ongoing"
 	return {
 		"player": player_final,

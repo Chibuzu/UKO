@@ -141,6 +141,7 @@ func _build_npc_body() -> void:
 # has no loadable frames.
 func _build_mob_body(art_set: Dictionary) -> void:
 	directional_art = bool(art_set.get("directional", false))
+	_rows = art_set.get("anims", {})            # this creature's own rows (its "points" live here)
 	_body_offset_y = float(art_set.get("offset_y", 0.0))
 	for an in art_set.get("anims", {}):
 		var ad: Dictionary = art_set["anims"][an]
@@ -240,7 +241,7 @@ func set_state(c: Combatant) -> void:
 func play_attack(dir: Vector2) -> void:
 	# Attack art that declares which way it is DRAWN ("points") simply rotates onto the
 	# strike vector -- one path for every such creature, no per-direction files needed.
-	if String(ANIMS.get("attack", {}).get("points", "")) != "":
+	if _points_of("attack") != "":
 		play_anim("attack", dir)
 		return
 	if body and dir != Vector2.ZERO:
@@ -274,6 +275,10 @@ var show_facing := true        # mobs: false -- mobs have no facing, so no bars
 # COSMETIC look vector: the direction this unit's RESTING art points. The story keeps it
 # aimed at the player. Art-only -- it never touches rules, legality, damage, or flank.
 var aim := Vector2.ZERO
+# The art rows for THIS unit: the player's ANIMS const by default, swapped to the mob's
+# SpriteBook set by _build_mob_body. Every "points" lookup MUST read this -- reading the
+# const would ask the PLAYER's table which way a bat is drawn (and get nothing).
+var _rows: Dictionary = ANIMS
 var _span_axis := ""    # "" = single-tile unit; "v" / "h" while spanning
 var _span_heads: Array = []   # the two head tiles (Vector2i), for the dual facing bars
 var _span_target := Vector2.ZERO     # where the body position settles after a step
@@ -448,8 +453,12 @@ func _apply_facing() -> void:
 # aims it at `dir`". Each animation row declares its drawn direction as "points"
 # (see SpriteBook); art without one plays exactly as drawn, so this is inert for
 # every existing set. Callers never carry art knowledge.
+# Which way an animation's art was DRAWN. "" = undeclared -> the art plays as drawn.
+func _points_of(anim: String) -> String:
+	return String(_rows.get(anim, {}).get("points", ""))
+
 func _rot_for(anim: String, dir: Vector2) -> float:
-	var pts := String(ANIMS.get(anim, {}).get("points", ""))
+	var pts := _points_of(anim)
 	if pts == "" or dir == Vector2.ZERO:
 		return 0.0
 	var rof: float = {"up": PI / 2.0, "down": -PI / 2.0, "right": 0.0, "left": -PI}.get(pts, 0.0)
@@ -495,23 +504,19 @@ func play_anim(name: String, dir: Vector2 = Vector2.ZERO, rot_offset: float = PI
 		# Centred effects (guard cube, buff aura) sit ON the tile; figures get the
 		# feet-seating nudge. Set every play so we never inherit the wrong offset.
 		body.offset.y = float(_anim_offset.get(name, _body_offset_y))
-		# Each art set declares which way it was DRAWN ("points"); the rotation
-		# needed to aim it at `dir` is computed here, so callers never carry
-		# art knowledge (swapping a sprite folder can no longer break rotation).
-		var rof := rot_offset
-		var pts := String(ANIMS.get(name, {}).get("points", ""))
-		if pts != "":
-			rof = {"up": PI / 2.0, "down": -PI / 2.0, "right": 0.0}.get(pts, rot_offset)
+		# This art set declares which way it was DRAWN ("points"); _rot_for turns that
+		# into the rotation that aims it at `dir`, so callers never carry art knowledge
+		# (re-drawing a sprite only ever means editing its "points" in the art table).
+		var pts := _points_of(name)
 		if _span_axis != "":
 			# Spanned creature: pose is owned by the span, never by per-anim rotation.
 			call_deferred("_apply_span_pose")
 		elif (directional_art or pts != "") and dir != Vector2.ZERO:
-			# Directional one-shot. `rot_offset` accounts for where the art's
-			# reference points by default: the move/attack figure points UP
-			# (+PI/2 turns UP onto `dir`); the guard shield's closed side points
-			# RIGHT, so it passes its facing with a 0 offset (see EventPlayer).
+			# Directional one-shot: aim the art at `dir`. Art that declares "points"
+			# is converted by _rot_for; older art without one uses the caller's
+			# `rot_offset` (the guard shield passes its own -- see EventPlayer).
 			body.flip_h = false
-			body.rotation = dir.angle() + rof
+			body.rotation = _rot_for(name, dir) if pts != "" else dir.angle() + rot_offset
 		else:
 			# No action vector for this play: rest the art on `aim`, so a mob keeps
 			# looking at the player between turns.

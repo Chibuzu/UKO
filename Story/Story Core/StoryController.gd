@@ -235,7 +235,7 @@ func _add_mob(type: String, tile: Vector2i) -> Dictionary:
 	c.hp = int(prof.get("hp", 100))
 	c.mp = 0                                        # mobs have only HP...
 	c.energy = Config.MAX_ENERGY                    # ...and a full energy pool so moving never locks
-	MobSpec.apply_loadout(c, prof)                  # characters: loadout numbers onto the unit
+	MobSpec.apply_spec(c, prof)                      # characters: spec numbers + body onto the unit
 	var uv := UnitView.new()
 	board.add_child(uv)
 	var art := String(prof.get("art", ""))
@@ -246,7 +246,7 @@ func _add_mob(type: String, tile: Vector2i) -> Dictionary:
 		uv.disc_color = prof.get("tint", Color.WHITE)
 	uv.show_facing = false                          # mobs have no facing (Fra): no bars, ever
 	if player != null:
-		uv.aim = Vector2(player.pos - c.pos)        # its idle looks at you from frame one
+		uv.aim = Vector2(_cardinal(player.pos - c.pos))   # its idle looks at your tile from frame one
 	uv.init_state(c)
 	uv.unit_id = String(prof.get("name", "?"))
 	var sc: float = float(prof.get("scale", 1.0))
@@ -1026,15 +1026,20 @@ func _face_dir(d: Vector2i) -> int:
 	return Config.Facing.SOUTH if d.y >= 0 else Config.Facing.NORTH
 
 func _face_toward(c: Combatant, uv: UnitView, target: Vector2i) -> void:
-	var dv := target - c.pos
-	uv.aim = Vector2(dv)         # cosmetic: the resting art looks straight AT you
-	var dir: Vector2i
+	var dir := _cardinal(target - c.pos)
+	if dir == Vector2i.ZERO:
+		return
+	uv.aim = Vector2(dir)        # cosmetic: the art looks at your TILE -- always N/S/E/W
+	_face(c, uv, dir)
+
+# The nearest cardinal to `dv` (ties go horizontal). THE one snap rule: the art aim and
+# the mechanical facing both use it, so a sprite can never point somewhere illegal.
+func _cardinal(dv: Vector2i) -> Vector2i:
+	if dv == Vector2i.ZERO:
+		return Vector2i.ZERO
 	if absi(dv.x) >= absi(dv.y):
-		dir = Vector2i(signi(dv.x), 0)
-	else:
-		dir = Vector2i(0, signi(dv.y))
-	if dir != Vector2i.ZERO:
-		_face(c, uv, dir)
+		return Vector2i(signi(dv.x), 0)
+	return Vector2i(0, signi(dv.y))
 
 # ── world behavior: mob wandering, facing, passive regen, sanctuary rest ──────
 # Every mob takes a wander step on a shared cadence: beeline toward you within MOB_AGGRO,

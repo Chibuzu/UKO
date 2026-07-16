@@ -13,8 +13,7 @@
 #   loot    -- drop table
 #
 # MIGRATION STATUS: species move here one at a time as they are ported to the
-# true-action system. Ported: bat. Pending (still on MobBrain.PROFILES + the old
-# budget-strike path): slime, serpent.
+# true-action system. Ported: bat, slime (the ooze), serpent.
 class_name MobSpec
 extends RefCounted
 
@@ -25,13 +24,49 @@ const TABLE := {
 		"body": [],                                  # single tile
 		"loadout": {
 			"move":   {},                            # engine defaults
-			"attack": { "range": 2 },                # ranged poke down a cardinal line
+			"attack": { "range": 2, "power": 10 },   # ranged poke down a cardinal line
 			"wait":   {},                            # the always-act-twice filler (0 EP)
 		},
 		"brain": "CharacterBat",
 		"loot": [ { "item": "bat_wing", "chance": 0.55 } ],
 	},
+	# The ooze. Type id stays "slime" (spawn tables, saves and loot key on it); its art
+	# set is "ooze". It owns no ranged option at all -- it can only ever brawl.
+	"slime": {
+		"name": "Slime", "art": "ooze", "tint": Color(0.55, 1.00, 0.62), "scale": 0.90,
+		"hp": 80,
+		"body": [],                                  # single tile
+		"loadout": {
+			"move":   {},
+			"attack": { "all_adjacent": true, "power": 10 },   # ONE spit hits all four neighbours
+			"wait":   {},
+		},
+		"brain": "CharacterOoze",
+		"loot": [ { "item": "slime_gel", "chance": 0.70 } ],
+	},
+	# The two-headed cave boss. `body_line: 2` gives it a rigid 2-tile body that rotates
+	# with its facing (vertical N/S, horizontal E/W). It is the ONLY creature that owns
+	# `pivot` -- that is what lets it turn its body, and its 90-degree turn is simply
+	# move + pivot, its two actions. It has no back: see Resolver._flank.
+	"serpent": {
+		"name": "Serpent", "art": "serpent", "tint": Color(0.90, 0.52, 0.55), "scale": 1.0,
+		"hp": 100,
+		"body_line": 2,                              # cells: pos, and the tile facing extends into
+		"loadout": {
+			"move":   {},                            # one tile per action
+			"pivot":  {},                            # its signature: turns the whole body
+			"attack": { "power": 10 },               # range 1, straight out from EITHER head
+			"wait":   {},
+		},
+		"brain": "CharacterSerpent",
+		"loot": [ { "item": "serpent_scale", "chance": 1.00 }, { "item": "serpent_fang", "chance": 0.20 } ],
+	},
 }
+
+# The body offsets a row asks for (empty = a normal one-tile creature).
+static func body_of(prof: Dictionary) -> Array:
+	var n := int(prof.get("body_line", 0))
+	return Resolver.shape_line(n) if n >= 2 else []
 
 static func row(type: String) -> Dictionary:
 	return TABLE.get(type, {})
@@ -40,11 +75,13 @@ static func row(type: String) -> Dictionary:
 static func is_character(type: String) -> bool:
 	return TABLE.has(type)
 
-# Copy the loadout's engine-visible tunings onto the Combatant the resolver reads.
-# (Without this, loadout numbers are decoration: the resolver checks fields like
-# `attack_range` ON THE UNIT. Call it right after building a character's combatant.)
-static func apply_loadout(c: Combatant, prof: Dictionary) -> void:
+# Copy a row's engine-visible values onto the Combatant the resolver reads. (Without
+# this, the spec is decoration: the engine checks fields like `attack_range` and `body`
+# ON THE UNIT.) Call it right after building a character's combatant.
+static func apply_spec(c: Combatant, prof: Dictionary) -> void:
+	c.body = body_of(prof)
 	var lo: Dictionary = prof.get("loadout", {})
 	if lo.has("attack"):
+		c.attack_power = int(lo["attack"].get("power", 0))          # 0 = the duel default
 		c.attack_range = int(lo["attack"].get("range", 1))
 		c.attack_all_adjacent = bool(lo["attack"].get("all_adjacent", false))

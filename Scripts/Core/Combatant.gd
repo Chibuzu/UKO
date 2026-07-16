@@ -33,6 +33,8 @@ var reroute_tile: Vector2i = Vector2i.ZERO
 var action_count: int = 0
 
 # Mob attack profile (duelists keep the defaults). Set by GameController for story mobs.
+var attack_power: int = 0              # 0 = the duel default (Config.ATTACK_DAMAGE). Story
+                                       # units set their own from their MobSpec loadout.
 var attack_range: int = 1              # bat = 2: strikes from two tiles away
 var attack_all_adjacent: bool = false  # ooze = true: every attack hits ALL 4 adjacent tiles
 # STORY FOOTPRINT: the unit's BODY as local offsets in its facing basis (x = its
@@ -80,6 +82,27 @@ func _init(p_id: String, p_pos: Vector2i, p_facing: int) -> void:
 	mp = Config.MAX_MP
 	energy = Config.MAX_ENERGY
 
+# All world cells this unit occupies (primary first). Empty body -> just [pos].
+func cells() -> Array:
+	return cells_at(pos)
+
+# The cells it WOULD occupy standing at `at` with its current facing.
+func cells_at(at: Vector2i) -> Array:
+	return cells_facing(at, facing)
+
+# The cells it would occupy standing at `at` facing `f` -- the hypothetical a brain asks
+# before committing. THE geometry lives here: offsets are in the facing basis (x = its
+# right, y = forward), so a body rotates with its facing for free.
+func cells_facing(at: Vector2i, f: int) -> Array:
+	if body.is_empty():
+		return [at]
+	var fwd := Vector2i(Config.FACING_VEC[f])
+	var right := Vector2i(-fwd.y, fwd.x)
+	var out: Array = []
+	for off: Vector2i in body:
+		out.append(at + right * off.x + fwd * off.y)
+	return out
+
 func clone() -> Combatant:
 	var c := Combatant.new(id, pos, facing)
 	c.hp = hp
@@ -91,6 +114,7 @@ func clone() -> Combatant:
 	c.cooldowns = cooldowns.duplicate()
 	c.spent_once = spent_once.duplicate()
 	c.action_count = action_count
+	c.attack_power = attack_power
 	c.attack_range = attack_range
 	c.attack_all_adjacent = attack_all_adjacent
 	c.body = body.duplicate()
