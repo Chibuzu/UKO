@@ -26,7 +26,7 @@ static func resolve_turn(grid: WorldGrid, player_in: Combatant, mobs: Array,
 
 	var kept_resolves: Array = []            # each mob's r-dict (event harvesting below)
 	for i in mobs.size():
-		var g: WorldGrid = _grid_blocking_others(grid, mobs, occupied, i, _thrown_at(player_seq))
+		var g: WorldGrid = _grid_blocking_others(grid, mobs, occupied, i, _aimed_at(player_seq, player_in.pos))
 		var r: Dictionary = Resolver.resolve(g, player_in.clone(), mobs[i].clone(), player_seq, mob_seqs[i], 0)
 		kept_resolves.append(r)
 		out_mobs.append(r["b"])
@@ -201,18 +201,49 @@ static func _move_count(seq: Array) -> int:
 
 # World grid copy with every OTHER mob's tile (and any already-resolved mob's new tile)
 # blocked, so the mob being resolved -- and its brain -- treats them as walls.
-# The tiles the player lobbed something at this turn. ONLY throws: a move or a melee
-# aimed at a tile must still be stopped by whoever is standing on it -- but a grenade is
-# aimed AT them on purpose, so their body can never be the "blocker" that eats it.
-static func _thrown_at(player_seq: Array) -> Dictionary:
+# Tiles the player's own aimed actions must be allowed to REACH, whoever is standing on
+# them. The story fights each mob in a SEPARATE pairwise resolve, and each pair walls the
+# other mobs -- so without this the same action succeeds in one pair and fails in another,
+# and you get the two worst bugs of the session:
+#   THROW  -- a grenade aimed at one twin found the other twin's tile "blocked", returned
+#             an empty path, and reported spell_miss in the very pair that gets logged.
+#   BLINK  -- a blink line crossing the other twin failed _blink_has_landing and FIZZLED,
+#             so in that pair you never went off-board (IN_TRANSIT) and its attack landed
+#             on you -- while the other pair blinked you away and logged it. You saw
+#             yourself vanish AND take the hit, because both were true, in different pairs.
+# Only the player's own aimed spells qualify. A move or a melee is still stopped by a body.
+static func _aimed_at(player_seq: Array, from: Vector2i) -> Dictionary:
 	var out := {}
 	for a in player_seq:
 		if not a.has("tile"):
 			continue
-		var d: Dictionary = Config.def(String(a.get("id", "")))
-		if String(d.get("shape", "")) == "throw":
+		var id := String(a.get("id", ""))
+		var d: Dictionary = Config.def(id)
+		if String(d.get("shape", "")) in ["throw", "blink"]:
 			out[Vector2i(a["tile"])] = true
+			# A blink's LINE must be reachable, not just its landing -- and it has to be
+			# the line the ENGINE actually walks. Resolver._dir_from SNAPS the aim to a
+			# cardinal, so a diagonal aim flies along an axis. Keeping the diagonal tiles
+			# open (as this first did) frees tiles the blink never visits, while the ones
+			# it does visit stay walled -- it fizzles, pos never becomes IN_TRANSIT, and
+			# you get hit standing still. Mirror the engine's rule exactly.
+			if String(d.get("shape", "")) == "blink":
+				var step := _blink_dir(from, Vector2i(a["tile"]))
+				var p: Vector2i = from
+				for _i in range(int(d.get("range", 1))):
+					p += step
+					out[p] = true
 	return out
+
+
+# The direction a blink ACTUALLY flies. This mirrors Resolver._dir_from exactly: the aim
+# is snapped to a cardinal, so a diagonal aim travels along an axis. It is duplicated here
+# only because the engine's copy is private; if that rule ever changes, change both.
+static func _blink_dir(from: Vector2i, to: Vector2i) -> Vector2i:
+	var dv: Vector2i = to - from
+	if absi(dv.x) >= absi(dv.y):
+		return Vector2i(signi(dv.x), 0)
+	return Vector2i(0, signi(dv.y))
 
 # Build the combat grid for ONE pairwise resolve: every OTHER mob becomes a wall, so the
 # two fighters in this pair cannot walk through a creature that isn't in it.

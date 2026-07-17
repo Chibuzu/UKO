@@ -249,7 +249,9 @@ func _add_mob(type: String, tile: Vector2i) -> Dictionary:
 	# strike, so they are information rather than decoration.
 	uv.show_facing = not c.body.is_empty() or bool(prof.get("facing_bar", false))
 	if player != null:
-		uv.aim = Vector2(_cardinal(player.pos - c.pos))   # its idle looks at your tile from frame one
+		# Its art starts on its REAL facing. (Characters are never re-aimed at you again:
+		# facing is earned by acting -- see _facing_from_seq.)
+		uv.aim = Vector2(Config.FACING_VEC[c.facing])
 	uv.init_state(c)
 	uv.unit_id = String(prof.get("name", "?"))
 	var sc: float = float(prof.get("scale", 1.0))
@@ -469,10 +471,11 @@ func _combat_turn(engaged: Array) -> void:
 		var m_after: Combatant = res["mobs"][i]
 		engaged[i]["combatant"] = m_after
 
-		if engaged[i]["kind"].has_method("uses_true_actions") and engaged[i]["kind"].uses_true_actions():
-			engaged[i]["uv"].aim = Vector2(_cardinal(p_end - m_after.pos))   # ART only: no free pivot
-		else:
-			_face_toward(engaged[i]["combatant"], engaged[i]["uv"], p_end)
+		if not (engaged[i]["kind"].has_method("uses_true_actions") and engaged[i]["kind"].uses_true_actions()):
+			_face_toward(engaged[i]["combatant"], engaged[i]["uv"], p_end)   # old mobs: unchanged
+		# A CHARACTER is not turned mid-turn by anything -- not even cosmetically. Its
+		# art tracking you while its rules said otherwise was a pivot you could SEE but
+		# not punish, which is worse than a free pivot: it lied about the game state.
 		# EVERY character now replays from its OWN resolver stream -- the primary via the
 		# event player above, the rest via the 2-v-1 replay below -- and that already
 		# includes its animation, its hit flash and its damage number. The old story-side
@@ -513,7 +516,9 @@ func _combat_turn(engaged: Array) -> void:
 			var fd := _facing_from_seq(mob_seqs[i], Vector2i(pre_pos[i]))
 			if fd != Vector2i.ZERO:
 				_face(e["combatant"], e["uv"], fd)
-			e["uv"].aim = Vector2(_cardinal(player.pos - e["combatant"].pos))   # art only
+				e["uv"].aim = Vector2(fd)      # the ART shows the EARNED facing, nothing else:
+											   # sprite, facing bar and flank rule can never
+											   # disagree, so what you see is what you can punish
 		else:
 			_face_toward(e["combatant"], e["uv"], player.pos)   # old mobs: unchanged
 	# 2 v 1 (Fra): every twin is its OWN fight. The primary one is played above from the
