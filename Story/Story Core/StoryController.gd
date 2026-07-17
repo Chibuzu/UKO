@@ -469,7 +469,10 @@ func _combat_turn(engaged: Array) -> void:
 		var m_after: Combatant = res["mobs"][i]
 		engaged[i]["combatant"] = m_after
 
-		_face_toward(engaged[i]["combatant"], engaged[i]["uv"], p_end)   # heads track you in combat too
+		if engaged[i]["kind"].has_method("uses_true_actions") and engaged[i]["kind"].uses_true_actions():
+			engaged[i]["uv"].aim = Vector2(_cardinal(p_end - m_after.pos))   # ART only: no free pivot
+		else:
+			_face_toward(engaged[i]["combatant"], engaged[i]["uv"], p_end)
 		# EVERY character now replays from its OWN resolver stream -- the primary via the
 		# event player above, the rest via the 2-v-1 replay below -- and that already
 		# includes its animation, its hit flash and its damage number. The old story-side
@@ -498,9 +501,21 @@ func _combat_turn(engaged: Array) -> void:
 		board.spawn_number(player_uv.position, "+%d EP" % int(res["guard_refund"]), ViewConfig.COL_HEAL)
 	for i in engaged.size():
 		engaged[i]["combatant"] = res["mobs"][i]
-	for e in engaged:
+	for i in engaged.size():
+		var e: Dictionary = engaged[i]
 		e["kind"].on_committed(e, player, self)
-		_face_toward(e["combatant"], e["uv"], player.pos)   # end of turn: mobs turn to face you
+		if e["kind"].has_method("uses_true_actions") and e["kind"].uses_true_actions():
+			# EARNED FACING (Fra): a character pays for its facing exactly like you do.
+			# It ends the turn facing wherever its LAST action went -- the tile it stepped
+			# into, or the tile it struck. NOTHING swivels it for free. Re-aiming every
+			# mob at you each turn was a third action they never paid for: it made blinking
+			# to a back pointless and made "it pivoted AND attacked" possible.
+			var fd := _facing_from_seq(mob_seqs[i], Vector2i(pre_pos[i]))
+			if fd != Vector2i.ZERO:
+				_face(e["combatant"], e["uv"], fd)
+			e["uv"].aim = Vector2(_cardinal(player.pos - e["combatant"].pos))   # art only
+		else:
+			_face_toward(e["combatant"], e["uv"], player.pos)   # old mobs: unchanged
 	# 2 v 1 (Fra): every twin is its OWN fight. The primary one is played above from the
 	# resolver stream; replay the others from THEIR streams -- one action at a time, so
 	# two cardinal steps read as two steps and can never collapse into a single diagonal
@@ -510,29 +525,44 @@ func _combat_turn(engaged: Array) -> void:
 	for i in range(1, engaged.size()):
 		if i >= mob_ev.size():
 			continue
-		var nm := _mob_label(engaged[i])
 		for ev in mob_ev[i]:
 			match String(ev.get("type", "")):
 				"move":
 					var to: Vector2i = Vector2i(ev["to"])
 					engaged[i]["uv"].tween_to(to)
-					combat_log.add_note("%s moves to (%d,%d)" % [nm, to.x, to.y], ViewConfig.COL_TEXT)
 					await get_tree().create_timer(ViewConfig.MOVE_DUR).timeout
 				"attack_hit":
 					engaged[i]["uv"].play_anim("attack", Vector2(ev.get("dir", Vector2.ZERO)))
 					player_uv.flash(ViewConfig.FLASH_HIT)
 					board.spawn_number(player_uv.position, "-%d" % int(ev.get("damage", 0)), ViewConfig.COL_DMG)
-					combat_log.add_note("%s hits you  -%d" % [nm, int(ev.get("damage", 0))], ViewConfig.COL_DMG)
 					await get_tree().create_timer(ViewConfig.HIT_DUR).timeout
 				"attack_whiff", "attack_blocked":
 					engaged[i]["uv"].play_anim("attack", Vector2(ev.get("dir", Vector2.ZERO)))
-					combat_log.add_note("%s swings, misses" % nm, ViewConfig.COL_TEXT)
 					await get_tree().create_timer(ViewConfig.HIT_DUR).timeout
 	_bump_actions(player_seq.size())   # your actions this turn feed the every-6 regen
 	_clear_dead()
 	# The mob strikes bypass the resolver, so synthesise a hit line for each so the log shows
 	# them too -- with the same directional flank tier that scaled the damage.
-	var log_events: Array = res["primary_events"].duplicate()
+	# ONE battle, not N (Fra). The story resolves you against each mob separately, so
+	# each has its own event stream and the log used to print one mob's whole turn, then
+	# the next's. Merge every stream and sort by TICK, so it reads in the order things
+	# actually happened -- "Serpent A moves... Serpent B attacks..." -- and tag each
+	# mob's lines with its own name, since every one of them is "B" in its own resolve.
+	var log_events: Array = []
+	for pe in res["primary_events"]:
+		var pev: Dictionary = (pe as Dictionary).duplicate()
+		if String(pev.get("owner", "")) == "B" and engaged.size() > 0:
+			pev["name"] = _mob_label(engaged[0])
+		log_events.append(pev)
+	var all_ev: Array = res.get("mob_events", [])
+	for mi in range(1, engaged.size()):
+		if mi >= all_ev.size():
+			continue
+		for me in all_ev[mi]:
+			var mev: Dictionary = (me as Dictionary).duplicate()
+			mev["name"] = _mob_label(engaged[mi])
+			log_events.append(mev)
+	log_events.sort_custom(func(x, y): return int(x.get("tick", 0)) < int(y.get("tick", 0)))
 	for i in engaged.size():
 		if engaged[i]["kind"].has_method("uses_true_actions") and engaged[i]["kind"].uses_true_actions():
 			continue                            # a character's hit is already a real resolver line
@@ -572,6 +602,8 @@ func _combat_turn(engaged: Array) -> void:
 
 # Readable name for a mob entry (used in the combat log), from its profile.
 func _mob_label(entry: Dictionary) -> String:
+	if entry.has("label"):
+		return String(entry["label"])      # the boss pair: "Serpent A" / "Serpent B"
 	var t := String(entry.get("type", "mob"))
 	var prof: Dictionary = MobBrain.profile(t)
 	return String(prof.get("name", t.capitalize()))
@@ -587,10 +619,16 @@ func _teleport(t: Vector2i) -> void:
 func _spawn_cavern_boss() -> void:
 	var box := OverworldMap.CAVERN_BOX
 	var top_mid := Vector2i(box.position.x + box.size.x / 2, box.position.y + 1)
-	for tile: Vector2i in [top_mid, top_mid + Vector2i(1, 0)]:
-		var b := _add_mob("serpent", tile)
+	var tiles: Array = [top_mid, top_mid + Vector2i(1, 0)]
+	for idx in tiles.size():
+		var b := _add_mob("serpent", tiles[idx])
 		b["combatant"].facing = Config.Facing.SOUTH   # both watching the door
 		b["boss"] = true                              # the pair is remembered in the save
+		b["label"] = "Serpent %s" % ["A", "B"][idx]   # so the log says WHICH one acted
+		b["kind"].seat_pick = idx                     # never want the same tile...
+		b["kind"].role = CharacterTwin.Role.BRUISER if idx == 0 else CharacterTwin.Role.FLANKER
+													  # ...and want different things: one
+													  # charges you, one hunts your back
 
 func _die() -> void:
 	# A setback: you forfeit some gold (that lives on your profile, so it persists) and return
@@ -968,6 +1006,26 @@ func _face_toward(c: Combatant, uv: UnitView, target: Vector2i) -> void:
 	if not c.body.is_empty():
 		return                   # a BODY's facing IS its axis: only its own pivot may turn it
 	_face(c, uv, dir)
+
+# Where a character's committed actions LEFT it facing: the direction of its last aimed
+# action (the tile it stepped into, or the tile it struck). This is the whole of its
+# facing -- it owns no free reface, so it can be read, out-manoeuvred, and punished.
+func _facing_from_seq(seq: Array, start: Vector2i) -> Vector2i:
+	var pos := start
+	var dir := Vector2i.ZERO
+	for a in seq:
+		if not a.has("tile"):
+			continue
+		var t: Vector2i = a["tile"]
+		if t == pos:
+			continue
+		var d := _cardinal(t - pos)
+		if d == Vector2i.ZERO:
+			continue
+		dir = d
+		if String(a.get("id", "")) == "move":
+			pos = t                        # the next action aims from where it landed
+	return dir
 
 # The nearest cardinal to `dv` (ties go horizontal). THE one snap rule: the art aim and
 # the mechanical facing both use it, so a sprite can never point somewhere illegal.

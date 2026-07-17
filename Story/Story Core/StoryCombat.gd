@@ -26,7 +26,7 @@ static func resolve_turn(grid: WorldGrid, player_in: Combatant, mobs: Array,
 
 	var kept_resolves: Array = []            # each mob's r-dict (event harvesting below)
 	for i in mobs.size():
-		var g: WorldGrid = _grid_blocking_others(grid, mobs, occupied, i)
+		var g: WorldGrid = _grid_blocking_others(grid, mobs, occupied, i, _thrown_at(player_seq))
 		var r: Dictionary = Resolver.resolve(g, player_in.clone(), mobs[i].clone(), player_seq, mob_seqs[i], 0)
 		kept_resolves.append(r)
 		out_mobs.append(r["b"])
@@ -201,7 +201,29 @@ static func _move_count(seq: Array) -> int:
 
 # World grid copy with every OTHER mob's tile (and any already-resolved mob's new tile)
 # blocked, so the mob being resolved -- and its brain -- treats them as walls.
-static func _grid_blocking_others(base: WorldGrid, mobs: Array, occupied: Dictionary, skip: int) -> WorldGrid:
+# The tiles the player lobbed something at this turn. ONLY throws: a move or a melee
+# aimed at a tile must still be stopped by whoever is standing on it -- but a grenade is
+# aimed AT them on purpose, so their body can never be the "blocker" that eats it.
+static func _thrown_at(player_seq: Array) -> Dictionary:
+	var out := {}
+	for a in player_seq:
+		if not a.has("tile"):
+			continue
+		var d: Dictionary = Config.def(String(a.get("id", "")))
+		if String(d.get("shape", "")) == "throw":
+			out[Vector2i(a["tile"])] = true
+	return out
+
+# Build the combat grid for ONE pairwise resolve: every OTHER mob becomes a wall, so the
+# two fighters in this pair cannot walk through a creature that isn't in it.
+#
+# `keep_open` are tiles that must NEVER become a wall no matter who stands there -- the
+# tiles the player deliberately AIMED a throw at. Without it, throwing a grenade at one
+# twin made its tile a wall in the OTHER twin's pair, so that pair's throw hit "a
+# blocker", returned an empty path, and reported spell_miss. Since the other pair is the
+# one that gets logged and animated, the grenade landed and told you it missed.
+static func _grid_blocking_others(base: WorldGrid, mobs: Array, occupied: Dictionary, skip: int,
+		keep_open: Dictionary = {}) -> WorldGrid:
 	var g: WorldGrid = WorldGrid.new()
 	g.world_size = base.world_size
 	g.gem_map = base.gem_map          # keep gemstone nodes solid inside combat too
@@ -212,6 +234,8 @@ static func _grid_blocking_others(base: WorldGrid, mobs: Array, occupied: Dictio
 		if i == skip:
 			continue
 		var p: Vector2i = mobs[i].pos
+		if keep_open.has(p):
+			continue                      # you AIMED a throw here: it is a target, not a wall
 		if p.x >= 0 and p.y >= 0 and p.x < g.world_size and p.y < g.world_size:
 			g.blocked[p.y][p.x] = true
 	for key in occupied:

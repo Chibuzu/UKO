@@ -16,6 +16,20 @@
 class_name CharacterTwin
 extends MobKind
 
+# The two twins are the same creature with different NERVE (Fra):
+#   BRUISER -- walks straight at you and brawls. It takes the NEAREST seat, whichever it
+#              is, and does not care what it costs. It is the one you can see coming.
+#   FLANKER -- sneaks. It ranks seats by what they PAY (your back x2, then a side x1.5)
+#              and will walk the long way round to get behind you.
+# Between them you cannot face both: block the bruiser and the flanker is at your back.
+enum Role { BRUISER, FLANKER }
+var role: int = Role.BRUISER
+
+# Which of its OWN ranked seats this twin claims (0 = its best, 1 = its next). All the
+# "coordination" the pair has: they never talk, they just refuse to want the same tile,
+# so they split on the first step instead of queueing up behind one another.
+var seat_pick := 0
+
 var _loadout: Dictionary = {}
 
 func setup(p_type: String, p_prof: Dictionary) -> void:
@@ -63,33 +77,55 @@ func _rank(tile: Vector2i, player: Combatant) -> int:
 		return 1
 	return 2
 
-# The seat beside you it wants: best flank first, nearest as the tiebreak. Its twin's
-# tile is already blocked in this grid, so the two of them settle on different seats.
+# The seat beside you this twin claims -- and the ONE place the two of them differ.
+# A BRUISER scores seats purely by distance: it takes the closest, and comes straight at
+# you. A FLANKER scores by what a seat PAYS first (your back, then a side) and treats
+# distance as a tiebreak, so it will happily walk the long way round to reach your back.
+# `seat_pick` then keeps them off each other's tile when their answers happen to agree.
 func _seat(pos: Vector2i, player: Combatant, grid: Grid) -> Vector2i:
-	var seat := player.pos                 # hemmed in -> just come straight at you
-	var best := 99999
+	var seats: Array = []
 	for t: Vector2i in _neighbours(player.pos):
 		if grid.is_blocked(t):
 			continue
-		var score := _rank(t, player) * 100 + Grid.dist(pos, t)
-		if score < best:
-			best = score
-			seat = t
-	return seat
+		var score := Grid.dist(pos, t)                       # BRUISER: just get there
+		if role == Role.FLANKER:
+			score = _rank(t, player) * 100 + Grid.dist(pos, t)  # FLANKER: get BEHIND them
+		seats.append({ "t": t, "score": score })
+	if seats.is_empty():
+		return player.pos                  # hemmed in -> just come straight at you
+	seats.sort_custom(func(a, b): return int(a["score"]) < int(b["score"]))
+	return seats[mini(seat_pick, seats.size() - 1)]["t"]
 
-# One CARDINAL step toward that seat (never diagonal: a move is one tile, four ways).
+# One CARDINAL step along the SHORTEST PATH to the seat it wants.
+#
+# This is a breadth-first search, NOT a greedy step. Greedy freezes: the moment its twin
+# stands between it and you, no neighbour is any closer, so it finds nothing to do and
+# stops acting for the rest of the fight -- which is exactly what the far twin was doing.
+# A BFS walks around its sibling instead, and it can never return a diagonal because
+# every edge is one of the four cardinal neighbours.
 func _step_toward_seat(pos: Vector2i, player: Combatant, grid: Grid) -> Vector2i:
 	var goal := _seat(pos, player, grid)
-	var best := pos
-	var bestd := Grid.dist(pos, goal)
-	for t: Vector2i in _neighbours(pos):
-		if grid.is_blocked(t) or t == player.pos:
-			continue
-		var d := Grid.dist(t, goal)
-		if d < bestd:
-			bestd = d
-			best = t
-	return best
+	if goal == pos:
+		return pos
+	var prev := { pos: pos }
+	var queue: Array = [pos]
+	var found := false
+	while not queue.is_empty():
+		var cur: Vector2i = queue.pop_front()
+		if cur == goal:
+			found = true
+			break
+		for t: Vector2i in _neighbours(cur):
+			if prev.has(t) or grid.is_blocked(t) or t == player.pos:
+				continue
+			prev[t] = cur
+			queue.append(t)
+	if not found:
+		return pos                         # walled in: nothing it can do this turn
+	var step: Vector2i = goal               # walk the path back to our first step
+	while prev[step] != pos:
+		step = prev[step]
+	return step
 
 func _neighbours(p: Vector2i) -> Array:
 	return [p + Vector2i(0, -1), p + Vector2i(1, 0), p + Vector2i(0, 1), p + Vector2i(-1, 0)]

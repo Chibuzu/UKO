@@ -485,7 +485,11 @@ func _reach_kind(anim: String) -> String:
 # authoritative and always on the creature's real tile; the offset is pixels only.
 func _play_reach(anim: String, dir: Vector2, lands: bool) -> void:
 	var half := float(ViewConfig.TILE) * 0.5
-	body.rotation = _rot_for(anim, dir)
+	# A 2-tile clip spans a creature's tile and ONE cardinal neighbour, so it can only
+	# ever act along an axis. Snapping here makes a diagonal strike or step impossible to
+	# draw whatever `dir` arrives -- the art can never claim a move the rules don't allow.
+	var d := _cardinal_of(dir)
+	body.rotation = _rot_for(anim, d)
 	# The clip is 2 tiles wide: the creature is drawn in its RIGHT half, the action
 	# reaching LEFT. Shifting it half a tile along its own axis (the offset rotates WITH
 	# the sprite, so this holds for all four directions) puts the creature's half on the
@@ -496,6 +500,14 @@ func _play_reach(anim: String, dir: Vector2, lands: bool) -> void:
 	body.flip_v = false
 	_reaching = true
 	body.play(anim)
+
+# The nearest cardinal to `v` (ties go horizontal). Never returns zero.
+func _cardinal_of(v: Vector2) -> Vector2:
+	if v == Vector2.ZERO:
+		return Vector2(1.0, 0.0)
+	if absf(v.x) >= absf(v.y):
+		return Vector2(signf(v.x), 0.0)
+	return Vector2(0.0, signf(v.y))
 
 func _points_of(anim: String) -> String:
 	return String(_rows.get(anim, {}).get("points", ""))

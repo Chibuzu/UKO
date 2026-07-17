@@ -68,7 +68,10 @@ func clear() -> void:
 
 # ── Event -> readable line. Returns "" for events not worth showing. ────
 func _format(e: Dictionary) -> String:
-	var o: String = e.get("owner", "")
+	# `name` overrides the raw owner id when one is supplied. The story fights several
+	# mobs at once and every one of them is "B" in its own resolve, so without this the
+	# log cannot say WHICH creature acted.
+	var o: String = e.get("name", e.get("owner", ""))
 	match e["type"]:
 		"move":
 			return "%s moves to %s" % [o, _t(e["to"])]
