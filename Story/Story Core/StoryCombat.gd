@@ -26,7 +26,21 @@ static func resolve_turn(grid: WorldGrid, player_in: Combatant, mobs: Array,
 
 	var kept_resolves: Array = []            # each mob's r-dict (event harvesting below)
 	for i in mobs.size():
-		var g: WorldGrid = _grid_blocking_others(grid, mobs, occupied, i, _aimed_at(player_seq, player_in.pos))
+		var _keep: Dictionary = _aimed_at(player_seq, player_in.pos)
+		var g: WorldGrid = _grid_blocking_others(grid, mobs, occupied, i, _keep)
+		# TEMPORARY DIAGNOSTIC -- delete once the blink is settled. Prints, per pair, what
+		# the player planned, which tiles we kept open, and whether the blink's line is
+		# still walled. A `true` here means _blink_has_landing fails in that pair, so
+		# _launch_blink bails at blink_fizzle BEFORE it can set IN_TRANSIT.
+		var _dbg: Array = []
+		for _a in player_seq:
+			_dbg.append("%s@%s" % [String(_a.get("id", "?")), str(_a.get("tile", "-"))])
+		print("[blink] pair %d | player_seq=%s | kept_open=%s | line E1=%s E2=%s | W1=%s W2=%s" % [
+				i, str(_dbg), str(_keep.keys()),
+				str(g.is_blocked(player_in.pos + Vector2i(1, 0))),
+				str(g.is_blocked(player_in.pos + Vector2i(2, 0))),
+				str(g.is_blocked(player_in.pos + Vector2i(-1, 0))),
+				str(g.is_blocked(player_in.pos + Vector2i(-2, 0)))])
 		var r: Dictionary = Resolver.resolve(g, player_in.clone(), mobs[i].clone(), player_seq, mob_seqs[i], 0)
 		kept_resolves.append(r)
 		out_mobs.append(r["b"])
@@ -75,7 +89,7 @@ static func resolve_turn(grid: WorldGrid, player_in: Combatant, mobs: Array,
 						tried += 1
 					"attack_whiff", "attack_blocked":
 						tried += 1   # the resolver ALREADY logs a character's miss -- no extra note,
-									 # or a two-bite turn reads as "missed" next to real damage
+						             # or a two-bite turn reads as "missed" next to real damage
 			# THE RESOLVER ALREADY APPLIED THIS DAMAGE. It must NEVER enter `budget_dmg`
 			# (subtracted at the end of this function for the old move-only mobs), or a
 			# character's bite lands twice. The PRIMARY mob's hit is already inside
