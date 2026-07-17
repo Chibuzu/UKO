@@ -47,6 +47,10 @@ static func resolve_turn(grid: WorldGrid, player_in: Combatant, mobs: Array,
 	# (or being IN TRANSIT at strike time) makes it genuinely MISS.
 	var timeline := _player_timeline(player_in, primary_events)
 	var dmg_by_mob: Array = []
+	# Each character's OWN resolver events. The primary mob's are played by the event
+	# player; the others had nowhere to go, so their actions were invisible -- unlogged,
+	# and animated only as a net displacement (two moves collapsing into one diagonal).
+	var mob_events: Array = []
 	# ONLY the old move-only mobs' synthesized strike damage -- i.e. damage the resolver
 	# did NOT apply itself. True-action characters are excluded by design (see below).
 	var budget_dmg: int = 0
@@ -60,23 +64,25 @@ static func resolve_turn(grid: WorldGrid, player_in: Combatant, mobs: Array,
 		if mob_kinds[i].has_method("uses_true_actions") and mob_kinds[i].uses_true_actions():
 			var hit_dmg := 0
 			var tried := 0
+			var own: Array = []
 			for ev in kept_resolves[i]["events"]:
 				if String(ev.get("owner", "")) != mobs[i].id and String(ev.get("owner", "")) != "B":
 					continue
+				own.append(ev)
 				match String(ev.get("type", "")):
 					"attack_hit":
 						hit_dmg += int(ev.get("damage", 0))
 						tried += 1
 					"attack_whiff", "attack_blocked":
-						tried += 1
-						strike_log.append({"mob": i, "tick": int(ev.get("tick", 0)), "hit": false,
-								"why": "blocked" if String(ev["type"]) == "attack_blocked" else "out of line"})
+						tried += 1   # the resolver ALREADY logs a character's miss -- no extra note,
+									 # or a two-bite turn reads as "missed" next to real damage
 			# THE RESOLVER ALREADY APPLIED THIS DAMAGE. It must NEVER enter `budget_dmg`
 			# (subtracted at the end of this function for the old move-only mobs), or a
 			# character's bite lands twice. The PRIMARY mob's hit is already inside
 			# player_final (cloned from its r["a"]); the others land theirs once here.
 			if i > 0 and hit_dmg > 0:
 				player_final.hp = maxi(0, player_final.hp - hit_dmg)
+			mob_events.append(own)
 			strikes_by_mob.append(1 if hit_dmg > 0 else 0)
 			attempts_by_mob.append(tried)
 			dmg_by_mob.append(hit_dmg)          # reported for the log/anims -- NOT re-applied
@@ -101,6 +107,7 @@ static func resolve_turn(grid: WorldGrid, player_in: Combatant, mobs: Array,
 				strike_log.append({"mob": i, "tick": int(st), "hit": false, "why": "out of reach at that tick"})
 		strikes_by_mob.append(landed)
 		attempts_by_mob.append(ticks.size())
+		mob_events.append([])          # old move-only mobs have no resolver actions
 		dmg_by_mob.append(d)
 		budget_dmg += d
 
@@ -122,6 +129,7 @@ static func resolve_turn(grid: WorldGrid, player_in: Combatant, mobs: Array,
 		"player": player_final,
 		"mobs": out_mobs,
 		"primary_events": primary_events,
+		"mob_events": mob_events,
 		"dmg_by_mob": dmg_by_mob,
 		"strikes_by_mob": strikes_by_mob,
 		"attempts_by_mob": attempts_by_mob,

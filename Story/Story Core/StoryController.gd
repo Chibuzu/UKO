@@ -244,7 +244,10 @@ func _add_mob(type: String, tile: Vector2i) -> Dictionary:
 	else:
 		uv.disc_only = true                        # no art yet -> a plain colored ball
 		uv.disc_color = prof.get("tint", Color.WHITE)
-	uv.show_facing = false                          # mobs have no facing (Fra): no bars, ever
+	# Most mobs have no facing, so no bars. A BODY shows its two head bars, and a species
+	# whose spec declares `facing_bar` shows one on its head -- both mark where it can
+	# strike, so they are information rather than decoration.
+	uv.show_facing = not c.body.is_empty() or bool(prof.get("facing_bar", false))
 	if player != null:
 		uv.aim = Vector2(_cardinal(player.pos - c.pos))   # its idle looks at your tile from frame one
 	uv.init_state(c)
@@ -252,50 +255,19 @@ func _add_mob(type: String, tile: Vector2i) -> Dictionary:
 	var sc: float = float(prof.get("scale", 1.0))
 	uv.scale = Vector2(sc, sc)
 	var entry := {"combatant": c, "uv": uv, "kind": MobBrain.make_kind(type), "type": type}
-	if int(prof.get("tiles", 1)) >= 2:
-		entry["tiles"] = 2
-		entry["tail"] = _rigid_tail(c)             # ALWAYS pos + facing: a rigid 2-tile body
-		uv.set_span(c.pos, entry["tail"])
 	mobs.append(entry)
 	return entry
 
-# The second body tile of a rigid two-tile creature: ALWAYS the tile in its FACING
-# direction from its primary tile. Deterministic -> head and tail can never drift.
-func _rigid_tail(c: Combatant) -> Vector2i:
-	return c.pos + Vector2i(Config.FACING_VEC[c.facing])
-
-# Refresh a rigid body's tail from its (possibly new) pos+facing.
-# Seal or open the cavern door (the cage traps you until the serpent is slain).
+# The cage door: sealed behind you when you enter the boss cavern, opened when the
+# pair is down (see _clear_dead).
 func _seal_cavern(closed: bool) -> void:
 	var d := OverworldMap.CAVERN_DOOR
 	grid.blocked[d.y][d.x] = closed
 	omap.blocked[d.y][d.x] = closed
 	board.queue_redraw()
 
-func _refresh_body(e: Dictionary) -> void:
-	if e.get("tiles", 1) < 2:
-		return
-	e["tail"] = _rigid_tail(e["combatant"])
-
-# Animate a serpent's turn per the recorded action. The body cells are already updated
-# (pos + facing); here we choose the ANIMATION: a straight 2-tile slither, the 90-deg
-# turn sweep, or a strike/idle in place. The view renders on the two body tiles.
-func _animate_serpent(e: Dictionary, act: Dictionary) -> void:
-	var c: Combatant = e["combatant"]
-	var head := c.pos
-	var tail: Vector2i = e["tail"]
-	match String(act.get("kind", "hold")):
-		"turn":
-			e["uv"].play_turn_from(Vector2i(act["from_pos"]), int(act["from_facing"]), head, tail)
-		"straight":
-			e["uv"].tween_span(head, tail)         # slither along the axis
-		_:
-			e["uv"].set_span(head, tail)           # strike/hold: settle in place (idle plays)
-
 func _mob_visible(e: Dictionary) -> bool:
-	if _in_window(e["combatant"].pos, _win):
-		return true
-	return e.get("tiles", 1) >= 2 and _in_window(e["tail"], _win)
+	return _in_window(e["combatant"].pos, _win)
 
 # New game: scatter mobs on open tiles outside the spawn village, types by weight.
 func _spawn_mobs_procedural() -> void:
@@ -329,9 +301,6 @@ func _spawn_from_save(mob_data: Array) -> void:
 		c.statuses = _int_dict(md.get("statuses", {}))
 		e["uv"].init_state(c)
 		e["uv"].set_facing(c.facing)
-		if e.get("tiles", 1) >= 2:
-			_refresh_body(e)                       # tails aren't saved; derive from pos+facing
-			e["uv"].set_span(c.pos, e["tail"])
 
 # ── roam (real-time WASD) until a monster is in view, then the loop flips to COMBAT ─
 func _process(delta: float) -> void:
@@ -459,11 +428,7 @@ func _combat_turn(engaged: Array) -> void:
 	var atk_tile := _attack_tile(player_seq)
 	if atk_tile != Vector2i(-1, -1):
 		for i in engaged.size():
-			# Match either body cell: a 2-tile serpent is hit by aiming at head OR tail.
-			var hit_body: bool = engaged[i]["combatant"].pos == atk_tile
-			if engaged[i].get("tiles", 1) >= 2 and Vector2i(engaged[i].get("tail", Vector2i(-1, -1))) == atk_tile:
-				hit_body = true
-			if hit_body:
+			if engaged[i]["combatant"].pos == atk_tile:
 				if i != 0:
 					var picked: Dictionary = engaged[i]
 					engaged.remove_at(i)
@@ -481,65 +446,19 @@ func _combat_turn(engaged: Array) -> void:
 		e["combatant"].energy = Config.MAX_ENERGY   # HP-only: refill so planning/moving never stalls
 		mob_cs.append(e["combatant"])
 		mob_kinds.append(e["kind"])
-	# ── SERPENT: a rigid two-tile boss the resolver can't express. Drive it HERE:
-	# compute its action, apply pos/facing (tail is always pos+facing), and record the
-	# animation. It acts fully now, so the resolver gets an empty sequence for it.
-	var serpent_anim: Dictionary = {}   # index -> {"kind":..., "from_pos":..., "from_facing":...}
-	var serpent_prebody: Dictionary = {}  # index -> [pre-move head, pre-move tail] (hittable tiles)
-	for i in engaged.size():
-		if engaged[i]["kind"] is SerpentKind:
-			var sc: Combatant = engaged[i]["combatant"]
-			# The two tiles the serpent occupied when the player chose their action --
-			# an attack aimed at EITHER connects, even though the serpent then moves.
-			var pre_head: Vector2i = sc.pos
-			var pre_tail: Vector2i = sc.pos + Vector2i(Config.FACING_VEC[sc.facing])
-			serpent_prebody[i] = [pre_head, pre_tail]
-			var mv: Dictionary = engaged[i]["kind"].plan_move(sc.pos, sc.facing, player.pos, grid)
-			serpent_anim[i] = {"kind": String(mv.get("kind", "hold")), "from_pos": sc.pos, "from_facing": sc.facing}
-			match String(mv.get("kind", "hold")):
-				"straight":
-					sc.pos = mv["pos"]                     # facing (axis) unchanged
-				"turn":
-					sc.pos = mv["pos"]
-					sc.facing = int(mv["facing"])          # body pivots to the new axis
-			engaged[i]["tail"] = _rigid_tail(sc)
 	var mob_seqs: Array = []
 	for i in engaged.size():
-		if engaged[i]["kind"] is SerpentKind:
-			mob_seqs.append([])                            # already acted above
-			continue
 		var g := StoryCombat._grid_blocking_others(grid, mob_cs, {}, i)
 		# DESIGN RULE (Fra): monsters use ONLY their own toolkit -- attack/pivot/move.
 		# The duelist brain (ExtremeAI) is BANNED here: it rests, guards, and casts.
 		mob_seqs.append(engaged[i]["kind"].plan(engaged[i]["combatant"], player, g))
 
-	# Two-tile bodies: aiming at a serpent's TAIL is aiming at the serpent -- remap
-	# the action's tile to its head so the resolver connects; tails become walls.
-	var tails: Array = []
-	for i in engaged.size():
-		if engaged[i].get("tiles", 1) >= 2:
-			tails.append(engaged[i]["tail"])
-			var k = engaged[i]["kind"]
-			if k is SerpentKind:
-				k.tail = engaged[i]["tail"]
-			# Hittable = the tiles the serpent OCCUPIES at the attacking tick (its
-			# destination: head + new tail). Also accept the tiles it visibly occupied
-			# when you chose to strike (pre-move), so aiming at the body always lands.
-			# Any such target is remapped to the mob's resolver pos so damage connects.
-			var hit_tiles: Array = [engaged[i]["combatant"].pos, engaged[i]["tail"]]
-			if serpent_prebody.has(i):
-				for t in serpent_prebody[i]:
-					if t not in hit_tiles:
-						hit_tiles.append(t)
-			for act in player_seq:
-				if act.has("tile") and Vector2i(act["tile"]) in hit_tiles:
-					act["tile"] = engaged[i]["combatant"].pos
 	var pre_pos: Array = []
 	var pre_hp: Array = []
 	for c in mob_cs:
 		pre_pos.append(c.pos)
 		pre_hp.append(c.hp)
-	var res := StoryCombat.resolve_turn(grid, player, mob_cs, player_seq, mob_seqs, mob_kinds, tails)
+	var res := StoryCombat.resolve_turn(grid, player, mob_cs, player_seq, mob_seqs, mob_kinds)
 	var dmg: Array = res["dmg_by_mob"]
 	var p_end: Vector2i = res["player"].pos
 
@@ -549,25 +468,25 @@ func _combat_turn(engaged: Array) -> void:
 	for i in engaged.size():
 		var m_after: Combatant = res["mobs"][i]
 		engaged[i]["combatant"] = m_after
-		_refresh_body(engaged[i])   # rigid body: tail = new pos + facing (no drift)
-		if serpent_anim.has(i):
-			_animate_serpent(engaged[i], serpent_anim[i])   # straight slither / turn sweep / strike-in-place
-		elif engaged[i].get("tiles", 1) >= 2:
-			engaged[i]["uv"].tween_span(m_after.pos, engaged[i]["tail"])
-		elif i > 0:
-			engaged[i]["uv"].tween_to(m_after.pos)   # nearest already moved via play.play
+
 		_face_toward(engaged[i]["combatant"], engaged[i]["uv"], p_end)   # heads track you in combat too
+		# EVERY character now replays from its OWN resolver stream -- the primary via the
+		# event player above, the rest via the 2-v-1 replay below -- and that already
+		# includes its animation, its hit flash and its damage number. The old story-side
+		# narration must stay out of their way, or every hit is drawn twice.
+		var shown_by_engine: bool = engaged[i]["kind"].has_method("uses_true_actions") \
+				and engaged[i]["kind"].uses_true_actions()
 		var tried: int = int(res.get("attempts_by_mob", [])[i]) if i < res.get("attempts_by_mob", []).size() else (1 if int(dmg[i]) > 0 else 0)
 		if tried > 0:
 			if String(engaged[i].get("type", "")) == "slime":
 				engaged[i]["uv"].play_anim("attack")                     # body wind-up...
 				_ooze_spit_burst(m_after.pos)                            # ...then a spit on each open neighbor
-			else:
+			elif not shown_by_engine:
 				engaged[i]["uv"].play_attack(Vector2(p_end - m_after.pos))
-		if int(dmg[i]) > 0:
+		if int(dmg[i]) > 0 and not shown_by_engine:
 			player_uv.flash(ViewConfig.FLASH_HIT)
 			board.spawn_number(player_uv.position, "-%d" % int(dmg[i]), ViewConfig.COL_DMG)
-		elif tried > 0:
+		elif tried > 0 and not shown_by_engine:
 			board.spawn_number(engaged[i]["uv"].position + Vector2(0, -14), "MISS", ViewConfig.COL_TEXT)
 		engaged[i]["uv"].set_display_hp(m_after.hp)
 
@@ -582,6 +501,33 @@ func _combat_turn(engaged: Array) -> void:
 	for e in engaged:
 		e["kind"].on_committed(e, player, self)
 		_face_toward(e["combatant"], e["uv"], player.pos)   # end of turn: mobs turn to face you
+	# 2 v 1 (Fra): every twin is its OWN fight. The primary one is played above from the
+	# resolver stream; replay the others from THEIR streams -- one action at a time, so
+	# two cardinal steps read as two steps and can never collapse into a single diagonal
+	# slide (which is what a net-displacement tween_to was drawing) -- and log each one
+	# under its own name, so all four enemy actions appear.
+	var mob_ev: Array = res.get("mob_events", [])
+	for i in range(1, engaged.size()):
+		if i >= mob_ev.size():
+			continue
+		var nm := _mob_label(engaged[i])
+		for ev in mob_ev[i]:
+			match String(ev.get("type", "")):
+				"move":
+					var to: Vector2i = Vector2i(ev["to"])
+					engaged[i]["uv"].tween_to(to)
+					combat_log.add_note("%s moves to (%d,%d)" % [nm, to.x, to.y], ViewConfig.COL_TEXT)
+					await get_tree().create_timer(ViewConfig.MOVE_DUR).timeout
+				"attack_hit":
+					engaged[i]["uv"].play_anim("attack", Vector2(ev.get("dir", Vector2.ZERO)))
+					player_uv.flash(ViewConfig.FLASH_HIT)
+					board.spawn_number(player_uv.position, "-%d" % int(ev.get("damage", 0)), ViewConfig.COL_DMG)
+					combat_log.add_note("%s hits you  -%d" % [nm, int(ev.get("damage", 0))], ViewConfig.COL_DMG)
+					await get_tree().create_timer(ViewConfig.HIT_DUR).timeout
+				"attack_whiff", "attack_blocked":
+					engaged[i]["uv"].play_anim("attack", Vector2(ev.get("dir", Vector2.ZERO)))
+					combat_log.add_note("%s swings, misses" % nm, ViewConfig.COL_TEXT)
+					await get_tree().create_timer(ViewConfig.HIT_DUR).timeout
 	_bump_actions(player_seq.size())   # your actions this turn feed the every-6 regen
 	_clear_dead()
 	# The mob strikes bypass the resolver, so synthesise a hit line for each so the log shows
@@ -608,30 +554,13 @@ func _combat_turn(engaged: Array) -> void:
 		# your damage on NON-nearest mobs resolves in their own pair -> surface it
 		if i > 0 and int(pre_hp[i]) > res["mobs"][i].hp:
 			combat_log.add_note("You hit %s for %d" % [name, int(pre_hp[i]) - int(res["mobs"][i].hp)], ViewConfig.COL_TEXT)
-		if serpent_anim.has(i):
-			# The serpent is driven by a descriptor, not the resolver sequence -- log
-			# its REAL action + body + strike tiles so its behavior is legible.
-			var sa: Dictionary = serpent_anim[i]
-			var sc2: Combatant = res["mobs"][i]
-			var body_a: Vector2i = sc2.pos
-			var body_b: Vector2i = sc2.pos + Vector2i(Config.FACING_VEC[sc2.facing])
-			var strikes_at: Array = SerpentKind.strike_tiles(body_a, body_b)
-			var kind := String(sa.get("kind", "hold"))
-			var verb: String = {"straight": "slithers", "turn": "turns", "strike": "strikes", "hold": "waits"}.get(kind, kind)
-			combat_log.add_note("%s %s -> body (%d,%d)-(%d,%d), aims %s & %s" % [
-				name, verb, body_a.x, body_a.y, body_b.x, body_b.y,
-				"(%d,%d)" % [strikes_at[0].x, strikes_at[0].y],
-				"(%d,%d)" % [strikes_at[1].x, strikes_at[1].y]], ViewConfig.COL_TEXT)
-			if int(dmg[i]) > 0:
-				combat_log.add_note("%s bites A for %d!" % [name, int(dmg[i])], ViewConfig.COL_DMG)
-		else:
-			var moved := StoryCombat._move_count(mob_seqs[i])
-			if moved > 0:
-				combat_log.add_note("%s moved x%d" % [name, moved], ViewConfig.COL_TEXT)
-			elif int(dmg[i]) == 0:
-				combat_log.add_note("%s held its ground" % name, ViewConfig.COL_TEXT)
-			if i < strikes.size() and int(strikes[i]) >= 2:
-				combat_log.add_note("%s struck x%d!" % [name, int(strikes[i])], ViewConfig.COL_DMG)
+		var moved := StoryCombat._move_count(mob_seqs[i])
+		if moved > 0:
+			combat_log.add_note("%s moved x%d" % [name, moved], ViewConfig.COL_TEXT)
+		elif int(dmg[i]) == 0:
+			combat_log.add_note("%s held its ground" % name, ViewConfig.COL_TEXT)
+		if i < strikes.size() and int(strikes[i]) >= 2:
+			combat_log.add_note("%s struck x%d!" % [name, int(strikes[i])], ViewConfig.COL_DMG)
 	for sl in res.get("strike_log", []):
 		if not bool(sl["hit"]):
 			combat_log.add_note("%s strike @%d missed -- %s" % [_mob_label(engaged[int(sl["mob"])]), int(sl["tick"]), String(sl["why"])], ViewConfig.COL_TEXT)
@@ -653,17 +582,15 @@ func _teleport(t: Vector2i) -> void:
 	player_uv.init_state(player)       # snap, not a tween across the whole world
 	_follow_window()
 
-# The serpent: spawned in the cavern on a new world, and again on load unless slain.
+# The cave boss: a PAIR of identical twins (Fra), standing side by side at the top-middle
+# of the cage. Spawned on a new world, and again on load unless the pair was slain.
 func _spawn_cavern_boss() -> void:
-	# Start at the top-middle of the cage, body vertical, facing SOUTH -- down toward
-	# the door, so it "watches the entrance" from the first frame.
 	var box := OverworldMap.CAVERN_BOX
 	var top_mid := Vector2i(box.position.x + box.size.x / 2, box.position.y + 1)
-	var b := _add_mob("serpent", top_mid)
-	b["combatant"].facing = Config.Facing.SOUTH
-	b["boss"] = true                    # slaying it is remembered in the save
-	_refresh_body(b)
-	b["uv"].set_span(b["combatant"].pos, b["tail"])
+	for tile: Vector2i in [top_mid, top_mid + Vector2i(1, 0)]:
+		var b := _add_mob("serpent", tile)
+		b["combatant"].facing = Config.Facing.SOUTH   # both watching the door
+		b["boss"] = true                              # the pair is remembered in the save
 
 func _die() -> void:
 	# A setback: you forfeit some gold (that lives on your profile, so it persists) and return
@@ -714,12 +641,15 @@ func _in_window(p: Vector2i, o: Vector2i) -> bool:
 func _engaged() -> Array:
 	var out: Array = []
 	for m in mobs:
-		if m.get("boss", false) and not _boss_awake:
+		if m.get("boss", false):
+			# The BOSS ignores the aggro radius entirely (Fra): the pair is awake the
+			# moment you cross its door, and BOTH twins fight from that instant. Leaving
+			# them on MOB_AGGRO meant the far one simply was not in the fight -- you beat
+			# them one at a time, which is not the boss.
+			if _boss_awake:
+				out.append(m)
 			continue                                # asleep: untouchable until you enter
-		var ad := _euc(m["combatant"].pos)
-		if m.get("tiles", 1) >= 2:
-			ad = mini(ad, _euc(m["tail"]))          # the body counts: brush the tail, wake the beast
-		if ad <= MOB_AGGRO:
+		if _euc(m["combatant"].pos) <= MOB_AGGRO:
 			out.append(m)
 	out.sort_custom(func(x, y):
 		return _cheb(x["combatant"].pos) < _cheb(y["combatant"].pos))
@@ -734,19 +664,31 @@ func _euc(p: Vector2i) -> int:
 func _cheb(p: Vector2i) -> int:
 	return maxi(abs(p.x - player.pos.x), abs(p.y - player.pos.y))
 
+# Is either twin of the boss pair still standing?
+func _boss_alive() -> bool:
+	for m in mobs:
+		if m.get("boss", false) and not m["combatant"].is_dead():
+			return true
+	return false
+
 func _clear_dead() -> void:
 	var keep: Array = []
+	var boss_fell := false
 	for m in mobs:
 		if m["combatant"].is_dead():
 			if m.get("boss", false):
-				_boss_slain = true                    # the cavern stays quiet forever after
-				_seal_cavern(false)                   # the cage opens -- you may leave
+				boss_fell = true                      # ...but the cage waits for its twin
 			_grant_loot(m)
 			_quest_event("kill", String(m["type"]))   # advance any active kill quests
 			m["uv"].queue_free()
 		else:
 			keep.append(m)
 	mobs = keep
+	# The boss is a PAIR (Fra): killing one twin proves nothing -- the cavern only falls
+	# quiet, and the cage only opens, once BOTH are down.
+	if boss_fell and not _boss_alive():
+		_boss_slain = true                            # the cavern stays quiet forever after
+		_seal_cavern(false)                           # the cage opens -- you may leave
 
 # Roll a dead mob's loot into the inventory, with a floating pickup label per item.
 func _grant_loot(m: Dictionary) -> void:
@@ -944,7 +886,7 @@ func _close_dialog() -> void:
 	_refresh_rest_prompt()
 
 # Slime split: a same-resource copy on a free tile next to the player, joining the fight.
-# Called from SlimeKind.on_committed via the ctx (this controller).
+# Called from CharacterOoze.on_committed via the ctx (this controller).
 func spawn_split(parent: Dictionary, player_ref: Combatant) -> void:
 	var tile := _free_adjacent(player_ref.pos)
 	if tile == Vector2i(-1, -1):
@@ -1018,18 +960,13 @@ func _facing_for(dir: Vector2i) -> int:
 			return fc
 	return Config.Facing.SOUTH
 
-# Turn `c` to face `target` along the dominant axis (cardinal only), updating its view.
-# Cardinal direction vector -> Facing enum.
-func _face_dir(d: Vector2i) -> int:
-	if absi(d.x) >= absi(d.y):
-		return Config.Facing.EAST if d.x >= 0 else Config.Facing.WEST
-	return Config.Facing.SOUTH if d.y >= 0 else Config.Facing.NORTH
-
 func _face_toward(c: Combatant, uv: UnitView, target: Vector2i) -> void:
 	var dir := _cardinal(target - c.pos)
 	if dir == Vector2i.ZERO:
 		return
 	uv.aim = Vector2(dir)        # cosmetic: the art looks at your TILE -- always N/S/E/W
+	if not c.body.is_empty():
+		return                   # a BODY's facing IS its axis: only its own pivot may turn it
 	_face(c, uv, dir)
 
 # The nearest cardinal to `dv` (ties go horizontal). THE one snap rule: the art aim and
@@ -1060,21 +997,10 @@ func _mob_roam(delta: float) -> void:
 		var c: Combatant = m["combatant"]
 		var step := _wander_step(c.pos, occ)
 		if step != c.pos:
-			if m.get("tiles", 1) >= 2:
-				# Rigid body: it faces its travel direction, and the tail is ALWAYS
-				# the tile behind (pos + facing points at the body's far end). We move
-				# both cells together -- no drift.
-				occ.erase(c.pos); occ.erase(m["tail"])
-				c.facing = _face_dir(step - c.pos)
-				c.pos = step
-				m["tail"] = _rigid_tail(c)
-				occ[c.pos] = true; occ[m["tail"]] = true
-				m["uv"].tween_span(c.pos, m["tail"])
-			else:
-				occ.erase(c.pos)
-				occ[step] = true
-				c.pos = step
-				m["uv"].tween_to(step)
+			occ.erase(c.pos)
+			occ[step] = true
+			c.pos = step
+			m["uv"].tween_to(step)
 		_face_toward(c, m["uv"], player.pos)         # always turned to face you
 		m["uv"].visible = _mob_visible(m)
 	if not _engaged().is_empty():
@@ -1104,8 +1030,6 @@ func _occupied_tiles() -> Dictionary:
 	var occ: Dictionary = { player.pos: true }
 	for m in mobs:
 		occ[m["combatant"].pos] = true
-		if m.get("tiles", 1) >= 2:
-			occ[m["tail"]] = true                  # the serpent's body is ground you can't take
 	return occ
 
 # The tile a single-target ATTACK in this sequence aims at (-1,-1 if none).

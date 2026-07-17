@@ -47,24 +47,24 @@ const SETS := {
 			"summon": { "fps": 4.0, "loop": false, "files": ["Ooze_summon_1.png", "Ooze_summon_2.png", "Ooze_Summon_3.png", "Ooze_summon_4.png", "Ooze_summon_5.png"] },
 		},
 	},
-	"serpent": {
-		# The First Boss animation set, worn by the serpent (Fra). Two-tile creature:
-		# UnitView spans it across head+tail via set_span/tween_span.
-		"dir": "res://Assets/Sprites/First Boss/",
+	# The cave boss: a PAIR of identical single-tile twins (Fra). Art measured, not
+	# guessed -- every frame is exactly tile-aligned:
+	#   idle       32x32 = ONE tile, creature centred
+	#   move/melee 64x32 = TWO tiles, creature drawn in the RIGHT tile with its action
+	#                      reaching into the LEFT one (i.e. drawn acting WEST).
+	# "reach" marks those 2-tile clips: "step" = it ENDS in the next tile (a move),
+	# "strike" = it stays put and only the blow reaches (a bite). UnitView centres such
+	# a clip on the two tiles and rotates its west-drawn action onto the real direction.
+	"twin": {
+		"dir": "res://Assets/Sprites/Twin Boss/",
 		"directional": false,
 		"offset_y": 0.0,
 		"anims": {
-			# CLEAN pre-sized art (Fra extracted to exact tile footprints, transparent bg):
-			#   idle/move = 32x64 VERTICAL body   (1 tile wide, 2 tall)
-			#   sidemove  = 64x32 HORIZONTAL body (2 tiles wide, 1 tall) -- the TURN
-			# No scaling needed: the sprite IS the footprint. move/sidemove loop while
-			# stepping, then settle to a still frame; idle plays only when motionless.
-			"idle":     { "fps": 3.0, "loop": true,  "files": ["Serpent_Idle_1.png", "Serpent_Idle_2.png", "Serpent_Idle_3.png", "Serpent_Idle_4.png"] },
-			"move":     { "fps": 8.0, "loop": false, "files": ["Serpent_Move_1.png", "Serpent_Move_2.png", "Serpent_Move_3.png", "Serpent_Move_4.png", "Serpent_Move_5.png", "Serpent_Move_6.png", "Serpent_Move_7.png"] },
-			# The TURN sweep: 88x59 frames drawn as vertical -> horizontal(east), pivoting
-			# on the bottom of the vertical body. Bigger than the footprint on purpose;
-			# the view anchors + flips it per turn direction (see _play_turn).
-			"sidemove": { "fps": 10.0, "loop": false, "sweep": true, "files": ["Serpent_SideMove_1.png", "Serpent_SideMove_2.png", "Serpent_SideMove_3.png", "Serpent_SideMove_4.png", "Serpent_SideMove_5.png", "Serpent_SideMove_6.png", "Serpent_SideMove_7.png"] },
+			"idle":   { "fps": 3.0, "loop": true, "points": "down", "files": ["Twin_Idle_1.png", "Twin_Idle_2.png", "Twin_Idle_3.png", "Twin_Idle_4.png"] },
+			"move":   { "fps": 8.0, "loop": false, "points": "left", "reach": "step",
+					"files": ["Twin_Move_1.png", "Twin_Move_2.png", "Twin_Move_3.png", "Twin_Move_4.png", "Twin_Move_5.png"] },
+			"attack": { "fps": 10.0, "loop": false, "points": "left", "reach": "strike",
+					"files": ["Twin_Melee_1.png", "Twin_Melee_2.png", "Twin_Melee_3.png", "Twin_Melee_4.png", "Twin_Melee_5.png", "Twin_Melee_6.png", "Twin_Melee_7.png"] },
 		},
 	},
 }

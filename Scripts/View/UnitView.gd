@@ -207,6 +207,19 @@ func _overlay_frames(prefix: String) -> SpriteFrames:
 # Keep the gear overlays locked to the body's idle frame; hide them during any
 # other animation (no per-action overlays yet) so the figure shows white there.
 func _process(_dt: float) -> void:
+	# SAFETY NET: a 2-tile clip's half-tile shift must never outlive the clip itself.
+	# `animation_finished` is NOT emitted when a clip is interrupted (or when it is
+	# replaced mid-play), and a leftover shift is exactly what drew a twin standing
+	# between two tiles. This runs every frame, so it cannot be missed: the moment no
+	# clip is playing, the sprite sits on its tile.
+	# The shift is legal ONLY while a reach clip is the one actually playing. Testing
+	# is_playing() alone was not enough: an interrupted clip is usually replaced by the
+	# LOOPING idle, which plays forever -- so the net never fired and the sprite stayed
+	# stranded on the tile line. Now it clears the moment the current clip isn't a reach.
+	if body != null and body.offset.x != 0.0 \
+			and (not body.is_playing() or _reach_kind(body.animation) == ""):
+		body.offset.x = 0.0
+		_reaching = false
 	if body == null or _gear_layers.is_empty():
 		return
 	var show_gear := (body.animation == "idle")
@@ -262,15 +275,11 @@ func play_attack(dir: Vector2) -> void:
 # HORIZONTAL with the head RIGHT. So:
 #   vertical span, head above tail   -> vertical art as-is
 #   vertical span, head below tail   -> vertical art flip_v
-#   horizontal span, "move"          -> the native SIDEMOVE set, flip_h when head is LEFT
-#   horizontal span, other anims     -> vertical art rotated ±90° toward the head
-# ── TWO-TILE SYMMETRIC SERPENT (Fra's final spec). It has TWO identical heads and
-# NO facing: the only thing that matters is which AXIS its two tiles lie along.
-#   tiles stacked vertically   -> the "move" art (drawn vertical), no flip
-#   tiles side by side          -> the "sidemove" art (drawn horizontal), no flip
-# Movement chooses the anim by TURN ANGLE: continuing straight (same axis) = "move";
-# turning 90 deg (axis change) = "sidemove". No rotation, no mirroring -- the art is
-# symmetric end-to-end, so whichever tile it moved into simply reads as the head.
+# ── TWO-TILE BODY (the serpent). Its cells come from the ENGINE (Combatant.cells), so
+# the view never decides WHERE it is -- only how to draw it. The art is drawn VERTICAL
+# (32x64) at its exact footprint; a HORIZONTAL body is that same art turned 90 degrees
+# (_apply_span_pose). A turn is instant (Fra): no sweep, the axis simply flips, and the
+# two head bars mark the tiles it strikes from.
 var show_facing := true        # mobs: false -- mobs have no facing, so no bars
 # COSMETIC look vector: the direction this unit's RESTING art points. The story keeps it
 # aimed at the player. Art-only -- it never touches rules, legality, damage, or flank.
@@ -282,6 +291,17 @@ var _rows: Dictionary = ANIMS
 var _span_axis := ""    # "" = single-tile unit; "v" / "h" while spanning
 var _span_heads: Array = []   # the two head tiles (Vector2i), for the dual facing bars
 var _span_target := Vector2.ZERO     # where the body position settles after a step
+var _turning := false                # true while a 90-degree turn owns the pose
+# ── 2-TILE ACTION CLIPS ("reach" art) ────────────────────────────────────────
+# Some creatures' action art is 2 tiles wide: the creature is drawn in ONE tile and its
+# action reaches into the NEXT (the twins' move and bite). The art is tile-aligned, so
+# placing it is exact arithmetic: shift the SPRITE half a tile along its own axis and
+# rotate its drawn direction onto the real one. The NODE always stays on the creature's
+# real tile -- never a midpoint -- so an interrupted clip cannot strand it between tiles,
+# and the next step can never measure its delta from a half-tile spot (a diagonal).
+var _reaching := false
+# How long the body takes to swing 90 degrees once it has landed on its pivot cell.
+const TURN_ROT_DUR := 0.28
 
 func _axis_of(a: Vector2i, b: Vector2i) -> String:
 	return "h" if a.y == b.y and a.x != b.x else "v"
@@ -294,125 +314,122 @@ func set_span(head: Vector2i, tail: Vector2i) -> void:
 	_span_rest()
 	_apply_span_pose()
 
-# At rest: a VERTICAL serpent plays its looping idle (clean 32x64 idle art); a
-# HORIZONTAL serpent has no idle art, so it holds the sidemove first frame still.
+# At rest the body loops its idle. The art is drawn vertical, and a HORIZONTAL body is
+# that same idle turned 90 degrees by _apply_span_pose -- so no axis lacks art.
 func _span_rest() -> void:
 	if body == null:
 		return
-	if _span_axis == "v" and body.sprite_frames.has_animation("idle"):
+	if body.sprite_frames.has_animation("idle"):
 		body.play("idle")
-	elif body.sprite_frames.has_animation("sidemove"):
-		body.animation = "sidemove"
-		body.frame = 0
-		body.pause()
 
 func tween_span(head: Vector2i, tail: Vector2i) -> void:
-	# STRAIGHT slither: play the art matching the body's AXIS (vertical body -> vertical
-	# "move" art; horizontal body -> horizontal "sidemove" art), then tween to the new
-	# midpoint. Playing "move" unconditionally drew vertical art on a horizontal body.
+	# The body glides to its new midpoint. A TURN is NOT animated (Fra): the body simply
+	# adopts its new axis and _apply_span_pose rotates the art there instantly. Only a
+	# STRAIGHT slither plays its walk cycle. (The 7-frame sidemove sweep is deliberately
+	# unused -- it is kept in the art set for a future pass.)
 	var target := ViewConfig.tile_center(head).lerp(ViewConfig.tile_center(tail), 0.5)
+	var turned := _span_axis != "" and _axis_of(head, tail) != _span_axis
+	var stepped := position.distance_to(target) > 0.5
+	if turned and _span_heads.size() == 2:
+		_play_turn(_span_heads.duplicate(), head, tail)   # the view remembers where it was
+		return
+	_span_target = target
 	_span_axis = _axis_of(head, tail)
 	_span_heads = [head, tail]
 	queue_redraw()
-	if body:
-		var anim := "move" if _span_axis == "v" else "sidemove"
-		if body.sprite_frames.has_animation(anim):
-			body.play(anim)
+	# Only a real STEP plays the walk cycle. A stationary turn (or a pure attack, where
+	# the controller still re-seats the span) must not twitch through the move frames.
+	if body and stepped and not turned and body.sprite_frames.has_animation("move"):
+		body.play("move")
 	_apply_span_pose()
+	# The slide lasts exactly as long as the walk cycle, so the body never arrives early
+	# and wriggles in place. The art's own FPS is therefore the movement speed: slow the
+	# animation down in SpriteBook and the whole step slows with it.
 	var t := create_tween()
-	t.tween_property(self, "position", target, ViewConfig.MOVE_DUR) \
+	t.tween_property(self, "position", target, _span_step_dur()) \
 		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
 
-# ── THE TURN SWEEP (explicit from -> to) ──────────────────────────────────────
-# Called when the serpent pivots 90 degrees. The controller passes the BEFORE body
-# (from_pos + from_facing) and the AFTER body (new head + tail). The sweep art is drawn
-# ONCE for one canonical turn (vertical body pivoting to horizontal-EAST, rotating
-# around the vertical body's lower cell). We flip it to serve all turns and anchor the
-# 88x59 canvas so the shared PIVOT cell lands on the tile both bodies share.
-const TURN_SWEEP := Vector2(88.0, 59.0)
-func play_turn_from(from_pos: Vector2i, from_facing: int, head: Vector2i, tail: Vector2i) -> void:
+# The 90-degree TURN, animated procedurally (Fra's idea) -- it needs NO art at all.
+# The idle/move art IS the exact 2-tile footprint, so that same sprite turned 90 degrees
+# is the horizontal body. This simply plays the creature's two real actions in order:
+#   PHASE 1  SLIDE one tile onto the cell it turns on, axis held (its walk cycle plays)
+#   PHASE 2  ROTATE 90 degrees around that cell, swinging its far head onto the new axis
+# Exact by construction -- it ends on the midpoint the engine committed -- and it cannot
+# be misaligned, because nothing here depends on where art sits inside a canvas.
+func _play_turn(before: Array, head: Vector2i, tail: Vector2i) -> void:
+	var old_dir: Vector2i = before[1] - before[0]    # body axis before the turn
+	var new_dir: Vector2i = tail - head              # body axis after it
 	_span_axis = _axis_of(head, tail)
 	_span_heads = [head, tail]
 	_span_target = ViewConfig.tile_center(head).lerp(ViewConfig.tile_center(tail), 0.5)
-	if body == null or not body.sprite_frames.has_animation("sidemove"):
-		# No sweep art: settle straight onto the new tiles.
-		position = _span_target
-		queue_redraw(); _apply_span_pose(); _span_rest()
-		return
-	# The two bodies (before = from_pos & from_pos+from_facing; after = head & tail)
-	# share exactly ONE cell: the pivot. Find it.
-	var before := [from_pos, from_pos + Vector2i(Config.FACING_VEC[from_facing])]
-	var after := [head, tail]
-	var pivot: Vector2i = before[0]
-	for b in before:
-		if b in after:
-			pivot = b
-			break
-	# The far NEW cell (the head that swung out): the after-cell that isn't the pivot.
-	var new_far: Vector2i = after[0] if after[1] == pivot else after[1]
-	# The old cell that swung AWAY: the before-cell that isn't the pivot.
-	var old_far: Vector2i = before[0] if before[1] == pivot else before[1]
-	# Canonical art: BEFORE vertical (old_far ABOVE pivot, i.e. old_far - pivot = (0,-1))
-	# turning so the new head goes EAST (new_far - pivot = (+1,0)). Derive flips that map
-	# our actual (old_dir -> new_dir) onto that canonical (up -> east).
-	var old_dir := old_far - pivot            # where the body pointed before (from pivot)
-	var new_dir := new_far - pivot            # where it points after
-	# We need a flip_h/flip_v (and possibly a 90-deg mental rotation) so that:
-	#   canonical old_dir (0,-1) maps to `old_dir`, canonical new_dir (+1,0) maps to `new_dir`.
-	# Enumerate the 8 turn cases directly for correctness (4 start axes x 2 sides).
-	var fh := false
-	var fv := false
-	var rot := 0.0
-	# Represent the turn as (old_dir, new_dir); pick flips from a small table.
-	var key := [old_dir, new_dir]
-	# canonical: old (0,-1) new (1,0)  -> no transform
-	# Build by reflection: flip_v maps up<->down, flip_h maps left<->right. A turn whose
-	# old_dir is vertical uses flips; whose old_dir is horizontal needs a 90-deg rotation
-	# of the whole sprite (since the art's "start" is vertical).
-	if old_dir.y != 0:
-		# start vertical (up or down). Canonical start is UP (0,-1).
-		fv = old_dir.y > 0                     # started DOWN -> mirror vertically
-		# after flip_v, new head East(+1) or West(-1): flip_h if it should go the OTHER way.
-		var want_new_x := new_dir.x
-		fh = want_new_x < 0                    # new head West -> mirror horizontally
-	else:
-		# start horizontal (left/right). Rotate the sprite 90 deg so its vertical start
-		# aligns with our horizontal start, then apply flips for the specific case.
-		rot = PI / 2.0
-		fh = old_dir.x > 0                     # nuance handled with rotation+flip
-		fv = new_dir.y > 0
-	body.rotation = rot
-	body.flip_h = fh
-	body.flip_v = fv
-	body.scale = Vector2.ONE
-	# Anchor: in canonical art the pivot cell center is the bottom-center of the 88x59
-	# canvas. Canvas center = (44,30); pivot center ~ (44,46) -> art offset (0,+16).
-	# Under flips/rotation, transform that offset the same way.
-	var off := Vector2(0.0, 16.0)
-	if rot != 0.0:
-		off = Vector2(off.y, -off.x)           # rotate the offset 90 deg with the sprite
-	if fh: off.x = -off.x
-	if fv: off.y = -off.y
-	position = ViewConfig.tile_center(pivot) - off
 	queue_redraw()
-	body.play("sidemove")
+	if body == null or old_dir == Vector2i.ZERO or new_dir == Vector2i.ZERO:
+		position = _span_target
+		return
+	_turning = true
+	# Hang the node on the PRIMARY cell and push the sprite half a tile along its own
+	# axis, so the rotation pivots around that cell -- not around the body's middle.
+	var half := float(ViewConfig.TILE) * 0.5
+	var a0 := Vector2(old_dir).angle() - PI / 2.0    # local +y aligned onto the old axis
+	var a1 := Vector2(new_dir).angle() - PI / 2.0    # ...and onto the new one
+	a1 = a0 + wrapf(a1 - a0, -PI, PI)                # always swing the short way round
+	body.offset = Vector2(0.0, half)
+	body.flip_h = false
+	body.flip_v = false
+	body.scale = Vector2.ONE
+	body.rotation = a0
+	position = ViewConfig.tile_center(before[0])     # unchanged on screen: the sprite is
+	if body.sprite_frames.has_animation("move"):     # still exactly where it already was
+		body.play("move")
+	var t := create_tween()
+	t.tween_property(self, "position", ViewConfig.tile_center(head), _span_step_dur())
+	t.tween_property(body, "rotation", a1, TURN_ROT_DUR)
+	t.tween_callback(_settle_span)
+
+# Back to the plain resting pose, on the cells the engine committed.
+func _settle_span() -> void:
+	_turning = false
+	if body:
+		body.offset = Vector2.ZERO
+	position = _span_target
+	_apply_span_pose()
+	_span_rest()
+
+func _span_step_dur() -> float:
+	if body and body.sprite_frames.has_animation("move"):
+		var n := body.sprite_frames.get_frame_count("move")
+		var fps := body.sprite_frames.get_animation_speed("move")
+		if fps > 0.0 and n > 0:
+			return maxf(ViewConfig.MOVE_DUR, float(n) / float(fps))
+	return ViewConfig.MOVE_DUR
 
 func _apply_span_pose() -> void:
 	if body == null or _span_axis == "":
 		return
-	# The clean serpent art is drawn at its EXACT tile footprint (32x64 vertical /
-	# 64x32 horizontal) on a transparent canvas, so it needs no scaling, rotation, or
-	# flipping -- just centered on the span midpoint (AnimatedSprite2D centers by
-	# default). The animation itself (move vs sidemove) carries the orientation.
-	body.rotation = 0.0
+	# The serpent's art is drawn VERTICAL (32x64) at its exact 2-tile footprint, so a
+	# HORIZONTAL body is that same art turned 90 degrees. There is no separate
+	# horizontal sprite and no sweep involved: the pose is derived from the axis the
+	# engine gave us, so the sprite can never disagree with the cells it occupies.
+	body.rotation = 0.0 if _span_axis == "v" else PI / 2.0
 	body.flip_h = false
 	body.flip_v = false
 	body.offset = Vector2.ZERO
 	body.scale = Vector2.ONE
 
 func tween_to(pos: Vector2i) -> void:
+	if _span_axis != "":
+		return                   # a multi-tile body is moved ONLY by tween_span: it alone
+								 # knows both cells, so the node lands on the body midpoint
+								 # instead of being dragged to one tile's centre and back
 	var target := ViewConfig.tile_center(pos)
 	var delta := target - position
+	if body and delta.length() > 0.5 and _reach_kind("move") == "step":
+		# The move CLIP carries the creature across both tiles, so the node simply lands
+		# on its new tile and the art does the travelling. No tween: two things moving
+		# one sprite is what made them drift.
+		position = target
+		_play_reach("move", delta, true)
+		return
 	if body and delta.length() > 0.5:
 		# move art points UP; play_anim rotates the walk to the travel direction.
 		play_anim("move", delta)   # orientation comes from the ANIMS row ("points")
@@ -454,6 +471,32 @@ func _apply_facing() -> void:
 # (see SpriteBook); art without one plays exactly as drawn, so this is inert for
 # every existing set. Callers never carry art knowledge.
 # Which way an animation's art was DRAWN. "" = undeclared -> the art plays as drawn.
+# "" = a normal 1-tile clip. "step" = 2-tile clip, the creature ENDS in the next tile.
+# "strike" = 2-tile clip, it stays put and only the blow reaches.
+func _reach_kind(anim: String) -> String:
+	return String(_rows.get(anim, {}).get("reach", ""))
+
+# Play a 2-tile action clip acting toward the neighbouring tile in `dir`.
+#
+# THE NODE NEVER LEAVES A TILE. Only the SPRITE is shifted. Moving the node to the two
+# tiles' midpoint (as this used to) stranded the creature between tiles whenever a clip
+# was interrupted -- and worse, the NEXT step measured `target - position` from that
+# half-tile spot, which is a DIAGONAL, and the error compounded every turn. The node is
+# authoritative and always on the creature's real tile; the offset is pixels only.
+func _play_reach(anim: String, dir: Vector2, lands: bool) -> void:
+	var half := float(ViewConfig.TILE) * 0.5
+	body.rotation = _rot_for(anim, dir)
+	# The clip is 2 tiles wide: the creature is drawn in its RIGHT half, the action
+	# reaching LEFT. Shifting it half a tile along its own axis (the offset rotates WITH
+	# the sprite, so this holds for all four directions) puts the creature's half on the
+	# node -- back toward the tile it came FROM for a step, out toward the target for a
+	# strike.
+	body.offset = Vector2(half if lands else -half, body.offset.y)
+	body.flip_h = false
+	body.flip_v = false
+	_reaching = true
+	body.play(anim)
+
 func _points_of(anim: String) -> String:
 	return String(_rows.get(anim, {}).get("points", ""))
 
@@ -503,11 +546,14 @@ func play_anim(name: String, dir: Vector2 = Vector2.ZERO, rot_offset: float = PI
 			and body.sprite_frames.get_frame_count(name) > 0:
 		# Centred effects (guard cube, buff aura) sit ON the tile; figures get the
 		# feet-seating nudge. Set every play so we never inherit the wrong offset.
-		body.offset.y = float(_anim_offset.get(name, _body_offset_y))
+		body.offset = Vector2(0.0, float(_anim_offset.get(name, _body_offset_y)))
 		# This art set declares which way it was DRAWN ("points"); _rot_for turns that
 		# into the rotation that aims it at `dir`, so callers never carry art knowledge
 		# (re-drawing a sprite only ever means editing its "points" in the art table).
 		var pts := _points_of(name)
+		if _reach_kind(name) != "" and dir != Vector2.ZERO and _span_axis == "":
+			_play_reach(name, dir, _reach_kind(name) == "step")
+			return
 		if _span_axis != "":
 			# Spanned creature: pose is owned by the span, never by per-anim rotation.
 			call_deferred("_apply_span_pose")
@@ -562,6 +608,16 @@ func play_rest() -> void: play_anim("rest")
 func _on_anim_finished() -> void:
 	if body == null:
 		return
+	if _turning:
+		return                       # a turn owns the pose until its tween settles it
+	if _reaching:
+		_reaching = false
+		body.offset.x = 0.0          # the node was already on the right tile: art only
+		body.rotation = _mob_facing_rotation()
+		body.flip_h = _mob_facing_flip()
+		body.offset.y = float(_anim_offset.get("idle", _body_offset_y))
+		body.play("idle")
+		return
 	if _held != "" and body.animation == _held:
 		return                       # freeze on the last frame (held guard cube) until released
 	if _span_axis != "":
@@ -570,7 +626,7 @@ func _on_anim_finished() -> void:
 		body.rotation = 0.0          # clear any turn-sweep rotation/flips
 		body.flip_h = false
 		body.flip_v = false
-		_span_rest()                 # vertical -> looping idle; horizontal -> still sidemove
+		_span_rest()                 # a body just loops its idle; the axis rotates the art
 		_apply_span_pose()
 		return
 	body.rotation = _mob_facing_rotation()   # back to the RESTING pose (bat aims its head here)

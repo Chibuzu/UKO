@@ -44,21 +44,21 @@ const TABLE := {
 		"brain": "CharacterOoze",
 		"loot": [ { "item": "slime_gel", "chance": 0.70 } ],
 	},
-	# The two-headed cave boss. `body_line: 2` gives it a rigid 2-tile body that rotates
-	# with its facing (vertical N/S, horizontal E/W). It is the ONLY creature that owns
-	# `pivot` -- that is what lets it turn its body, and its 90-degree turn is simply
-	# move + pivot, its two actions. It has no back: see Resolver._flank.
+	# The cave boss (Fra): TWO identical twins, spawned side by side. Each is a plain
+	# SINGLE-TILE creature -- no body, no pivot, none of the multi-tile machinery. The
+	# boss is a pair, not a shape, and the cage only opens when both are down.
+	# Two bodies is itself the mechanic: you cannot face both, so one is always flanking.
 	"serpent": {
-		"name": "Serpent", "art": "serpent", "tint": Color(0.90, 0.52, 0.55), "scale": 1.0,
-		"hp": 100,
-		"body_line": 2,                              # cells: pos, and the tile facing extends into
+		"name": "Serpent", "art": "twin", "tint": Color(1.0, 1.0, 1.0), "scale": 1.0,
+		"hp": 75,
+		"facing_bar": true,                          # it HAS a facing: show it on its head
+		"body": [],                                  # ONE tile each
 		"loadout": {
 			"move":   {},                            # one tile per action
-			"pivot":  {},                            # its signature: turns the whole body
-			"attack": { "power": 10 },               # range 1, straight out from EITHER head
+			"attack": { "power": 10 },               # range 1, ONE tile (not the ooze's four)
 			"wait":   {},
 		},
-		"brain": "CharacterSerpent",
+		"brain": "CharacterTwin",
 		"loot": [ { "item": "serpent_scale", "chance": 1.00 }, { "item": "serpent_fang", "chance": 0.20 } ],
 	},
 }

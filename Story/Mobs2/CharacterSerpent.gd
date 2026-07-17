@@ -1,29 +1,21 @@
-# CharacterSerpent.gd -- the two-headed cave boss as a TRUE CHARACTER.
+# CharacterSerpent.gd -- one twin of the cave boss, as a TRUE CHARACTER.
 #
-# BODY: a rigid 2-tile line (MobSpec `body_line: 2`) -- its cells are `pos` and the tile
-# its facing extends into, so it stands VERTICAL facing N/S and HORIZONTAL facing E/W.
-# The engine derives those cells from the unit itself, so what is drawn, what blocks,
-# what is hittable and what it strikes from can never drift apart.
+# The boss is a PAIR of these (StoryController._spawn_cavern_boss): two identical
+# SINGLE-TILE creatures that start side by side at the top of the cage. Both must fall
+# before the cage opens. There is no body, no pivot, no span -- a twin is exactly as
+# simple as a bat, which is the whole point of the remodel.
 #
-# ACTIONS (its MobSpec loadout -- it is the ONLY creature that owns `pivot`):
-#   * ONE tile of movement per turn, plus one other action (Fra).
-#   * Its 90-degree TURN is just move + pivot: at pos (3,3) facing N (body (3,3)+(3,2)),
-#     move to (3,2) then pivot EAST -> body (3,2)+(4,2), now threatening (2,2) and (5,2).
-#     No custom spell exists or is needed -- the turn IS its two actions.
-#   * It bites one tile straight out past EITHER head (range 1).
-#   * It has no back: an attack off its body line is a x1.5 flank (see Resolver._flank).
+# BEHAVIOUR (Fra): aggressive, permanently trying to attack. It closes and it bites --
+# nothing else. Its bite is ONE adjacent tile (not the ooze's four), and it spends two
+# actions a turn, so the pair spends four against your two.
 #
-# BRAIN: a breadth-first search over (pos, facing) whose edges are whole TURNS finds the
-# shortest way into a stance that threatens you, then plays that turn's two actions.
+# The pair needs no coordination code: two bodies means you cannot face both at once, so
+# whenever they end up on opposite sides one of them is flanking you for x1.5. That
+# pressure falls out of the geometry instead of being scripted.
 class_name CharacterSerpent
 extends MobKind
 
-const _MAX_EXPAND := 4000            # BFS safety cap (the cage is small; ample)
-const _STEPS := [Vector2i.ZERO, Vector2i(0, -1), Vector2i(1, 0), Vector2i(0, 1), Vector2i(-1, 0)]
-const _FACINGS := [Config.Facing.NORTH, Config.Facing.EAST, Config.Facing.SOUTH, Config.Facing.WEST]
-
 var _loadout: Dictionary = {}
-var _facing: int = Config.Facing.SOUTH   # last known, for the board's threat preview
 
 func setup(p_type: String, p_prof: Dictionary) -> void:
 	super.setup(p_type, p_prof)
@@ -33,103 +25,63 @@ func setup(p_type: String, p_prof: Dictionary) -> void:
 func uses_true_actions() -> bool:
 	return true
 
-# The two tiles it threatens: one straight out past each head.
-static func strike_tiles(pos: Vector2i, facing: int) -> Array:
-	var f := Vector2i(Config.FACING_VEC[facing])
-	return [pos - f, pos + f + f]
-
-func attack_pattern(origin: Vector2i) -> Array:
-	return strike_tiles(origin, _facing)
-
+# Always exactly two actions: choose, simulate the result, choose again.
 func plan(mob: Combatant, player: Combatant, grid: Grid) -> Array:
-	_facing = mob.facing
-	if _threatens(mob.pos, mob.facing, player.pos) and _has("attack"):
-		return [_bite(player.pos), _bite(player.pos)]     # already lined up: bite twice
-	var turn := _search(mob, player.pos, grid)
-	return turn if not turn.is_empty() else [{ "id": "wait" }, { "id": "wait" }]
+	var seq: Array = []
+	var pos := mob.pos
+	for _slot in range(2):
+		var act := _best_action(pos, player, grid)
+		seq.append(act)
+		if String(act["id"]) == "move":
+			pos = act["tile"]              # the second choice sees where the first landed
+	return seq
 
-# ── the search ────────────────────────────────────────────────────────────────
-func _search(mob: Combatant, player: Vector2i, grid: Grid) -> Array:
-	var seen := {}
-	seen[_key(mob.pos, mob.facing)] = true
-	var queue: Array = []
-	var first := {}                                   # state key -> the FIRST turn of its path
-	for t in _turns(mob.pos, mob.facing, mob, grid, player):
-		var k: int = _key(t["pos"], t["facing"])
-		if seen.has(k):
+# Bite if you are in reach; otherwise close on a seat beside you. That is the creature.
+func _best_action(pos: Vector2i, player: Combatant, grid: Grid) -> Dictionary:
+	if Grid.dist(pos, player.pos) == 1 and _has("attack"):
+		return { "id": "attack", "tile": player.pos }
+	if _has("move"):
+		var step := _close_in(pos, player.pos, grid)
+		if step != pos:
+			return { "id": "move", "tile": step }
+	return { "id": "wait" }
+
+# Threat preview: the four tiles it could bite from where it stands.
+func attack_pattern(origin: Vector2i) -> Array:
+	return cardinal_ring(origin, 1)
+
+# One step toward the seat it wants beside you. It aims at a free SEAT rather than at
+# you directly: the combat grid already blocks its twin, so the two of them settle on
+# DIFFERENT seats instead of fighting over one -- and a twin whose sibling stands between
+# it and you still has somewhere to go, instead of freezing.
+func _close_in(pos: Vector2i, target: Vector2i, grid: Grid) -> Vector2i:
+	var goal := _seat(pos, target, grid)
+	var best := pos
+	var bestd := Grid.dist(pos, goal)
+	for t: Vector2i in _neighbours(pos):
+		if grid.is_blocked(t) or t == target:
 			continue
-		seen[k] = true
-		first[k] = t
-		queue.append(t)
-	var expanded := 0
-	while not queue.is_empty() and expanded < _MAX_EXPAND:
-		var cur: Dictionary = queue.pop_front()
-		expanded += 1
-		var ck: int = _key(cur["pos"], cur["facing"])
-		if _threatens(cur["pos"], cur["facing"], player):
-			return _fill(first[ck], player)
-		for t in _turns(cur["pos"], cur["facing"], mob, grid, player):
-			var k2: int = _key(t["pos"], t["facing"])
-			if seen.has(k2):
-				continue
-			seen[k2] = true
-			first[k2] = first[ck]
-			queue.append(t)
-	return []
+		var d := Grid.dist(t, goal)
+		if d < bestd:
+			bestd = d
+			best = t
+	return best
 
-# Every stance reachable in ONE turn, with the actions that get there: at most one move
-# (one tile) plus one other action -- so a step, a pivot, or the two together (the turn).
-func _turns(pos: Vector2i, facing: int, mob: Combatant, grid: Grid, player: Vector2i) -> Array:
-	var out: Array = []
-	for d: Vector2i in _STEPS:
-		if d != Vector2i.ZERO and not _has("move"):
+# The nearest free tile beside you (falling back to you, if it is hemmed in).
+func _seat(pos: Vector2i, target: Vector2i, grid: Grid) -> Vector2i:
+	var seat := target
+	var best := 99999
+	for t: Vector2i in _neighbours(target):
+		if grid.is_blocked(t) or t == pos:
 			continue
-		var np: Vector2i = pos + d
-		if d != Vector2i.ZERO and not _fits(mob, np, facing, grid, player):
-			continue                                  # the body must fit as it steps...
-		for nf: int in _FACINGS:
-			if nf != facing and not _has("pivot"):
-				continue
-			if d == Vector2i.ZERO and nf == facing:
-				continue                              # not a turn at all
-			if not _fits(mob, np, nf, grid, player):
-				continue                              # ...and where it ends up
-			var acts: Array = []
-			if d != Vector2i.ZERO:
-				acts.append({ "id": "move", "tile": np })
-			if nf != facing:
-				acts.append({ "id": "pivot", "facing": nf })
-			out.append({ "pos": np, "facing": nf, "acts": acts })
-	return out
+		var d := Grid.dist(pos, t)
+		if d < best:
+			best = d
+			seat = t
+	return seat
 
-# A turn always spends both slots: bite if the stance it ends in threatens you, else wait.
-func _fill(turn: Dictionary, player: Vector2i) -> Array:
-	var acts: Array = (turn["acts"] as Array).duplicate()
-	while acts.size() < 2:
-		if _threatens(turn["pos"], turn["facing"], player) and _has("attack"):
-			acts.append(_bite(player))
-		else:
-			acts.append({ "id": "wait" })
-	return acts
-
-# ── helpers ───────────────────────────────────────────────────────────────────
-func _threatens(pos: Vector2i, facing: int, player: Vector2i) -> bool:
-	return player in strike_tiles(pos, facing)
-
-# Does the whole body fit standing at `at` facing `f`? (The engine enforces this too;
-# the brain never proposes an illegal stance in the first place.)
-func _fits(mob: Combatant, at: Vector2i, f: int, grid: Grid, player: Vector2i) -> bool:
-	for c: Vector2i in mob.cells_facing(at, f):
-		if grid.is_blocked(c) or c == player:
-			return false
-	return true
-
-func _bite(tile: Vector2i) -> Dictionary:
-	return { "id": "attack", "tile": tile }
+func _neighbours(p: Vector2i) -> Array:
+	return [p + Vector2i(0, -1), p + Vector2i(1, 0), p + Vector2i(0, 1), p + Vector2i(-1, 0)]
 
 func _has(spell: String) -> bool:
 	return _loadout.has(spell)
-
-# Pack (pos, facing) into one int for the visited set.
-func _key(pos: Vector2i, facing: int) -> int:
-	return ((pos.x + 128) << 16) | ((pos.y + 128) << 2) | facing
