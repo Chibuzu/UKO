@@ -22,10 +22,7 @@ const DEATH_GOLD_PENALTY := 25
 const MOB_COUNT := 60
 const TYPE_WEIGHTS := [["bat", 55], ["slime", 45]]   # the serpent is the CAVE BOSS -- never in the wilds
 
-# Mobs wander the world while you roam. They step on this cadence (slower than you, so
-# you can outrun them), beeline toward you within MOB_AGGRO tiles, else drift randomly.
-const MOB_ROAM_CD := 0.55
-const MOB_AGGRO := 3              # mobs engage within 3 tiles (Chebyshev); stay wide and you can slip past
+# Mob wandering (cadence + step policy + aggro radius) lives in MobRoamer.
 
 # Time + passive regen policy (cadences, day/night thresholds) lives in DayNightClock;
 # this controller only applies the EFFECTS. Night spawn amounts are effects, so they stay:
@@ -66,7 +63,7 @@ var npcs: Array = []                  # [{id, uv, tile}] -- village quest-givers
 var _quests: Array = []               # live QuestKind objects for currently-active quests
 var _talk_npc: String = ""            # id of the NPC whose dialog is open (for re-refresh)
 var _paused: bool = false
-var _mob_cd: float = 0.0              # countdown to the next world-wander step for all mobs
+var roamer := MobRoamer.new()         # out-of-combat mob movement policy lives there
 var _boss_slain := false              # the cavern serpent stays dead once slain (saved)
 var _boss_awake := false              # it does not stir until you cross the cavern door
 var clock := DayNightClock.new()      # time policy (regen cadence + day/night) lives there
@@ -598,12 +595,12 @@ func _engaged() -> Array:
 		if m.get("boss", false):
 			# The BOSS ignores the aggro radius entirely (Fra): the pair is awake the
 			# moment you cross its door, and BOTH twins fight from that instant. Leaving
-			# them on MOB_AGGRO meant the far one simply was not in the fight -- you beat
+			# them on the aggro radius meant the far one simply was not in the fight -- you beat
 			# them one at a time, which is not the boss.
 			if _boss_awake:
 				out.append(m)
 			continue                                # asleep: untouchable until you enter
-		if _euc(m["combatant"].pos) <= MOB_AGGRO:
+		if _euc(m["combatant"].pos) <= MobRoamer.AGGRO:
 			out.append(m)
 	out.sort_custom(func(x, y):
 		return _cheb(x["combatant"].pos) < _cheb(y["combatant"].pos))
@@ -948,30 +945,24 @@ func _facing_from_seq(seq: Array, start: Vector2i) -> Vector2i:
 # The nearest cardinal to `dv` (ties go horizontal). THE one snap rule: the art aim and
 # the mechanical facing both use it, so a sprite can never point somewhere illegal.
 func _cardinal(dv: Vector2i) -> Vector2i:
-	if dv == Vector2i.ZERO:
-		return Vector2i.ZERO
-	if absi(dv.x) >= absi(dv.y):
-		return Vector2i(signi(dv.x), 0)
-	return Vector2i(0, signi(dv.y))
+	return Resolver.dir_from(Vector2i.ZERO, dv)   # THE engine snap rule, not a copy
 
 # ── world behavior: mob wandering, facing, passive regen, sanctuary rest ──────
-# Every mob takes a wander step on a shared cadence: beeline toward you within MOB_AGGRO,
+# Every mob takes a wander step on a shared cadence: beeline toward you within aggro,
 # otherwise drift. They never enter the village (your safe zone) and never overlap. A mob
 # that steps into your window starts combat, exactly like walking into one yourself.
 func _mob_roam(delta: float) -> void:
 	if mobs.is_empty():
 		return
-	_mob_cd -= delta
-	if _mob_cd > 0.0:
+	if not roamer.due(delta):
 		return
-	_mob_cd = MOB_ROAM_CD
 	var occ := _occupied_tiles()
 	for m in mobs:
 		if m.get("boss", false) and not _boss_awake:
 			m["uv"].visible = _mob_visible(m)
 			continue   # the serpent sleeps until you cross its door
 		var c: Combatant = m["combatant"]
-		var step := _wander_step(c.pos, occ)
+		var step := MobRoamer.wander_step(c.pos, player.pos, grid, occ)
 		if step != c.pos:
 			occ.erase(c.pos)
 			occ[step] = true
@@ -984,23 +975,6 @@ func _mob_roam(delta: float) -> void:
 		_combat_loop()
 	else:
 		_refresh_rest_prompt()                       # a mob may have wandered in/out of range
-
-# One wander step: chase you if close, else a random open step. Never a wall, the village,
-# an occupied tile, or your own tile.
-func _wander_step(pos: Vector2i, occ: Dictionary) -> Vector2i:
-	var dirs: Array = [Vector2i(0, -1), Vector2i(1, 0), Vector2i(0, 1), Vector2i(-1, 0)]
-	if int(round(Vector2(pos - player.pos).length())) <= MOB_AGGRO:
-		dirs.sort_custom(func(a, b): return Grid.dist(pos + a, player.pos) < Grid.dist(pos + b, player.pos))
-	else:
-		dirs.shuffle()
-		if randf() < 0.4:
-			return pos                               # idle sometimes -> a calmer, natural drift
-	for d: Vector2i in dirs:
-		var t: Vector2i = pos + d
-		if grid.is_blocked(t) or OverworldMap.in_village(t) or occ.has(t) or t == player.pos:
-			continue
-		return t
-	return pos
 
 func _occupied_tiles() -> Dictionary:
 	var occ: Dictionary = { player.pos: true }
@@ -1038,6 +1012,8 @@ func _nightfall() -> void:
 	board.gem_set = omap.gem_set
 	board.mushroom_set = omap.mushroom_set
 	_spawn_night_mobs(rng, NIGHT_MOBS)            # new monsters
+	if _boss_awake and not _boss_slain:
+		_seal_cavern(true)                        # the reshuffle re-carves an OPEN door; keep the fight locked
 	board.queue_redraw()
 	_show_night(true)
 	board.spawn_number(player_uv.position, "Night %d falls" % clock.day_count, ViewConfig.COL_TEXT)

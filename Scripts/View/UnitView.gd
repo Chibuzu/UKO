@@ -8,50 +8,11 @@
 class_name UnitView
 extends Node2D
 
-# Sprite folders. The player's art now lives in three folders; each animation names its own,
-# so a remade animation just points at a new folder. BASE_DIR is the unequipped white figure
-# (the foundation gear layers sit on top of); TECH_DIR holds spell/tech effects and the
-# gear-piece overlays. (The legacy folder is gone; rows without art simply no-op.)
-# remade in the base style (move, guard).
-const BASE_DIR   := "res://Assets/Sprites/Unarmed Base Animations/"
-const TECH_DIR   := ViewConfig.DIR_TECH_SPELLS   # shared root: FX reads the same line
-const GEAR_DIR   := "res://Assets/Sprites/Tech Animations/Tech Gear/"   # per-piece gear overlays (hat_1..4 etc.)
-# (Legacy folder removed. Animations without a table row -- e.g. hurt, pivot --
-#  simply no-op until art exists: add a row + PNGs and they come alive.)
+# Art tables + frame builders live in UnitFrames (player rows) and SpriteBook
+# (mob sets). This view only PLAYS what those tables declare -- after an asset
+# reorg, edit the tables, never this file.
 const PIVOT_DUR := 0.18    # how long the facing bar takes to swing to a new side
 const SPRITE_OFFSET_Y := 0.0    # 32px art on a 32px tile sits FLUSH; no nudge (was -6: everyone floated)
-# These animations are tile-CENTRED effects (the guard shield cube), not feet-seated figures,
-# so they sit centered on the tile. Everything else uses its per-animation "offset" (below) or
-# the body's default seat. Buff is NOT here: its art has the aura in the lower half of a tall
-# canvas, so it's feet-anchored (offset) to sit in the tile, not centered.
-# (Seating is per-row "offset" only -- one mechanism, no special-case lists.)
-
-# Animation table: name -> {dir, prefix, count, fps, loop, offset?}. Frames are
-# "<dir><prefix>_1.png".."_<count>.png" (missing numbers are skipped), or a single
-# "<prefix>.png" when count == 0. A row may instead carry an explicit "frames" list to use a
-# subset / re-ordering of one prefix's PNGs (e.g. the teleport strip split into a vanish half
-# and a reappear half). "offset" is the vertical nudge (px) that seats THIS animation in the
-# tile -- needed because the art has different canvas sizes: the 32x32 base figure sits at 0
-# (it fills the tile), the tall buff aura is pulled up so it lands in the tile, and the older
-# 40x46 / 56x56 art keeps the body's default seat. Adding an animation is one row here + PNGs.
-const ANIMS := {
-	"idle":     {"dir": BASE_DIR,   "prefix": "Idle",      "count": 4,  "fps": 3.0, "loop": true,  "offset": 0.0},
-	"move":     {"dir": BASE_DIR,   "prefix": "Move",      "count": 5,  "fps": 6.0, "loop": false, "points": "down"},
-	"rest":     {"dir": BASE_DIR,   "prefix": "Rest",      "count": 5,  "fps": 3.0, "loop": false, "offset": 0.0},
-	"buff":     {"dir": TECH_DIR,   "prefix": "buff",      "count": 5,  "fps": 3.0, "loop": false, "offset": -14.0},
-	"attack":   {"dir": BASE_DIR,   "prefix": "Melee",     "count": 5,  "fps": 6.0, "loop": false, "points": "up", "offset": 0.0},
-	"bolt":     {"dir": TECH_DIR,   "prefix": "dark_bolt", "count": 9,  "fps": 9.0, "loop": false},
-	"guard":    {"dir": BASE_DIR, "prefix": "guard",     "count": 11, "fps": 9.0, "loop": false, "points": "right", "offset": 0.0},
-	# Guard raise that ENDS on the shield cube (frames 1-9) and is held there for
-	# the whole duration the guard is up (see hold_anim / EventPlayer guard_raised);
-	# frames 10-11 (the lower) play on release via the normal idle return.
-	"guard_up": {"dir": BASE_DIR, "prefix": "guard", "frames": [1, 2, 3, 4, 5, 6, 7, 8, 9], "fps": 9.0, "loop": false, "points": "right", "offset": 0.0},
-	# Teleport is ONE 9-frame strip: figure -> portal -> nothing -> portal ->
-	# figure. Split so the vanish plays at the origin (blink_depart) and the
-	# reappear plays at the destination (blink). Frame 5 (fully gone) is shared.
-	"teleport_out": {"dir": TECH_DIR, "prefix": "teleport", "frames": [1, 2, 3, 4, 5], "fps": 6.0, "loop": false},
-	"teleport_in":  {"dir": TECH_DIR, "prefix": "teleport", "frames": [5, 6, 7, 8, 9], "fps": 6.0, "loop": false},
-}
 
 var unit_id: String = ""
 var facing: int = 0
@@ -66,8 +27,7 @@ var art_key: String = ""               # non-empty -> build an animated body fro
 # drawn facing its own way, so it plays upright and is only flipped left/right.
 var directional_art: bool = true
 var prop: bool = false                 # NPCs: no facing/HP bars (not a combatant)
-var npc_art: Array = []                # NPC idle frames (Village Characters/); empty -> disc
-const NPC_ART_DIR := "res://Assets/Sprites/Village Characters/"
+var npc_art: Array = []                # NPC idle frames (UnitFrames.NPC_ART_DIR); empty -> disc
 var body: AnimatedSprite2D = null     # null = no art found, draw the disc instead
 var _body_offset_y: float = SPRITE_OFFSET_Y   # this body's seated offset (player -6; mobs from their set)
 var _anim_offset: Dictionary = {}     # per-animation vertical seat (player anims); mobs fall back to _body_offset_y
@@ -87,7 +47,7 @@ func init_state(c: Combatant) -> void:
 			_build_npc_body()                                    # villager character art
 		elif art_key != "" and SpriteBook.has(art_key):
 			_build_mob_body(SpriteBook.set_of(art_key))          # animated monster from its sprite set
-		elif not disc_only and ResourceLoader.exists(BASE_DIR + "Idle_1.png"):
+		elif not disc_only and ResourceLoader.exists(UnitFrames.BASE_DIR + "Idle_1.png"):
 			_build_player_body()                                 # the duelist sprite (+ effect overlay)
 	if SHOW_GEAR_OVERLAYS:
 		_build_gear_layers(c)
@@ -97,7 +57,7 @@ func init_state(c: Combatant) -> void:
 # extracted so mobs can build their own body without this player-only overlay wiring.
 func _build_player_body() -> void:
 	body = AnimatedSprite2D.new()
-	body.sprite_frames = _build_frames()
+	body.sprite_frames = UnitFrames.build_player(_anim_offset, SPRITE_OFFSET_Y)
 	body.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST   # crisp pixels
 	body.centered = true
 	_body_offset_y = SPRITE_OFFSET_Y
@@ -120,11 +80,7 @@ func _build_player_body() -> void:
 
 # A villager's little idle body: 1 frame = still portrait, 2 frames = gentle sway.
 func _build_npc_body() -> void:
-	var sf := SpriteFrames.new()
-	var files: Array = []
-	for f in npc_art:
-		files.append(String(f))
-	_add_anim(sf, NPC_ART_DIR, "idle", files, 1.6, true)
+	var sf := UnitFrames.build_npc(npc_art)
 	if sf.get_frame_count("idle") == 0:
 		return                                               # art missing -> keep the disc
 	body = AnimatedSprite2D.new()
@@ -147,7 +103,7 @@ func _build_mob_body(art_set: Dictionary) -> void:
 		var ad: Dictionary = art_set["anims"][an]
 		if ad.has("offset_y"):
 			_anim_offset[an] = float(ad["offset_y"])   # per-anim seat (mixed canvas sizes)
-	var frames := _build_frames_set(art_set)
+	var frames := UnitFrames.build_set(art_set)
 	var loaded := 0
 	for a in frames.get_animation_names():
 		loaded += frames.get_frame_count(a)
@@ -178,7 +134,7 @@ func _build_gear_layers(c: Combatant) -> void:
 		var prefix := GearBook.overlay_of(String(gid))
 		if prefix == "":
 			continue
-		var frames := _overlay_frames(prefix)
+		var frames := UnitFrames.overlay(prefix)
 		if frames == null:
 			continue
 		var lyr := AnimatedSprite2D.new()
@@ -190,19 +146,6 @@ func _build_gear_layers(c: Combatant) -> void:
 		add_child(lyr)
 		lyr.play("idle")
 		_gear_layers.append(lyr)
-
-# Build a 4-frame idle SpriteFrames from "<prefix>_1..4.png", or null if absent.
-func _overlay_frames(prefix: String) -> SpriteFrames:
-	var sf := SpriteFrames.new()
-	sf.add_animation("idle")
-	sf.set_animation_speed("idle", 3.0)   # match the body idle fps so they stay in lockstep
-	sf.set_animation_loop("idle", true)
-	var any := false
-	for i in range(1, 5):
-		var path := GEAR_DIR + "%s_%d.png" % [prefix, i]
-		if ResourceLoader.exists(path):
-			sf.add_frame("idle", load(path)); any = true
-	return sf if any else null
 
 # Keep the gear overlays locked to the body's idle frame; hide them during any
 # other animation (no per-action overlays yet) so the figure shows white there.
@@ -284,10 +227,10 @@ var show_facing := true        # mobs: false -- mobs have no facing, so no bars
 # COSMETIC look vector: the direction this unit's RESTING art points. The story keeps it
 # aimed at the player. Art-only -- it never touches rules, legality, damage, or flank.
 var aim := Vector2.ZERO
-# The art rows for THIS unit: the player's ANIMS const by default, swapped to the mob's
+# The art rows for THIS unit: the player's table by default, swapped to the mob's
 # SpriteBook set by _build_mob_body. Every "points" lookup MUST read this -- reading the
-# const would ask the PLAYER's table which way a bat is drawn (and get nothing).
-var _rows: Dictionary = ANIMS
+# player table directly would ask which way a BAT is drawn (and get nothing).
+var _rows: Dictionary = UnitFrames.PLAYER_ANIMS
 var _span_axis := ""    # "" = single-tile unit; "v" / "h" while spanning
 var _span_heads: Array = []   # the two head tiles (Vector2i), for the dual facing bars
 var _span_target := Vector2.ZERO     # where the body position settles after a step
@@ -432,7 +375,7 @@ func tween_to(pos: Vector2i) -> void:
 		return
 	if body and delta.length() > 0.5:
 		# move art points UP; play_anim rotates the walk to the travel direction.
-		play_anim("move", delta)   # orientation comes from the ANIMS row ("points")
+		play_anim("move", delta)   # orientation comes from the art row ("points")
 	var t := create_tween()
 	t.tween_property(self, "position", target, ViewConfig.MOVE_DUR) \
 		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
@@ -648,47 +591,6 @@ func _on_anim_finished() -> void:
 	body.offset.y = float(_anim_offset.get("idle", _body_offset_y))   # back to a seated figure
 	_apply_facing()              # restore idle facing (flip for west)
 	body.play("idle")            # one-shot anims return to idle
-
-func _build_frames() -> SpriteFrames:
-	var sf := SpriteFrames.new()
-	for name in ANIMS:
-		var a: Dictionary = ANIMS[name]
-		var files: Array = []
-		if a.has("frames"):                    # explicit subset / re-order of one prefix
-			for n in a["frames"]:
-				files.append("%s_%d.png" % [a["prefix"], int(n)])
-		elif int(a["count"]) <= 0:
-			files.append("%s.png" % a["prefix"])
-		else:
-			for i in range(1, int(a["count"]) + 1):
-				files.append("%s_%d.png" % [a["prefix"], i])
-		_add_anim(sf, String(a.get("dir", BASE_DIR)), name, files, float(a["fps"]), bool(a["loop"]))
-		# Per-animation seat: explicit "offset" wins; centered effects sit on the tile; everything
-		# else keeps the body's default feet nudge.
-		_anim_offset[name] = float(a.get("offset", SPRITE_OFFSET_Y))   # per-row "offset" is the ONE seat source (guard rows carry 0.0 explicitly)
-	return sf
-
-# Build frames from a SpriteBook set: each animation carries an explicit file list, fps, loop.
-func _build_frames_set(art_set: Dictionary) -> SpriteFrames:
-	var sf := SpriteFrames.new()
-	var dir: String = String(art_set.get("dir", ""))
-	var anims: Dictionary = art_set.get("anims", {})
-	for name in anims:
-		var a: Dictionary = anims[name]
-		var files: Array = []
-		for fn in a.get("files", []):
-			files.append(String(fn))
-		_add_anim(sf, dir, name, files, float(a.get("fps", 5.0)), bool(a.get("loop", false)))
-	return sf
-
-func _add_anim(sf: SpriteFrames, dir: String, anim: String, files: Array, fps: float, loop: bool) -> void:
-	sf.add_animation(anim)
-	sf.set_animation_speed(anim, fps)
-	sf.set_animation_loop(anim, loop)
-	for f in files:
-		var path: String = dir + f
-		if ResourceLoader.exists(path):
-			sf.add_frame(anim, load(path))
 
 # ── Draw HP bar + facing marker (+ fallback disc if no sprite) ──────────
 func _draw() -> void:

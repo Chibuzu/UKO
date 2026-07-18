@@ -25,6 +25,18 @@
 ## 2026-07-18 ROUND 6 — MainMenu split (router + GearShopPage + LobbyPage)
 - MainMenu is a ROUTER again (title + difficulty + scene routing, ~150 lines). The shop is **GearShopPage**, the whole online lobby lifecycle (GDSyncSession create/teardown, quick/host/join, code LineEdit, handshake → MatchBootstrap → scene change) is **LobbyPage**; the menu knows only their `closed` signals. Behavior-identical: same layouts, same hover ids, same session /root parenting. PLAYTEST: shop buy/equip/unequip/BACK + hover; lobby open/BACK, host shows a code, short join code warns, quick-match status line; PLAY/STORY/difficulty routing.
 
+## 2026-07-18 ROUND 7 — wider cleaning batch (4 independent refactors) + a REAL BUG FIX
+- **CAVERN BUG FIXED:** reseed_walls (nightfall) rebuilt `blocked` WITHOUT _carve_cavern — the boss cage's ring and door VANISHED at the first nightfall (generate()'s comment even claimed "also re-run at night"; the old [CAVERN] banner existed because this was known-fragile). generate() + reseed now share ONE `_scatter_walls()` that always carves the cage; _nightfall also re-seals the door if the boss fight is live; generate() pre-clears gem/rest sets so a re-entry regenerate reproduces the seed's exact layout.
+- **MobRoamer** (split step 3): wander cadence + step policy + AGGRO radius out of StoryController; controller applies effects.
+- **ChoiceOverlay** base: PauseMenu + EndScreen shared hover/click/dim/button machinery deduped (StoryPauseMenu deliberately stays — it's a tabbed panel, not a button list).
+- **_cardinal → Resolver.dir_from** delegation (the one aim-snap rule, no copy).
+- PLAYTEST: pause menu (Esc, hover, all 3 buttons) + end screen (all 3 buttons) still behave; mobs wander/chase/idle as before; play to NIGHTFALL and check the cavern cage still stands (walk its ring, door open unless mid-boss-fight); re-enter story from a duel — map layout identical.
+
+## 2026-07-18 ROUND 8 — UnitView slimming (UnitFrames extraction); span core stays BY DESIGN
+- **UnitFrames** now owns the player animation table (PLAYER_ANIMS, ex-UnitView.ANIMS) + all four asset dirs + every frame builder (player/set/npc/gear-overlay/add_anim). UnitView only PLAYS what the tables declare; asset reorgs edit UnitFrames + SpriteBook, never view code. UnitView 745 → ~650 lines, public surface unchanged (no call-site edits anywhere).
+- **DELIBERATELY NOT SPLIT: the serpent span/turn + 2-tile reach-clip machinery.** Its branches encode a graveyard of fixed visual bugs (stranded mid-tile sprites, compounding drift, double-draws — the comments document each). Splitting it into subclasses blind (no runtime here) risks re-introducing exactly those; it should only be attempted WITH the game running on the same screen. It is contained, documented, and correct — leave it until then.
+- PLAYTEST: one duel (player anims: idle/move/attack/guard cube/buff/teleport + gear overlays on idle), one story fight (bat rotation aims, ooze mirror + spit, twin boss slither/turn/2-tile bites), an NPC village walk.
+
 ## 2026-07-18 ROUND 3 — de-hardcoding pass, zero behavior change
 - **ui_slot**: SpellBook defs gained an explicit `ui_slot`; ActionMenu reads it (never `ai_role`) — retuning the AI can no longer rewire the player's buttons. Same values today.
 - **flip_when**: per-creature sprite-mirroring is DATA in SpriteBook sets; UnitView names no creature (old ooze/bat branch encoded verbatim: bat [], ooze [west,north], default [west]).

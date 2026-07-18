@@ -92,38 +92,19 @@ func generate(seed_value: int) -> void:
 		blocked.append(row)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_value             # same seed -> same zone, so it restores after a duel
-	for x in SIZE:
-		blocked[0][x] = true
-		blocked[SIZE - 1][x] = true
-	for y in SIZE:
-		blocked[y][0] = true
-		blocked[y][SIZE - 1] = true
-	for i in 80:
-		var cx := rng.randi_range(2, SIZE - 3)
-		var cy := rng.randi_range(2, SIZE - 3)
-		if in_village(Vector2i(cx, cy)):
-			continue
-		for j in rng.randi_range(1, 4):
-			var bx := clampi(cx + rng.randi_range(-1, 1), BORDER, SIZE - 1 - BORDER)
-			var by := clampi(cy + rng.randi_range(-1, 1), BORDER, SIZE - 1 - BORDER)
-			if not in_village(Vector2i(bx, by)):
-				blocked[by][bx] = true
+	gem_set = {}                      # cleared BEFORE the scatter: a re-entry regenerate must
+	rest_set = {}                     # reproduce the seed's exact layout (both repopulate below;
+	                                  # the shared scatter skips their tiles only at NIGHT reseeds)
+	_scatter_walls(rng, {})           # border + clusters + village walls + belt + cavern cage
 
-	# Village buildings are solid: their footprints become walls so you can't walk through them.
+	# Village buildings register their footprints (the scatter already walled them).
 	building_set = {}
 	for b in village_buildings():
 		for dx in range(int(b["w"])):
 			for dy in range(int(b["h"])):
 				var bt: Vector2i = b["tile"] + Vector2i(dx, dy)
 				if bt.x >= 0 and bt.y >= 0 and bt.x < SIZE and bt.y < SIZE:
-					blocked[bt.y][bt.x] = true
 					building_set[bt] = true
-	# The transport belt is a clear, walkable corridor from the market up to the north edge.
-	for tt in transport_tiles():
-		if tt.x > 0 and tt.y > 0 and tt.x < SIZE - 1 and tt.y < SIZE - 1:
-			blocked[tt.y][tt.x] = false
-	# BOSS PORTAL region is unused now; the cavern is a real in-map box.
-	_carve_cavern()                               # carve the cage (also re-run at night)
 
 	# Golden sanctuary tiles: a rare scattered few, all OUT in the wilds (never in the
 	# mob-free village), so mobs can always approach them -- they're a risk/reward rest, not a
@@ -264,6 +245,15 @@ func reseed_walls(rng: RandomNumberGenerator, keep_clear: Dictionary) -> void:
 		for dx in range(-1, 2):
 			for dy in range(-1, 2):
 				protect[t + Vector2i(dx, dy)] = true
+	_scatter_walls(rng, protect)      # ONE generator for day and night (cavern cage included)
+
+# THE wall generator, shared by generate() (empty protect) and reseed_walls().
+# Border ring, 80 random clusters (skipping the village, protected tiles, and
+# any existing gem/rest nodes -- both empty at first generation), solid village
+# building footprints, the clear transport belt, and the cavern cage.
+# BUG FIXED by this sharing: the nightly reshuffle used to skip _carve_cavern(),
+# so the boss cage's ring and door VANISHED at the first nightfall.
+func _scatter_walls(rng: RandomNumberGenerator, protect: Dictionary) -> void:
 	blocked = []
 	for y in SIZE:
 		var row: Array = []
@@ -297,6 +287,7 @@ func reseed_walls(rng: RandomNumberGenerator, keep_clear: Dictionary) -> void:
 	for tt in transport_tiles():
 		if tt.x > 0 and tt.y > 0 and tt.x < SIZE - 1 and tt.y < SIZE - 1:
 			blocked[tt.y][tt.x] = false
+	_carve_cavern()                   # the cage survives EVERY regeneration now
 
 # Scatter `count` MORE resonance spots (golden rest tiles) onto open wilderness ground.
 func add_rest(rng: RandomNumberGenerator, count: int) -> void:
