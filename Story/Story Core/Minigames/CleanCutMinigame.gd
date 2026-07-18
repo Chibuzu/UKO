@@ -5,9 +5,7 @@
 # sever it) so a solution always exists. Press the glowing start, drag through all; drag back to undo.
 # Lift early = ruined. Reports finished(quality).
 class_name CleanCutMinigame
-extends Control
-
-signal finished(quality: float)
+extends MinigameOverlay
 
 var _cols := 4
 var _rows := 4
@@ -19,8 +17,6 @@ var _path: Array[int] = []
 var _start := 0
 var _cutting := false
 var _backtracks := 0
-var _done := false
-var _quality := 0.0
 var _label := ""
 var _leave_rect := Rect2()
 var _org := Vector2()
@@ -34,13 +30,7 @@ func start(label: String, difficulty: float = 0.5) -> void:
 	_path = [_start]
 	_cutting = false
 	_backtracks = 0
-	_done = false
-	_quality = 0.0
-	set_anchors_preset(PRESET_FULL_RECT)
-	size = get_viewport_rect().size
-	mouse_filter = Control.MOUSE_FILTER_STOP
-	visible = true
-	queue_redraw()
+	_open()
 
 func _key(a: int, b: int) -> String: return "%d-%d" % [mini(a, b), maxi(a, b)]
 func _cx(i: int) -> int: return i % _cols
@@ -156,7 +146,7 @@ func _input(event: InputEvent) -> void:
 		if event.pressed:
 			get_viewport().set_input_as_handled()
 			if _leave_rect.has_point(m):
-				_finish(0.0)
+				_finish(0.0, 0.6)
 				return
 			if m.distance_to(_pos[_start]) < 24.0:
 				_cutting = true
@@ -165,9 +155,9 @@ func _input(event: InputEvent) -> void:
 		elif _cutting:
 			_cutting = false
 			if _path.size() == _present.size():
-				_finish(clampf(1.0 - _backtracks * 0.10, 0.35, 1.0))
+				_finish(clampf(1.0 - _backtracks * 0.10, 0.35, 1.0), 0.6)
 			else:
-				_finish(0.0)                          # lifted before finishing -> ruined
+				_finish(0.0, 0.6)                     # lifted before finishing -> ruined
 	elif event is InputEventMouseMotion and _cutting:
 		_drag(get_global_mouse_position())
 
@@ -183,20 +173,12 @@ func _drag(m: Vector2) -> void:
 	elif not _path.has(hit) and _passable(cur, hit):
 		_path.append(hit)
 		if _path.size() == _present.size():
-			_finish(clampf(1.0 - _backtracks * 0.10, 0.35, 1.0))
+			_finish(clampf(1.0 - _backtracks * 0.10, 0.35, 1.0), 0.6)
 		queue_redraw()
-
-func _finish(q: float) -> void:
-	_done = true
-	_quality = q
-	queue_redraw()
-	await get_tree().create_timer(0.6).timeout
-	visible = false
-	finished.emit(_quality)
 
 func _draw() -> void:
 	var vp := get_viewport_rect().size
-	draw_rect(Rect2(Vector2.ZERO, vp), Color(0, 0, 0, 0.58))
+	_dim_backdrop()
 	var font := ThemeDB.fallback_font
 	draw_string(font, Vector2(0, _org.y - 74), _label, HORIZONTAL_ALIGNMENT_CENTER, vp.x, 20, ViewConfig.COL_TEXT)
 	draw_string(font, Vector2(0, _org.y - 50), "One cut through every point. Red walls block the way -- plan your route.",
@@ -233,9 +215,3 @@ func _draw() -> void:
 		draw_string(font, Vector2(0, _org.y + (_rows - 1) * GAP + 104), txt, HORIZONTAL_ALIGNMENT_CENTER, vp.x,
 			22, ViewConfig.COL_GOLD if _quality > 0.0 else ViewConfig.COL_TEXT_OFF)
 
-func _button(font: Font, x: float, y: float, label: String) -> Rect2:
-	var r := Rect2(x, y, 118, 34)
-	draw_rect(r, Color(0.20, 0.21, 0.27))
-	draw_rect(r, ViewConfig.COL_FRAME, false, 2.0)
-	draw_string(font, Vector2(r.position.x, r.position.y + 23), label, HORIZONTAL_ALIGNMENT_CENTER, r.size.x, 15, ViewConfig.COL_TEXT)
-	return r

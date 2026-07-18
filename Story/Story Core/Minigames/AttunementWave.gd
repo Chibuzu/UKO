@@ -1,18 +1,14 @@
 # AttunementWave.gd  (resonance spots)
 # Tune three sliders -- frequency, amplitude, phase -- until your wave overlays the faint target
 # wave, then LOCK. A live match meter guides you; LOCK only takes when the waves align.
-# Contract: start(label, difficulty) + finished(success).
+# Contract: start(label, difficulty) + the base finished(quality) (1.0 attuned / 0.0 not).
 class_name AttunementWave
-extends Control
-
-signal finished(success: bool)
+extends MinigameOverlay
 
 # slider values 0..1 (player) and the hidden target
 var _val := [0.5, 0.5, 0.5]      # freq, amp, phase
 var _tgt := [0.5, 0.5, 0.5]
 var _drag := -1
-var _done := false
-var _ok := false
 var _label := ""
 var _need := 0.90               # match required to lock (scaled by difficulty)
 var _tracks: Array[Rect2] = []
@@ -27,13 +23,7 @@ func start(label: String, difficulty: float = 0.5) -> void:
 		_tgt[i] = randf_range(0.15, 0.85)
 		_val[i] = randf_range(0.15, 0.85)
 	_drag = -1
-	_done = false
-	_ok = false
-	set_anchors_preset(PRESET_FULL_RECT)
-	size = get_viewport_rect().size
-	mouse_filter = Control.MOUSE_FILTER_STOP
-	visible = true
-	queue_redraw()
+	_open()
 
 func _wave_y(vals: Array, x: float) -> float:
 	var freq := lerpf(0.7, 3.2, vals[0])
@@ -57,10 +47,10 @@ func _input(event: InputEvent) -> void:
 		if event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 			get_viewport().set_input_as_handled()
 			if _lock_rect.has_point(m):
-				_finish(_match() >= _need)
+				_finish(1.0 if _match() >= _need else 0.0)
 				return
 			if _leave_rect.has_point(m):
-				_finish(false)
+				_finish(0.0)
 				return
 			for i in range(_tracks.size()):
 				var t := _tracks[i]
@@ -78,17 +68,9 @@ func _set_from_mouse(m: Vector2) -> void:
 	_val[_drag] = clampf((m.x - t.position.x) / t.size.x, 0.0, 1.0)
 	queue_redraw()
 
-func _finish(ok: bool) -> void:
-	_done = true
-	_ok = ok
-	queue_redraw()
-	await get_tree().create_timer(0.7).timeout
-	visible = false
-	finished.emit(_ok)
-
 func _draw() -> void:
 	var vp := get_viewport_rect().size
-	draw_rect(Rect2(Vector2.ZERO, vp), Color(0, 0, 0, 0.58))
+	_dim_backdrop()
 	var font := ThemeDB.fallback_font
 	var cx := vp.x * 0.5
 	draw_string(font, Vector2(0, vp.y * 0.5 - 168), _label, HORIZONTAL_ALIGNMENT_CENTER, vp.x, 20, ViewConfig.COL_TEXT)
@@ -121,9 +103,9 @@ func _draw() -> void:
 	_lock_rect = _button(font, cx - 130, by, "LOCK")
 	_leave_rect = _button(font, cx + 12, by, "LEAVE")
 	if _done:
-		var txt := "Attuned!" if _ok else ("Out of tune" if not _ok else "")
-		draw_string(font, Vector2(0, by + 50), txt, HORIZONTAL_ALIGNMENT_CENTER, vp.x,
-			22, ViewConfig.COL_GOLD if _ok else ViewConfig.COL_TEXT_OFF)
+		var ok := _quality > 0.0
+		draw_string(font, Vector2(0, by + 50), "Attuned!" if ok else "Out of tune", HORIZONTAL_ALIGNMENT_CENTER, vp.x,
+			22, ViewConfig.COL_GOLD if ok else ViewConfig.COL_TEXT_OFF)
 
 func _draw_wave(vals: Array, col: Color, w: float) -> void:
 	var pts: PackedVector2Array = []
@@ -134,9 +116,3 @@ func _draw_wave(vals: Array, col: Color, w: float) -> void:
 	for i in range(pts.size() - 1):
 		draw_line(pts[i], pts[i + 1], col, w)
 
-func _button(font: Font, x: float, y: float, label: String) -> Rect2:
-	var r := Rect2(x, y, 118, 34)
-	draw_rect(r, Color(0.20, 0.21, 0.27))
-	draw_rect(r, ViewConfig.COL_FRAME, false, 2.0)
-	draw_string(font, Vector2(r.position.x, r.position.y + 23), label, HORIZONTAL_ALIGNMENT_CENTER, r.size.x, 15, ViewConfig.COL_TEXT)
-	return r

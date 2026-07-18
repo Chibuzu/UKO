@@ -18,8 +18,6 @@ func setup(p_type: String, p_prof: Dictionary) -> void:
 	_loadout = MobSpec.row(p_type).get("loadout", {})
 
 # StoryCombat reads this: damage comes from the RESOLVER, skip budget strikes.
-func uses_true_actions() -> bool:
-	return true
 
 func plan(mob: Combatant, player: Combatant, grid: Grid) -> Array:
 	var seq: Array = []

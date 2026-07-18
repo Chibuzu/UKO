@@ -27,16 +27,8 @@ const TYPE_WEIGHTS := [["bat", 55], ["slime", 45]]   # the serpent is the CAVE B
 const MOB_ROAM_CD := 0.55
 const MOB_AGGRO := 3              # mobs engage within 3 tiles (Chebyshev); stay wide and you can slip past
 
-# Passive recovery: every REGEN_EVERY actions YOU take (roam steps + combat actions), only
-# ENERGY comes back -- moving never heals. HP/MP are recovered by resting or a sanctuary tile.
-const REGEN_EVERY := 6
-const REGEN_EP := 10
-# ── day / night cycle ──────────────────────────────────────────────────────────
-# Time advances with the actions you take (roam steps + combat actions). After DAY_ACTIONS of
-# daylight, night falls: the NPCs sleep, the wilds shift (walls move) and fresh monsters, rest
-# spots and gemstones spawn. After NIGHT_ACTIONS more, dawn returns and the cycle repeats.
-const DAY_ACTIONS := 45
-const NIGHT_ACTIONS := 25
+# Time + passive regen policy (cadences, day/night thresholds) lives in DayNightClock;
+# this controller only applies the EFFECTS. Night spawn amounts are effects, so they stay:
 const NIGHT_MOBS := 4          # new monsters spawned at nightfall
 const NIGHT_REST := 2          # new resonance spots (golden tiles)
 const NIGHT_GEMS := 4          # new gemstones
@@ -77,10 +69,7 @@ var _paused: bool = false
 var _mob_cd: float = 0.0              # countdown to the next world-wander step for all mobs
 var _boss_slain := false              # the cavern serpent stays dead once slain (saved)
 var _boss_awake := false              # it does not stir until you cross the cavern door
-var _actions: int = 0                 # your actions since the last passive-regen tick
-var _day_clock: int = 0               # actions elapsed in the current day/night cycle
-var _is_night: bool = false
-var _day_count: int = 1
+var clock := DayNightClock.new()      # time policy (regen cadence + day/night) lives there
 var _night_tint: ColorRect = null
 var _gather_layer: CanvasLayer = null
 
@@ -207,6 +196,12 @@ func _ready() -> void:
 	quest_dialog.visible = false
 	quest_dialog.quest_action.connect(_on_quest_action)
 	quest_dialog.closed.connect(_close_dialog)
+
+	if resuming and save.has("clock"):
+		clock.from_save(save["clock"])             # the save's time-of-day, not a fresh day 1
+		if clock.is_night:
+			_set_npcs_asleep(true)                 # re-apply the night the save was made in
+			_show_night(true)
 
 	_refresh_rest_prompt()                         # you may start on the village sanctuary tile
 
@@ -454,30 +449,14 @@ func _combat_turn(engaged: Array) -> void:
 	for i in engaged.size():
 		var m_after: Combatant = res["mobs"][i]
 		engaged[i]["combatant"] = m_after
-
-		if not (engaged[i]["kind"].has_method("uses_true_actions") and engaged[i]["kind"].uses_true_actions()):
-			_face_toward(engaged[i]["combatant"], engaged[i]["uv"], p_end)   # old mobs: unchanged
-		# A CHARACTER is not turned mid-turn by anything -- not even cosmetically. Its
-		# art tracking you while its rules said otherwise was a pivot you could SEE but
-		# not punish, which is worse than a free pivot: it lied about the game state.
-		# EVERY character now replays from its OWN resolver stream -- the primary via the
-		# event player above, the rest via the 2-v-1 replay below -- and that already
-		# includes its animation, its hit flash and its damage number. The old story-side
-		# narration must stay out of their way, or every hit is drawn twice.
-		var shown_by_engine: bool = engaged[i]["kind"].has_method("uses_true_actions") \
-				and engaged[i]["kind"].uses_true_actions()
+		# Every mob is a true-action CHARACTER: its attacks went through the resolver,
+		# so its animation, hit flash and damage number are already drawn by the event
+		# player (primary) or the 2-v-1 replay below. No story-side narration on top --
+		# the one extra visual is the ooze's spit burst, which decorates its wind-up.
 		var tried: int = int(res.get("attempts_by_mob", [])[i]) if i < res.get("attempts_by_mob", []).size() else (1 if int(dmg[i]) > 0 else 0)
-		if tried > 0:
-			if String(engaged[i].get("type", "")) == "slime":
-				engaged[i]["uv"].play_anim("attack")                     # body wind-up...
-				_ooze_spit_burst(m_after.pos)                            # ...then a spit on each open neighbor
-			elif not shown_by_engine:
-				engaged[i]["uv"].play_attack(Vector2(p_end - m_after.pos))
-		if int(dmg[i]) > 0 and not shown_by_engine:
-			player_uv.flash(ViewConfig.FLASH_HIT)
-			board.spawn_number(player_uv.position, "-%d" % int(dmg[i]), ViewConfig.COL_DMG)
-		elif tried > 0 and not shown_by_engine:
-			board.spawn_number(engaged[i]["uv"].position + Vector2(0, -14), "MISS", ViewConfig.COL_TEXT)
+		if tried > 0 and String(engaged[i].get("type", "")) == "slime":
+			engaged[i]["uv"].play_anim("attack")                     # body wind-up...
+			_ooze_spit_burst(m_after.pos)                            # ...then a spit on each open neighbor
 		engaged[i]["uv"].set_display_hp(m_after.hp)
 
 	# Commit state (resources persist), run per-mob post-turn hooks (splits etc.), clear/loot dead.
@@ -491,20 +470,17 @@ func _combat_turn(engaged: Array) -> void:
 	for i in engaged.size():
 		var e: Dictionary = engaged[i]
 		e["kind"].on_committed(e, player, self)
-		if e["kind"].has_method("uses_true_actions") and e["kind"].uses_true_actions():
-			# EARNED FACING (Fra): a character pays for its facing exactly like you do.
-			# It ends the turn facing wherever its LAST action went -- the tile it stepped
-			# into, or the tile it struck. NOTHING swivels it for free. Re-aiming every
-			# mob at you each turn was a third action they never paid for: it made blinking
-			# to a back pointless and made "it pivoted AND attacked" possible.
-			var fd := _facing_from_seq(mob_seqs[i], Vector2i(pre_pos[i]))
-			if fd != Vector2i.ZERO:
-				_face(e["combatant"], e["uv"], fd)
-				e["uv"].aim = Vector2(fd)      # the ART shows the EARNED facing, nothing else:
-											   # sprite, facing bar and flank rule can never
-											   # disagree, so what you see is what you can punish
-		else:
-			_face_toward(e["combatant"], e["uv"], player.pos)   # old mobs: unchanged
+		# EARNED FACING (Fra): a character pays for its facing exactly like you do.
+		# It ends the turn facing wherever its LAST action went -- the tile it stepped
+		# into, or the tile it struck. NOTHING swivels it for free. Re-aiming every
+		# mob at you each turn was a third action they never paid for: it made blinking
+		# to a back pointless and made "it pivoted AND attacked" possible.
+		var fd := _facing_from_seq(mob_seqs[i], Vector2i(pre_pos[i]))
+		if fd != Vector2i.ZERO:
+			_face(e["combatant"], e["uv"], fd)
+			e["uv"].aim = Vector2(fd)      # the ART shows the EARNED facing, nothing else:
+										   # sprite, facing bar and flank rule can never
+										   # disagree, so what you see is what you can punish
 	# 2 v 1 (Fra): every twin is its OWN fight. The primary one is played above from the
 	# resolver stream; replay the others from THEIR streams -- one action at a time, so
 	# two cardinal steps read as two steps and can never collapse into a single diagonal
@@ -552,37 +528,9 @@ func _combat_turn(engaged: Array) -> void:
 			mev["name"] = _mob_label(engaged[mi])
 			log_events.append(mev)
 	log_events.sort_custom(func(x, y): return int(x.get("tick", 0)) < int(y.get("tick", 0)))
-	for i in engaged.size():
-		if engaged[i]["kind"].has_method("uses_true_actions") and engaged[i]["kind"].uses_true_actions():
-			continue                            # a character's hit is already a real resolver line
-		if int(dmg[i]) > 0:
-			var mc: Combatant = res["mobs"][i]
-			log_events.append({
-				"type": "attack_hit", "tick": 520,
-				"owner": _mob_label(engaged[i]), "target": "A",
-				"damage": int(dmg[i]),
-				"flank": Config.flank_tier(player.facing, player.pos, mc.pos),
-			})
 	combat_log.add_turn(turn_num, log_events)
-	# ── completeness notes: everything the pairwise event stream can't show ──
-	var strikes: Array = res.get("strikes_by_mob", [])
-	for i in engaged.size():
-		if engaged[i]["kind"].has_method("uses_true_actions") and engaged[i]["kind"].uses_true_actions():
-			continue                            # characters: only the clean A/B lines, no notes
-		var name := _mob_label(engaged[i])
-		# your damage on NON-nearest mobs resolves in their own pair -> surface it
-		if i > 0 and int(pre_hp[i]) > res["mobs"][i].hp:
-			combat_log.add_note("You hit %s for %d" % [name, int(pre_hp[i]) - int(res["mobs"][i].hp)], ViewConfig.COL_TEXT)
-		var moved := StoryCombat._move_count(mob_seqs[i])
-		if moved > 0:
-			combat_log.add_note("%s moved x%d" % [name, moved], ViewConfig.COL_TEXT)
-		elif int(dmg[i]) == 0:
-			combat_log.add_note("%s held its ground" % name, ViewConfig.COL_TEXT)
-		if i < strikes.size() and int(strikes[i]) >= 2:
-			combat_log.add_note("%s struck x%d!" % [name, int(strikes[i])], ViewConfig.COL_DMG)
-	for sl in res.get("strike_log", []):
-		if not bool(sl["hit"]):
-			combat_log.add_note("%s strike @%d missed -- %s" % [_mob_label(engaged[int(sl["mob"])]), int(sl["tick"]), String(sl["why"])], ViewConfig.COL_TEXT)
+	# (Every mob is a true-action character: its hits/misses are real resolver lines
+	# in the merged stream above -- no synthesized hit lines, no completeness notes.)
 	for e in res["primary_events"]:
 		if String(e.get("type", "")) == "illegal_action" and String(e.get("owner", "")) == "A":
 			combat_log.add_note("One of your actions fizzled (cost/cooldown)", ViewConfig.COL_DMG)
@@ -788,7 +736,7 @@ func _gather_nearby() -> void:
 	if kind == "":
 		return
 	_paused = true                                 # freeze roam while the mini-game is up
-	var mg                                         # untyped: either mini-game type shares the contract
+	var mg: MinigameOverlay                        # both games share the base contract
 	if kind == "mushroom":
 		mg = CleanCutMinigame.new()                # careful slice along the guide line
 	else:
@@ -966,6 +914,8 @@ func _facing_for(dir: Vector2i) -> int:
 			return fc
 	return Config.Facing.SOUTH
 
+# Turn a ROAMING mob to look at a target tile (cosmetic tracking outside combat --
+# in combat, facing is EARNED via _facing_from_seq and nothing swivels for free).
 func _face_toward(c: Combatant, uv: UnitView, target: Vector2i) -> void:
 	var dir := _cardinal(target - c.pos)
 	if dir == Vector2i.ZERO:
@@ -1065,31 +1015,20 @@ func _attack_tile(seq: Array) -> Vector2i:
 			return a.get("tile", Vector2i(-1, -1))
 	return Vector2i(-1, -1)
 
-# Passive recovery: every REGEN_EVERY of YOUR actions, only ENERGY comes back. HP/MP are
-# recovered by resting (a sanctuary tile fully restores you) -- moving never heals.
+# Advance the clock and apply whatever fired: energy regen ticks, then nightfall
+# or dawn. The POLICY (when) is DayNightClock's; the EFFECTS (what) live below.
 func _bump_actions(n: int) -> void:
-	if n <= 0:
-		return
-	_actions += n
-	while _actions >= REGEN_EVERY:
-		_actions -= REGEN_EVERY
-		_regen_tick()
-	_advance_time(n)
-
-# Day/night clock. Nightfall/dawn fire once as the clock crosses their thresholds.
-func _advance_time(n: int) -> void:
-	_day_clock += n
-	if not _is_night and _day_clock >= DAY_ACTIONS:
-		_nightfall()
-	elif _is_night and _day_clock >= DAY_ACTIONS + NIGHT_ACTIONS:
-		_dawn()
+	for ev in clock.advance(n):
+		match ev:
+			"regen": _regen_tick()
+			"nightfall": _nightfall()
+			"dawn": _dawn()
 
 func _nightfall() -> void:
-	_is_night = true
 	_set_npcs_asleep(true)
 	# Each night is seeded off the day count, so the wilds shift differently every time.
 	var rng := RandomNumberGenerator.new()
-	rng.seed = _seed ^ (0x00C0FFEE + _day_count * 2654435761)
+	rng.seed = _seed ^ (0x00C0FFEE + clock.day_count * 2654435761)
 	omap.reseed_walls(rng, _occupied_tiles())     # blockers move (player + mobs kept clear)
 	grid.build(omap)                              # grid follows the new wall layout
 	omap.add_rest(rng, NIGHT_REST)                # new resonance spots
@@ -1101,12 +1040,9 @@ func _nightfall() -> void:
 	_spawn_night_mobs(rng, NIGHT_MOBS)            # new monsters
 	board.queue_redraw()
 	_show_night(true)
-	board.spawn_number(player_uv.position, "Night %d falls" % _day_count, ViewConfig.COL_TEXT)
+	board.spawn_number(player_uv.position, "Night %d falls" % clock.day_count, ViewConfig.COL_TEXT)
 
 func _dawn() -> void:
-	_is_night = false
-	_day_clock = 0
-	_day_count += 1
 	_set_npcs_asleep(false)
 	_show_night(false)
 	board.spawn_number(player_uv.position, "Dawn", ViewConfig.COL_GOLD)
@@ -1163,7 +1099,7 @@ func _show_night(on: bool) -> void:
 	create_tween().tween_property(_night_tint, "color:a", (0.40 if on else 0.0), 1.5)
 
 func _regen_tick() -> void:
-	player.energy = mini(Config.MAX_ENERGY, player.energy + REGEN_EP)
+	player.energy = mini(Config.MAX_ENERGY, player.energy + DayNightClock.REGEN_EP)
 	res_hud.refresh(player)
 
 # Golden sanctuary tile (press R): if you're standing on one and no mob is within REST_SAFE
@@ -1180,10 +1116,10 @@ func _try_rest_tile() -> void:
 	mg.finished.connect(_on_attune_done.bind(mg))
 	mg.start("Attune to the resonance", 0.5)
 
-func _on_attune_done(success: bool, mg: Control) -> void:
+func _on_attune_done(quality: float, mg: Control) -> void:
 	mg.queue_free()
 	_paused = false
-	if not success:
+	if quality <= 0.0:
 		board.spawn_number(player_uv.position, "out of tune", ViewConfig.COL_TEXT_OFF)
 		return
 	player.hp = Config.MAX_HP
@@ -1228,6 +1164,7 @@ func _gather_save() -> Dictionary:
 		},
 		"mobs": mob_data,
 		"gems": gem_data,              # remaining gemstone nodes (gathered ones stay gone)
+		"clock": clock.to_save(),      # time-of-day survives a reload (walls still re-derive from seed)
 	}
 
 func _restore_player(pd: Dictionary) -> void:

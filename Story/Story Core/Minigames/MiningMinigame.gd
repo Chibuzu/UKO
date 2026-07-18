@@ -5,9 +5,7 @@
 # generated to be solvable by pure reasoning from the free opening -- no guessing. Reports
 # finished(quality) = gem integrity left (fewer bad chips = better gem).
 class_name MiningMinigame
-extends Control
-
-signal finished(quality: float)
+extends MinigameOverlay
 
 var _cols := 5
 var _rows := 5
@@ -16,8 +14,6 @@ var _num: Array = []          # fragile-neighbour count per cell
 var _revealed: Array = []
 var _flagged: Array = []
 var _integrity := 1.0
-var _done := false
-var _quality := 0.0
 var _label := ""
 var _cell := 48.0
 var _org := Vector2()
@@ -30,16 +26,10 @@ func start(label: String, difficulty: float = 0.5) -> void:
 	_cols = 5 + int(difficulty * 2.0)      # 5..7
 	_rows = 5
 	_integrity = 1.0
-	_done = false
-	_quality = 0.0
-	set_anchors_preset(PRESET_FULL_RECT)
-	size = get_viewport_rect().size
-	mouse_filter = Control.MOUSE_FILTER_STOP
 	_gen(clampf(difficulty, 0.0, 1.0))
 	var vp := get_viewport_rect().size
 	_org = Vector2(vp.x * 0.5 - _cols * _cell * 0.5, vp.y * 0.5 - _rows * _cell * 0.5 + 6)
-	visible = true
-	queue_redraw()
+	_open()
 
 # ── geometry ──
 func _idx(c: int, r: int) -> int: return r * _cols + c
@@ -214,17 +204,9 @@ func _input(event: InputEvent) -> void:
 			else:
 				queue_redraw()
 
-func _finish(q: float) -> void:
-	_done = true
-	_quality = q
-	queue_redraw()
-	await get_tree().create_timer(0.7).timeout
-	visible = false
-	finished.emit(_quality)
-
 func _draw() -> void:
 	var vp := get_viewport_rect().size
-	draw_rect(Rect2(Vector2.ZERO, vp), Color(0, 0, 0, 0.58))
+	_dim_backdrop()
 	var font := ThemeDB.fallback_font
 	draw_string(font, Vector2(0, _org.y - 64), _label, HORIZONTAL_ALIGNMENT_CENTER, vp.x, 20, ViewConfig.COL_TEXT)
 	draw_string(font, Vector2(0, _org.y - 42), "Left-click chips rock (number = fragile neighbours). Right-click flags a fragile spot.",
@@ -262,9 +244,3 @@ func _num_color(n: int) -> Color:
 		3: return Color(0.95, 0.70, 0.45)
 		_: return Color(0.95, 0.55, 0.60)
 
-func _button(font: Font, x: float, y: float, label: String) -> Rect2:
-	var r := Rect2(x, y, 118, 34)
-	draw_rect(r, Color(0.20, 0.21, 0.27))
-	draw_rect(r, ViewConfig.COL_FRAME, false, 2.0)
-	draw_string(font, Vector2(r.position.x, r.position.y + 23), label, HORIZONTAL_ALIGNMENT_CENTER, r.size.x, 15, ViewConfig.COL_TEXT)
-	return r

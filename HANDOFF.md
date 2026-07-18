@@ -18,6 +18,10 @@
 - New scripts need .uid files: Godot generates them on first open — **commit them**.
 - Deferred with reasons: facing-helper consolidation (remaining copies are mirrored GD↔CS pairs — consolidating one side would break the twin structure); GearBook.all_ids() (the ~8 gear lists disagree on ORDER, and order feeds candidate enumeration + parity fingerprints — needs a Fra decision); mob naming slime/ooze (save migration required); MP turn-deadline → force_default (untestable here); **critical-rest gate fix**: afford-aware threat (don't price melee/spell threats the foe cannot pay for THIS turn) in ThreatModel both languages — design for Fra to ratify, then verify_all + gates.
 
+## 2026-07-18 ROUNDS 4-5 — story-side cleaning (see round-4/5 notes)
+- R4: legacy budget-strike mob path DELETED (never executed; all creatures true-action). Guard-refund pass + roam facing + pairwise walling KEPT. PLAYTEST: bat/ooze(split)/twin-boss fights, roam tracking, loot.
+- R5: **MinigameOverlay** base (shared open/finish/dim/button; contract = finished(quality: float), AttunementWave now emits 1.0/0.0) + **DayNightClock** extracted (split step 2 — pure time policy; controller applies effects). BUG FIX: the clock now PERSISTS in saves — reloading no longer resets to day 1 (walls still re-derive from seed at load; only the time side is restored). PLAYTEST: gather (gem + mushroom + attunement), a nightfall + dawn, save at night → reload keeps night.
+
 ## 2026-07-18 ROUND 3 — de-hardcoding pass, zero behavior change
 - **ui_slot**: SpellBook defs gained an explicit `ui_slot`; ActionMenu reads it (never `ai_role`) — retuning the AI can no longer rewire the player's buttons. Same values today.
 - **flip_when**: per-creature sprite-mirroring is DATA in SpriteBook sets; UnitView names no creature (old ooze/bat branch encoded verbatim: bat [], ooze [west,north], default [west]).
