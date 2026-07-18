@@ -15,6 +15,10 @@
 # "directional": monster art is drawn facing its own way and we only ever flip_h it for
 # left/right -- we never rotate it to the travel vector the way the up-pointing player art is
 # rotated. So mob move/attack play upright; horizontal facing comes from the mob's facing.
+#
+# "flip_when": the facings (as "north"/"east"/"south"/"west" strings) at which the body
+# sprite is horizontally mirrored. THE per-creature flip rule lives HERE as data --
+# UnitView reads it and names no creature (default when absent: ["west"]).
 class_name SpriteBook
 extends RefCounted
 
@@ -23,6 +27,7 @@ const SETS := {
 		"dir": "res://Assets/Sprites/Mobs Animation/Bat Anims/",
 		"directional": false,
 		"offset_y": 0.0,
+		"flip_when": [],   # the bat aims via rotation ("points"), never mirrored
 		"anims": {
 			# "points" = the direction each art set is DRAWN. The bat's sets are MIXED:
 			# the IDLE is drawn facing NORTH, while the MOVE and ATTACK figures are drawn
@@ -38,6 +43,7 @@ const SETS := {
 		"dir": "res://Assets/Sprites/Mobs Animation/Ooze Anims/",
 		"directional": false,
 		"offset_y": 0.0,
+		"flip_when": ["west", "north"],
 		"anims": {
 			"idle":   { "fps": 2.0, "loop": true,  "files": ["Ooze_idle_1.png", "Ooze_Idle_2.png"] },
 			"move":   { "fps": 4.0, "loop": false, "files": ["Ooze_move_1.png", "Ooze_Move_2.png", "Ooze_Move_3.png", "Ooze_move_5.png", "Ooze_move_6.png"] },
@@ -59,6 +65,7 @@ const SETS := {
 		"dir": "res://Assets/Sprites/Twin Boss/",
 		"directional": false,
 		"offset_y": 0.0,
+		"flip_when": ["west"],
 		"anims": {
 			"idle":   { "fps": 3.0, "loop": true, "points": "down", "files": ["Twin_Idle_1.png", "Twin_Idle_2.png", "Twin_Idle_3.png", "Twin_Idle_4.png"] },
 			"move":   { "fps": 8.0, "loop": false, "points": "left", "reach": "step",

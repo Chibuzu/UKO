@@ -668,7 +668,7 @@ func _euc(p: Vector2i) -> int:
 	return int(round(d.length()))
 
 func _cheb(p: Vector2i) -> int:
-	return maxi(abs(p.x - player.pos.x), abs(p.y - player.pos.y))
+	return Grid.cheb(p, player.pos)   # THE king-move metric lives on Grid
 
 # Is either twin of the boss pair still standing?
 func _boss_alive() -> bool:
@@ -752,7 +752,7 @@ func _nearest_gem(r: int) -> Vector2i:
 	var best := Vector2i(-1, -1)
 	var best_d := r + 1
 	for t in omap.gem_tiles:
-		var d: int = maxi(absi(t.x - player.pos.x), absi(t.y - player.pos.y))
+		var d: int = Grid.cheb(t, player.pos)
 		if d <= r and d < best_d:
 			best = t
 			best_d = d
@@ -764,7 +764,7 @@ func _npc_near(r: int) -> String:
 	var best_d := r + 1
 	for n in npcs:
 		var t: Vector2i = n["tile"]
-		var d: int = maxi(absi(t.x - player.pos.x), absi(t.y - player.pos.y))
+		var d: int = Grid.cheb(t, player.pos)
 		if d <= r and d < best_d:
 			best = String(n["id"])
 			best_d = d
@@ -826,7 +826,7 @@ func _nearest_mushroom(r: int) -> Vector2i:
 	var best := Vector2i(-1, -1)
 	var best_d := r + 1
 	for t in omap.mushroom_tiles:
-		var d: int = maxi(absi(t.x - player.pos.x), absi(t.y - player.pos.y))
+		var d: int = Grid.cheb(t, player.pos)
 		if d <= r and d < best_d:
 			best = t
 			best_d = d
@@ -1196,7 +1196,7 @@ func _on_attune_done(success: bool, mg: Control) -> void:
 func _mob_near(t: Vector2i, r: int) -> bool:
 	for m in mobs:
 		var p: Vector2i = m["combatant"].pos
-		if maxi(absi(p.x - t.x), absi(p.y - t.y)) <= r:
+		if Grid.cheb(p, t) <= r:
 			return true
 	return false
 

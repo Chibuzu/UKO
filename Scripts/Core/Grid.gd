@@ -62,6 +62,24 @@ static func dist(a: Vector2i, b: Vector2i) -> int:
 static func cheb(a: Vector2i, b: Vector2i) -> int:
 	return maxi(absi(a.x - b.x), absi(a.y - b.y))
 
+# How many complete outer rings are fully walled (the shrinking zone), derived
+# from `blocked` so it's right live AND in replays (which restore each turn's
+# wall layout). THE zone-ring geometry lives here -- views ask, never re-derive.
+# (GDScript-only: Grid.cs deliberately omits generation/rotation/zone -- the
+# C# Resolver never reads them.)
+func closed_rings() -> int:
+	var d := 0
+	while d < SIZE / 2:
+		var full := true
+		for i in range(SIZE):
+			if not blocked[d][i] or not blocked[SIZE - 1 - d][i] or not blocked[i][d] or not blocked[i][SIZE - 1 - d]:
+				full = false
+				break
+		if not full:
+			return d
+		d += 1
+	return d
+
 # ── Generation (ruleset 1: 8-10% blockers, spawns must stay connected) ──
 func generate(rng: RandomNumberGenerator) -> void:
 	var attempts := 0

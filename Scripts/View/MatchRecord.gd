@@ -57,7 +57,7 @@ func _seq_str(seq: Array) -> String:
 	return "+".join(parts) if not parts.is_empty() else "(none)"
 
 func _fc(f: int) -> String:
-	return ["N", "E", "S", "W"][clampi(f, 0, 3)]
+	return ViewConfig.facing_label(clampi(f, 0, 3))
 
 func size() -> int:
 	return turns.size()

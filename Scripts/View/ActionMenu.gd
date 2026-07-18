@@ -106,10 +106,12 @@ func _entries() -> Array:
 		list.append(String(e.get("id", "")))   # roam contextual buttons (gather / talk)
 	return list
 
-# The equipped spell id whose ai_role matches this slot ("" if no gear fills it).
-func _spell_for_role(role: String) -> String:
+# The equipped spell id whose "ui_slot" matches this slot ("" if no gear fills
+# it). ui_slot is UI taxonomy owned by the menu contract -- the AI's ai_role is
+# deliberately NOT read here, so retuning the AI can never rewire the buttons.
+func _spell_for_slot(slot_role: String) -> String:
 	for sid in spells:
-		if String(Config.def(sid).get("ai_role", "")) == role:
+		if String(Config.def(sid).get("ui_slot", "")) == slot_role:
 			return sid
 	return ""
 
@@ -134,7 +136,7 @@ func _usable(id: String) -> bool:
 	if id == "confirm":
 		return true                 # not a costed action; always clickable
 	if id.begins_with("spell:"):
-		var sid := _spell_for_role(id.substr(6))
+		var sid := _spell_for_slot(id.substr(6))
 		if sid == "":
 			return false            # no gear fills this slot -> can't press
 		if Config.def(sid).get("once_per_match", false) and player.spent_once.has(sid):
@@ -156,7 +158,7 @@ func _label(id: String) -> String:
 	if id.begins_with("spell:"):
 		var role := id.substr(6)
 		var cat := _slot_label(role)
-		var sid := _spell_for_role(role)
+		var sid := _spell_for_slot(role)
 		if sid == "":
 			return "%s: (none)" % cat               # no gear -> shown, disabled
 		var d := Config.def(sid)
@@ -210,6 +212,6 @@ func _input(event: InputEvent) -> void:
 			if _btn_rect(i).has_point(local) and _usable(entries[i]):
 				var id: String = entries[i]
 				if id.begins_with("spell:"):
-					id = _spell_for_role(id.substr(6))   # emit the real spell id
+					id = _spell_for_slot(id.substr(6))   # emit the real spell id
 				action_chosen.emit(id)
 				return

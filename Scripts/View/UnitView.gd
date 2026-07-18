@@ -14,7 +14,7 @@ extends Node2D
 # gear-piece overlays. (The legacy folder is gone; rows without art simply no-op.)
 # remade in the base style (move, guard).
 const BASE_DIR   := "res://Assets/Sprites/Unarmed Base Animations/"
-const TECH_DIR   := "res://Assets/Sprites/Tech Animations/Tech Spells/"
+const TECH_DIR   := ViewConfig.DIR_TECH_SPELLS   # shared root: FX reads the same line
 const GEAR_DIR   := "res://Assets/Sprites/Tech Animations/Tech Gear/"   # per-piece gear overlays (hat_1..4 etc.)
 # (Legacy folder removed. Animations without a table row -- e.g. hurt, pivot --
 #  simply no-op until art exists: add a row + PNGs and they come alive.)
@@ -524,14 +524,16 @@ func _rot_for(anim: String, dir: Vector2) -> float:
 func _mob_facing_rotation() -> float:
 	return _rot_for("idle", aim)
 
+# Config.Facing order (NORTH, EAST, SOUTH, WEST) -> the names SpriteBook data uses.
+const _FACING_NAMES := ["north", "east", "south", "west"]
+
+# Whether the mob body sprite mirrors at the current facing. The per-creature rule
+# is DATA in its SpriteBook set ("flip_when") -- no creature id is named here.
 func _mob_facing_flip() -> bool:
-	match art_key:
-		"ooze":
-			return facing == Config.Facing.WEST or facing == Config.Facing.NORTH
-		"bat":
-			return false                          # bat aims via rotation, never mirrored
-		_:
-			return facing == Config.Facing.WEST
+	var flips: Array = ["west"]                   # default for sets without the field
+	if art_key != "" and SpriteBook.has(art_key):
+		flips = SpriteBook.set_of(art_key).get("flip_when", flips)
+	return flips.has(_FACING_NAMES[facing])
 
 func set_display_hp(hp: int) -> void:
 	display_hp = maxi(0, hp)

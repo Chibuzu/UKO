@@ -73,29 +73,12 @@ func _process(delta: float) -> void:
 	elif position != _base_pos:
 		position = _base_pos
 
-# How many complete outer rings are fully walled (the shrinking zone). Derived from `blocked`
-# so it's right live AND in replays (which restore each turn's wall layout).
-func _closed_rings() -> int:
-	if grid == null:
-		return 0
-	var d := 0
-	while d < Grid.SIZE / 2:
-		var full := true
-		for i in range(Grid.SIZE):
-			if not grid.blocked[d][i] or not grid.blocked[Grid.SIZE - 1 - d][i] or not grid.blocked[i][d] or not grid.blocked[i][Grid.SIZE - 1 - d]:
-				full = false
-				break
-		if not full:
-			return d
-		d += 1
-	return d
-
 func _draw() -> void:
 	if grid == null:
 		return
 	var total := Grid.SIZE * ViewConfig.TILE
 	var qtime := Time.get_ticks_msec() / 1000.0   # phase clock for the wall tremble
-	var rings := _closed_rings()                   # outer rings sealed by the shrinking zone
+	var rings := grid.closed_rings()                   # outer rings sealed by the shrinking zone
 	if bg_tex:
 		draw_texture_rect(bg_tex, Rect2(0, 0, total, total), false)   # decorative floor
 	for y in range(Grid.SIZE):

@@ -237,14 +237,10 @@ static func _aimed_at(player_seq: Array, from: Vector2i) -> Dictionary:
 	return out
 
 
-# The direction a blink ACTUALLY flies. This mirrors Resolver._dir_from exactly: the aim
-# is snapped to a cardinal, so a diagonal aim travels along an axis. It is duplicated here
-# only because the engine's copy is private; if that rule ever changes, change both.
+# The direction a blink ACTUALLY flies: the engine's own aim-snap rule, asked
+# for instead of copied (the old duplicate carried a "change both" comment).
 static func _blink_dir(from: Vector2i, to: Vector2i) -> Vector2i:
-	var dv: Vector2i = to - from
-	if absi(dv.x) >= absi(dv.y):
-		return Vector2i(signi(dv.x), 0)
-	return Vector2i(0, signi(dv.y))
+	return Resolver.dir_from(from, to)
 
 # Build the combat grid for ONE pairwise resolve: every OTHER mob becomes a wall, so the
 # two fighters in this pair cannot walk through a creature that isn't in it.

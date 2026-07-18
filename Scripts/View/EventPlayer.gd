@@ -93,7 +93,7 @@ func _visualize(e: Dictionary) -> float:
 				u.position = ViewConfig.tile_center(e["to"])
 				if e.has("facing"):
 					u.set_facing(int(e["facing"]))
-				fx.burst(u.position, ViewConfig.COL_FX_BUFF, 10)
+				fx.burst(u.position, ViewConfig.COL_FX_BUFF, ViewConfig.BURST_COUNT_CAST)
 				var din := u.anim_duration("teleport_in")
 				if din > 0.0:
 					u.modulate.a = 1.0
@@ -114,7 +114,7 @@ func _visualize(e: Dictionary) -> float:
 		ResolverEvents.ATTACK_BLOCKED:
 			if u:
 				u.play_anim("attack", Vector2(e.get("dir", Config.FACING_VEC[u.facing])))
-			board.shake(ViewConfig.SHAKE_HIT * 0.5)
+			board.shake(ViewConfig.SHAKE_BLOCKED)
 			return ViewConfig.HIT_DUR
 		ResolverEvents.GUARD_RAISED:
 			if u:
@@ -139,7 +139,7 @@ func _visualize(e: Dictionary) -> float:
 				if e.has("hp"):
 					u.set_display_hp(u.display_hp + int(e["hp"]))
 					board.spawn_number(u.position, "+%d" % int(e["hp"]), ViewConfig.COL_HEAL)
-					fx.burst(u.position, ViewConfig.COL_HEAL, 8)
+					fx.burst(u.position, ViewConfig.COL_HEAL, ViewConfig.BURST_COUNT_SOFT)
 			return ViewConfig.FLASH_DUR
 		ResolverEvents.REST_INTERRUPTED:
 			if u:
@@ -159,9 +159,9 @@ func _visualize(e: Dictionary) -> float:
 				_impact(units.get(e["target"], null), int(e["damage"]), ViewConfig.FLASH_HIT, ViewConfig.SHAKE_SPELL)
 				var tgt0: UnitView = units.get(e["target"], null)
 				if tgt0:
-					board.spawn_number(tgt0.position + Vector2(0, -14), "ROOTED", ViewConfig.COL_DMG)
+					board.spawn_number(tgt0.position + Vector2(0, -ViewConfig.LABEL_STACK_OFFSET), "ROOTED", ViewConfig.COL_DMG)
 					if int(e.get("drain", 0)) > 0:
-						board.spawn_number(tgt0.position + Vector2(0, 14), "-%d ENERGY" % int(e.get("drain", 0)), ViewConfig.COL_DMG)
+						board.spawn_number(tgt0.position + Vector2(0, ViewConfig.LABEL_STACK_OFFSET), "-%d ENERGY" % int(e.get("drain", 0)), ViewConfig.COL_DMG)
 			else:
 				_impact(units.get(e["target"], null), int(e["damage"]), ViewConfig.FLASH_HIT, ViewConfig.SHAKE_SPELL)
 			if e.get("disrupt", false):                       # the grenade landed -> explode where it FELL
@@ -189,7 +189,7 @@ func _visualize(e: Dictionary) -> float:
 			# stays hidden once it returns to idle — the proportional gap until
 			# "blink" (blink_travel ticks) is the real time spent in transit.
 			if u:
-				fx.burst(u.position, ViewConfig.COL_FX_BUFF, 10)
+				fx.burst(u.position, ViewConfig.COL_FX_BUFF, ViewConfig.BURST_COUNT_CAST)
 				var dout := maxf(ViewConfig.FLASH_DUR, u.anim_duration("teleport_out"))
 				u.play_anim("teleport_out")
 				var tw := create_tween()
@@ -246,7 +246,7 @@ func _cast_visual(caster: UnitView, e: Dictionary) -> void:
 		caster.play_anim(cast_anim)
 	match style:
 		"projectile":
-			board.shake(ViewConfig.SHAKE_HIT * 0.5)   # muzzle kick
+			board.shake(ViewConfig.SHAKE_BLOCKED)   # muzzle kick
 			# Fire the whole flight now: one sprite travels caster -> ... -> impact,
 			# staying visible the entire time (paced to match the step ticks).
 			var fl: Dictionary = _flights.get("%s|%s" % [e.get("owner", ""), String(e.get("spell", ""))], {})
@@ -259,11 +259,11 @@ func _cast_visual(caster: UnitView, e: Dictionary) -> void:
 		"aoe":
 			if not fx.aoe_anim(caster.position):
 				board.flash_tiles(tiles, color)            # fallback if art missing
-			board.shake(ViewConfig.SHAKE_HIT * 0.7)
+			board.shake(ViewConfig.SHAKE_AOE)
 		ResolverEvents.BLINK:
 			pass   # depart/arrive visuals are driven by the blink_depart / blink events
 		"self_buff":
-			fx.burst(caster.position, color, 10)
+			fx.burst(caster.position, color, ViewConfig.BURST_COUNT_CAST)
 		_:
 			if not tiles.is_empty():
 				board.flash_tiles(tiles, color)

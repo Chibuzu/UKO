@@ -637,6 +637,12 @@ static func _shape_tiles(grid: Grid, caster: Combatant, d: Dictionary, target_ti
 			return gout
 	return []
 
+# Public door for the aim-snap rule (diagonal aims travel along the dominant
+# axis). Story combat narrates blink flights with it -- one source of truth, no
+# copy. (The C# twin keeps its private DirFrom: story mode is GDScript-only.)
+static func dir_from(a: Vector2i, b: Vector2i) -> Vector2i:
+	return _dir_from(a, b)
+
 static func _dir_from(a: Vector2i, b: Vector2i) -> Vector2i:
 	var dv: Vector2i = b - a
 	if absi(dv.x) >= absi(dv.y):

@@ -5,7 +5,7 @@
 class_name Fx
 extends Node2D
 
-const SPELLS_DIR := "res://Assets/Sprites/Tech Animations/Tech Spells/"   # spell effect sprites
+const SPELLS_DIR := ViewConfig.DIR_TECH_SPELLS   # spell effect sprites (shared root with UnitView)
 const ITEMS_DIR := "res://Assets/Sprites/Items/"   # item projectile sprites (grenade, ...)
 
 # Radial spark burst at a point.

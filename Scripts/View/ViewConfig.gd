@@ -5,6 +5,13 @@
 class_name ViewConfig
 extends RefCounted
 
+# ── Shared asset roots (a folder reorg edits ONE line here) ────────────────
+const DIR_TECH_SPELLS := "res://Assets/Sprites/Tech Animations/Tech Spells/"
+
+# Compass label for a Config.Facing value -- shared by the log and match dumps.
+static func facing_label(f: int) -> String:
+	return ["N", "E", "S", "W"][f]
+
 # ── Layout ──────────────────────────────────────────────────
 const TILE := 32                          # pixel size of one grid tile (32x32 pixel-art)
 # ── DUEL board geometry. RULE: duel screens read BOARD_*, the story window reads
@@ -129,11 +136,16 @@ const HP_DRAIN_DUR := 0.35  # HP bar slides to its new value over this long
 const HITSTOP := 0.08       # tiny freeze on a landed hit, for weight
 const SHAKE_HIT := 6.0      # screen-shake pixels on a melee hit
 const SHAKE_SPELL := 9.0    # screen-shake pixels on a spell hit
+const SHAKE_BLOCKED := SHAKE_HIT * 0.5   # softened kick: blocked hits + the bolt muzzle kick
+const SHAKE_AOE := SHAKE_HIT * 0.7       # area-burst rumble
 const SHAKE_DECAY := 45.0   # how fast shake settles (pixels/sec)
+const LABEL_STACK_OFFSET := 14.0  # px between stacked floating labels (ROOTED / -ENERGY)
 const QUAKE_DUR := 0.85     # earthquake rumble length when the quadrants shift (seconds)
 const QUAKE_AMP := 11.0     # peak board sway during the quake (pixels)
 const QUAKE_TILE := 2.4     # extra per-wall tremble on top of the board sway (pixels)
-const BURST_COUNT := 16     # particles per impact
+const BURST_COUNT := 16     # particles per impact (fx.burst default)
+const BURST_COUNT_CAST := 10   # casts / blink pops
+const BURST_COUNT_SOFT := 8    # gentler burst (heals)
 const BEAM_DUR := 0.30      # glowing bolt beam lifetime
 const RING_DUR := 0.40      # AoE ring expansion lifetime
 

@@ -18,6 +18,13 @@
 - New scripts need .uid files: Godot generates them on first open — **commit them**.
 - Deferred with reasons: facing-helper consolidation (remaining copies are mirrored GD↔CS pairs — consolidating one side would break the twin structure); GearBook.all_ids() (the ~8 gear lists disagree on ORDER, and order feeds candidate enumeration + parity fingerprints — needs a Fra decision); mob naming slime/ooze (save migration required); MP turn-deadline → force_default (untestable here); **critical-rest gate fix**: afford-aware threat (don't price melee/spell threats the foe cannot pay for THIS turn) in ThreatModel both languages — design for Fra to ratify, then verify_all + gates.
 
+## 2026-07-18 ROUND 3 — de-hardcoding pass, zero behavior change
+- **ui_slot**: SpellBook defs gained an explicit `ui_slot`; ActionMenu reads it (never `ai_role`) — retuning the AI can no longer rewire the player's buttons. Same values today.
+- **flip_when**: per-creature sprite-mirroring is DATA in SpriteBook sets; UnitView names no creature (old ooze/bat branch encoded verbatim: bat [], ooze [west,north], default [west]).
+- **Engine knowledge home**: `Grid.closed_rings()` (BoardView asks, no longer re-derives the zone rings); `Resolver.dir_from()` public door (StoryCombat's "change both" blink copy now delegates); StoryController's five Chebyshev re-derivations → `Grid.cheb`.
+- **ViewConfig**: SHAKE_BLOCKED/SHAKE_AOE/BURST_COUNT_CAST/BURST_COUNT_SOFT/LABEL_STACK_OFFSET named; `DIR_TECH_SPELLS` is the one home for the Tech Spells folder (UnitView + FX read it); `facing_label()` replaces the two hand-rolled N/E/S/W tables. `.gitignore` now catches `verify_*.txt` (two slipped into round 2's commit — this round's apply deletes them so the commit untracks them).
+- **ROUND 4 QUEUED (needs its own playtest): legacy mob combat path deletion** — every live kind returns `uses_true_actions()==true`, so MobKind's budget-strike machinery (`_strike_ticks`, chase/kite `_walk/_step`, `attack_damage` path) + StoryCombat's budget branch + the 6 `has_method` guards never run in live play. BUT `attack_pattern`/`cardinal_ring` have live consumers in the Character kinds — the cut needs the branch map read carefully, not a mechanical sweep. Also still queued: afford-aware ThreatModel (Fra to ratify), minigame base class, mob naming, MP turn deadline, StoryController splits 2+ (after the CameraRig playtest), MainMenu/UnitView splits.
+
 ## Engine
 - **Godot 4.7 .NET (mono)** — the ONLY engine now (editing, playing, bats, and the upcoming C# port). Project converted and green; all four bats repointed to the 4.7 mono *console* exe. GD-Sync's headless "No active debugger / get_path on null" spam is harmless addon noise in every tool run.
 

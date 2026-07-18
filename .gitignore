@@ -20,10 +20,11 @@ obj/
 # Local secrets (GD-Sync keys live here, merged over project.godot at boot)
 override.cfg
 
-# Tool-run scratch output (the run_*.bat files regenerate these)
+# Tool-run scratch output (the run_*.bat / verify_all.bat files regenerate these)
 *_log.txt
 *_build.txt
 *_run.txt
+verify_*.txt
 
 # OS / editor junk
 .DS_Store

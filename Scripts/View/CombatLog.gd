@@ -158,7 +158,7 @@ func _t(p: Vector2i) -> String:
 	return "(%d,%d)" % [p.x, p.y]
 
 func _facing(f: int) -> String:
-	return ["N", "E", "S", "W"][f]
+	return ViewConfig.facing_label(f)
 
 func _spell(id: String) -> String:
 	return Config.def(id).get("name", id)

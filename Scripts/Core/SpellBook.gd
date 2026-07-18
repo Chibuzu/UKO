@@ -10,9 +10,10 @@
 #   needs_tile : true if the player aims it (line spells)
 #
 # To add a spell: copy an entry, change the numbers, give it a new id, set its
-# "ai_role" (how the AI uses it) and "vfx" (how the view shows it), then point a
-# GearBook piece's "spell" at it and equip that gear. A fighter only ever casts
-# spells granted by its equipped gear.
+# "ai_role" (how the AI uses it), "ui_slot" (which ActionMenu button hosts it --
+# an independent taxonomy that happens to coincide with ai_role today), and
+# "vfx" (how the view shows it), then point a GearBook piece's "spell" at it and
+# equip that gear. A fighter only ever casts spells granted by its equipped gear.
 # New buffs go in STATUSES and are applied via an "apply_status" effect.
 class_name SpellBook
 extends RefCounted
@@ -25,7 +26,7 @@ const SPELLS := {
 		"needs_tile": false,
 		"shape": "self",
 		"effect": { "type": "apply_status", "status": "energy_discount", "to": "self" },
-		"ai_role": "buff",                                   # how the AI uses it
+		"ai_role": "buff", "ui_slot": "buff",                                   # how the AI uses it
 		"vfx": { "style": "self_buff", "cast_anim": "buff" },# how the view shows it
 	},
 	"aoe_burst": {
@@ -35,7 +36,7 @@ const SPELLS := {
 		"needs_tile": false,
 		"shape": "around",
 		"effect": { "type": "damage", "amount": 15 },   # equals Config.ATTACK_DAMAGE (15) -- keep in mind when tuning either
-		"ai_role": "aoe",
+		"ai_role": "aoe", "ui_slot": "aoe",
 		"vfx": { "style": "aoe", "cast_anim": "" },
 	},
 	"dark_bolt": {
@@ -47,7 +48,7 @@ const SPELLS := {
 		"projectile": true, "tick_per_tile": 200, "pierce": false,  # flies tile-by-tile; dodge by leaving the line
 		"effect": { "type": "damage", "amount": 25 },   # [PH] see balance note
 		"no_guard_combo": true,                          # cannot share a turn with Guard
-		"ai_role": "poke",
+		"ai_role": "poke", "ui_slot": "poke",
 		"vfx": { "style": "projectile", "cast_anim": "bolt", "projectile": "bolt_proj" },
 	},
 	"grenade": {
@@ -61,7 +62,7 @@ const SPELLS := {
 		# Disrupt, not damage: drains 20 energy and ROOTS the target (its next move is cancelled).
 		"effect": { "type": "disrupt", "energy_drain": 20, "status": "rooted", "amount": 1 },   # 1 dmg: interrupts a rest AND blocks next turn's (damaged_tick path)
 		"no_guard_combo": true,
-		"ai_role": "item",
+		"ai_role": "item", "ui_slot": "item",
 		"vfx": { "style": "projectile", "cast_anim": "bolt", "projectile": "bolt_proj" },
 	},
 	"blink_step": {
@@ -72,7 +73,7 @@ const SPELLS := {
 		"shape": "blink", "range": 2,                # fixed 2-tile jump, phases through tile 1
 		"tick_per_tile": 300,                        # teleport travel/tile: arrives depart + range*this
 		"effect": { "type": "blink" },               # relocate the caster (+ free reface)
-		"ai_role": "blink",
+		"ai_role": "blink", "ui_slot": "blink",
 		"vfx": { "style": "blink", "cast_anim": "" },
 	},
 }
