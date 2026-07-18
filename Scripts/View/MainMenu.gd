@@ -1,6 +1,6 @@
 # MainMenu.gd
 # Title screen + difficulty selector, and the project's MAIN SCENE. PLAY opens
-# the difficulty page; choosing a difficulty stores it (AI.selected_difficulty)
+# the difficulty page; choosing a difficulty stores it (MatchBootstrap.difficulty)
 # and swaps to the game scene. MULTIPLAYER and GEAR stay placeholders.
 # Pure view, drawn by hand like the rest of the UI.
 class_name MainMenu
@@ -179,7 +179,7 @@ func _input(event: InputEvent) -> void:
 					_hover = -1
 					queue_redraw()
 				else:
-					AI.selected_difficulty = diff  # carry the choice into the game
+					MatchBootstrap.difficulty = diff  # carried into the game via the one handoff channel
 					get_tree().change_scene_to_file(GAME_SCENE)
 			return
 
@@ -361,8 +361,7 @@ func _mp_click(id: String) -> void:
 # the match via a NetworkOpponent (over GD-Sync) and switch scenes. The session stays
 # in /root (null our handle so _teardown won't free it) so its relay link survives.
 func _on_match_ready(config: MatchConfig) -> void:
-	GameController.pending_config = config
-	GameController.pending_opponent = NetworkOpponent.new(GDSyncTransport.new(_session))
+	MatchBootstrap.start_online(config, NetworkOpponent.new(GDSyncTransport.new(_session)))
 	_session = null
 	get_tree().change_scene_to_file(GAME_SCENE)
 

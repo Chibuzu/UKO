@@ -298,11 +298,7 @@ func _rows_of(blocked: Array) -> PackedStringArray:
 	return rows
 
 func _cd(c: Combatant) -> Dictionary:
-	return {"id": c.id, "x": c.pos.x, "y": c.pos.y, "facing": c.facing,
-		"hp": c.hp, "mp": c.mp, "energy": c.energy,
-		"action_count": c.action_count, "rest_ready": c.rest_ready, "speed_boost": c.speed_boost,
-		"cooldowns": c.cooldowns.duplicate(), "statuses": c.statuses.duplicate(),
-		"spent_once": c.spent_once.duplicate(), "gear": c.gear.duplicate()}
+	return c.to_bridge_dict()   # the ONE marshal contract lives on Combatant
 
 func _seq_str(seq: Array) -> String:
 	var parts: Array = []

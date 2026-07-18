@@ -19,42 +19,27 @@
 #
 # Per-pair scoring + candidate generation are the shared AIToolkit / Eval modules
 # (same game HARD reasons about); EXTREME owns only the SELECTION rule below. Setting
-# Eval.LOOKAHEAD_DEPTH = 1 and EXPLOIT_LAMBDA = 0 recovers the pure shallow-equilibrium brain.
+# Eval.LOOKAHEAD_DEPTH = 1 and a profile lambda of 0 recovers the pure
+# shallow-equilibrium brain.
 class_name ExtremeAI
 extends RefCounted
 
-const ROOT_ROWS      := 3     # how many of MY near-best moves get the deep (2-turn) look
-const ROOT_COLS      := 6     # ...each deepened only vs the foe's most threatening replies
-const ROOT_ROWS_END  := 5     # once the zone has squeezed the arena (shrink >= 2), moves are
-const ROOT_COLS_END  := 9     #   few and lethal: see further exactly when it's cheap to.
 const DOM_EPS        := 0.001 # strict-dominance margin for pruning the matrix
-# ── Evolved weights (self-play champion, validated 63% vs defaults on fresh
-# seeds + all position tests green). EXTREME plays these; CHALLENGING keeps the
-# hand-tuned Eval defaults -- the tiers are genuinely different fighters.
-const CHAMPION_WEIGHTS := {
-		"W_DEAL": 0.7760433647207,
-		"W_TAKE": 0.71699658697021,
-		"W_ENERGY": 0.06208346917766,
-		"W_MP": 0.05249705114287,
-		"W_LOCK": 0.14339931739404,
-		"W_DANGER_MELEE": 0.28679863478809,
-		"W_DANGER_SPELL": 0.46562601883242,
-		"W_PRESSURE": 0.34921951412432,
-		"W_ATTRITION": 15.3749149091094,
-		"W_TEMPO": 0.17207918087285,
-		"W_MOBILITY": 0.86039590436426,
-		"W_PRESS": 0.08479263985039,
-		"W_INCOMING": 8.52305065613671,
-		"W_CENTER": 0.28679863478809,
-		"W_ITEM": 1.14719453915234,
-		"W_LETHAL": 4.80466090909668,
-		"DISCOUNT": 0.69843902824863,
-}
+# ARCHIVE -- the shelved self-play champion (validated 63% vs defaults in
+# self-play, then SHELVED after live-play regressions: passive waits, flank
+# order, rest-into-bolt). Both tiers play Eval.DEFAULTS (see set_profile).
+# Kept as data for evolution's next base; re-adoption requires the full gate
+# suite. NOT read by any code path.
+#   W_DEAL 0.776  W_TAKE 0.717  W_ENERGY 0.062  W_MP 0.052  W_LOCK 0.143
+#   W_DANGER_MELEE 0.287  W_DANGER_SPELL 0.466  W_PRESSURE 0.349
+#   W_ATTRITION 15.375  W_TEMPO 0.172  W_MOBILITY 0.860  W_PRESS 0.085
+#   W_INCOMING 8.523  W_CENTER 0.287  W_ITEM 1.147  W_LETHAL 4.805
+#   DISCOUNT 0.698
 
 # ── Difficulty profiles: same brain, different throttles. CHALLENGING is the
-# approved frozen feel; EXTREME opens budget, width, and exploitation.
+# approved frozen feel; EXTREME opens budget, width, and exploitation. These
+# dicts are the ONLY tuning source -- the code reads P[...], nothing else.
 const PROFILES := {
-	"mob":         {"budget_ms": 90, "budget_end_ms": 90, "rows": 2, "cols": 4, "rows_end": 2, "cols_end": 4, "lambda": 0.0},
 	"challenging": {"budget_ms": 250, "budget_end_ms": 250, "rows": 3, "cols": 6, "rows_end": 5, "cols_end": 9, "lambda": 0.0},
 	"extreme":     {"budget_ms": 700, "budget_end_ms": 1400, "rows": 4, "cols": 8, "rows_end": 6, "cols_end": 10, "lambda": 0.6},
 }
@@ -71,10 +56,6 @@ static func set_profile(name: String) -> void:
 
 const MIN_MIX        := 0.05  # support pruning: drop mix entries below this and renormalize --
 							  #   a 2-3% sampled row reads as a blunder even when the math is right
-const BUDGET_MS      := 250   # think budget: after the baseline deep look, keep deepening
-							  #   the next most decision-relevant cells until this runs out
-const EXPLOIT_LAMBDA := 0.4   # 0 = pure equilibrium (unexploitable); 1 = pure best-response
-							  #   to the read. Bounded, so a sharp human can't re-exploit the tilt.
 const EXPLOIT_TEMP   := 3.0   # softmax temp over my EV vs the predicted foe (lower = greedier)
 
 static func choose_sequence(me: Combatant, foe: Combatant, grid: Grid, spells: Array, opp_model = null) -> Array:

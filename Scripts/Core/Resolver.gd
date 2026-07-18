@@ -63,7 +63,7 @@ static func resolve(grid: Grid, in_a: Combatant, in_b: Combatant,
 		for s in group:
 			if guarding[s["owner"]] and _is_offensive(s):
 				guarding[s["owner"]] = false
-				events.append(_ev("guard_dropped", tick, s["owner"]))
+				events.append(_ev(ResolverEvents.GUARD_DROPPED, tick, s["owner"]))
 
 		# ── TRUE SIMULTANEITY (Fra-ratified): a tick group resolves in two phases.
 		# PHASE 1 (state): pivots, moves (incl. clash RPS), blink arrivals, rest/wait.
@@ -76,21 +76,21 @@ static func resolve(grid: Grid, in_a: Combatant, in_b: Combatant,
 			var actor: Combatant = a if s["owner"] == "A" else b
 			var target: Combatant = b if s["owner"] == "A" else a
 			if dead_tick[actor.id] != -1 and dead_tick[actor.id] < tick:
-				events.append(_ev("dead_skip", tick, actor.id))
+				events.append(_ev(ResolverEvents.DEAD_SKIP, tick, actor.id))
 				continue
 			match s["category"]:
 				"guard":
 					guarding[actor.id] = true
 					guarded[actor.id] = true
-					events.append(_ev("guard_raised", tick, actor.id))
+					events.append(_ev(ResolverEvents.GUARD_RAISED, tick, actor.id))
 				"pivot":
 					# Rooted (grenade): feet stuck -- the pivot is blocked too, so the landed
 					# root guarantees a one-action facing lock (a flank-conversion window).
 					if actor.statuses.has("rooted"):
-						events.append(_ev("illegal_action", tick, actor.id, {"id": "pivot", "reason": "rooted"}))
+						events.append(_ev(ResolverEvents.ILLEGAL_ACTION, tick, actor.id, {"id": "pivot", "reason": "rooted"}))
 					else:
 						actor.facing = s["facing"]
-						events.append(_ev("pivot", tick, actor.id, {"facing": s["facing"]}))
+						events.append(_ev(ResolverEvents.PIVOT, tick, actor.id, {"facing": s["facing"]}))
 				"move":
 					if not bool(s.get("_resolved", false)):
 						var a_was: Vector2i = actor.pos
@@ -103,15 +103,15 @@ static func resolve(grid: Grid, in_a: Combatant, in_b: Combatant,
 				"blink_arrive":
 					actor.pos = _blink_settle(grid, target, s["origin"], s["dest"])   # avoid landing on the foe
 					actor.facing = int(s["facing"])
-					events.append(_ev("blink", tick, actor.id, {"to": actor.pos, "facing": actor.facing}))
+					events.append(_ev(ResolverEvents.BLINK, tick, actor.id, {"to": actor.pos, "facing": actor.facing}))
 				"rest":
-					events.append(_ev("rest", tick, actor.id))
+					events.append(_ev(ResolverEvents.REST, tick, actor.id))
 				"wait":
 					# Strategic hold: WAIT resolves LATE, so queuing it before an action
 					# pushes that action to land after the foe has committed (e.g. wait,
 					# then strike where they moved). Still tops up a little energy.
 					actor.energy = mini(Config.MAX_ENERGY, actor.energy + Config.WAIT_ENERGY)
-					events.append(_ev("wait", tick, actor.id))
+					events.append(_ev(ResolverEvents.WAIT, tick, actor.id))
 				"noop":
 					pass
 
@@ -128,7 +128,7 @@ static func resolve(grid: Grid, in_a: Combatant, in_b: Combatant,
 			var actor2: Combatant = a if s["owner"] == "A" else b
 			var target2: Combatant = b if s["owner"] == "A" else a
 			if dead_tick[actor2.id] != -1 and dead_tick[actor2.id] < tick:
-				events.append(_ev("dead_skip", tick, actor2.id))
+				events.append(_ev(ResolverEvents.DEAD_SKIP, tick, actor2.id))
 				continue
 			match s["category"]:
 				"attack":
@@ -151,9 +151,9 @@ static func resolve(grid: Grid, in_a: Combatant, in_b: Combatant,
 			if guard_blocked[c.id]:
 				c.energy = mini(Config.MAX_ENERGY, c.energy + guard_blocked[c.id])   # tier refund
 				c.speed_boost = true
-				events.append(_ev("guard_success", -1, c.id))
+				events.append(_ev(ResolverEvents.GUARD_SUCCESS, -1, c.id))
 			else:
-				events.append(_ev("guard_failed", -1, c.id))
+				events.append(_ev(ResolverEvents.GUARD_FAILED, -1, c.id))
 
 	# Rest regen, only if uninterrupted.
 	for s in sched:
@@ -162,7 +162,7 @@ static func resolve(grid: Grid, in_a: Combatant, in_b: Combatant,
 			if damaged_tick[c.id] == -1:
 				_rest_regen(c, sched, s, events)
 			else:
-				events.append(_ev("rest_interrupted", damaged_tick[c.id], c.id))
+				events.append(_ev(ResolverEvents.REST_INTERRUPTED, damaged_tick[c.id], c.id))
 
 	# End of turn: tick down statuses (skip ones applied this turn). Cooldowns
 	# are aged per-action in _plan, not here.
@@ -180,7 +180,7 @@ static func resolve(grid: Grid, in_a: Combatant, in_b: Combatant,
 
 	var result := _result(a, b)
 	if result != "ongoing":
-		events.append(_ev("game_over", -1, "", {"result": result}))
+		events.append(_ev(ResolverEvents.GAME_OVER, -1, "", {"result": result}))
 
 	return {"a": a, "b": b, "events": events, "result": result}
 
@@ -194,26 +194,26 @@ static func _legalize(c: Combatant, action: Dictionary, vpos: Vector2i, vfacing:
 	var id: String = action.get("id", "")
 	var d := Config.def(id)
 	if d.is_empty() or id == "_noop":
-		events.append(_ev("illegal_action", -1, c.id, {"reason": "unknown", "id": id}))
+		events.append(_ev(ResolverEvents.ILLEGAL_ACTION, -1, c.id, {"reason": "unknown", "id": id}))
 		return {"id": "_noop"}
 	if Config.is_spell(id) and not (id in c.spell_ids()):
-		events.append(_ev("illegal_action", -1, c.id, {"reason": "no_gear", "id": id}))
+		events.append(_ev(ResolverEvents.ILLEGAL_ACTION, -1, c.id, {"reason": "no_gear", "id": id}))
 		return {"id": "_noop"}
 	if Config.is_spell(id) and int(c.cooldowns.get(id, 0)) > 0:
-		events.append(_ev("illegal_action", -1, c.id, {"reason": "cooldown", "id": id}))
+		events.append(_ev(ResolverEvents.ILLEGAL_ACTION, -1, c.id, {"reason": "cooldown", "id": id}))
 		return {"id": "_noop"}
 	if d.get("once_per_match", false) and c.spent_once.has(id):
-		events.append(_ev("illegal_action", -1, c.id, {"reason": "spent", "id": id}))
+		events.append(_ev(ResolverEvents.ILLEGAL_ACTION, -1, c.id, {"reason": "spent", "id": id}))
 		return {"id": "_noop"}
 	if d.get("category", "") == "rest" and not c.rest_ready:
-		events.append(_ev("illegal_action", -1, c.id, {"reason": "rest_locked", "id": id}))
+		events.append(_ev(ResolverEvents.ILLEGAL_ACTION, -1, c.id, {"reason": "rest_locked", "id": id}))
 		return {"id": "_noop"}
 	if d.get("category", "") == "move" and action.has("tile"):
 		if c.energy < Config.effective_move_cost(vfacing, vpos, action["tile"], statuses):
-			events.append(_ev("illegal_action", -1, c.id, {"reason": "cost", "id": id}))
+			events.append(_ev(ResolverEvents.ILLEGAL_ACTION, -1, c.id, {"reason": "cost", "id": id}))
 			return {"id": "_noop"}
 	elif not Config.can_afford(c.energy, c.mp, statuses, id):
-		events.append(_ev("illegal_action", -1, c.id, {"reason": "cost", "id": id}))
+		events.append(_ev(ResolverEvents.ILLEGAL_ACTION, -1, c.id, {"reason": "cost", "id": id}))
 		return {"id": "_noop"}
 	return action
 
@@ -262,7 +262,7 @@ static func _tally_one(c: Combatant, acts: Array, id: String, events: Array) -> 
 	while count >= Config.ENERGY_PULSE_ACTIONS:
 		count -= Config.ENERGY_PULSE_ACTIONS
 		c.energy = mini(Config.MAX_ENERGY, c.energy + Config.ENERGY_REGEN)
-		events.append(_ev("energy_pulse", -1, id, {"amount": Config.ENERGY_REGEN}))
+		events.append(_ev(ResolverEvents.ENERGY_PULSE, -1, id, {"amount": Config.ENERGY_REGEN}))
 	c.action_count = count
 
 # Legalize, pay for, and schedule a player's whole sequence. Returns the
@@ -274,7 +274,7 @@ static func _plan(c: Combatant, seq: Array, events: Array) -> Dictionary:
 	if c.statuses.has("staggered"):
 		c.statuses.erase("staggered")
 		if seq.size() > 1:
-			events.append(_ev("illegal_action", -1, c.id, {"reason": "staggered", "id": String(seq[1].get("id", ""))}))
+			events.append(_ev(ResolverEvents.ILLEGAL_ACTION, -1, c.id, {"reason": "staggered", "id": String(seq[1].get("id", ""))}))
 			seq = seq.slice(0, 1)
 	var entries: Array = []
 	var acts: Array = []
@@ -297,7 +297,7 @@ static func _plan(c: Combatant, seq: Array, events: Array) -> Dictionary:
 		# spell resolves so late that guarding into it would shield nearly the whole
 		# turn. Whichever is picked SECOND is voided; the first one stands.
 		if (want_guard and seen_no_guard_spell) or (want_ng and seen_guard):
-			events.append(_ev("illegal_action", -1, c.id, {"reason": "no_guard_combo", "id": rid}))
+			events.append(_ev(ResolverEvents.ILLEGAL_ACTION, -1, c.id, {"reason": "no_guard_combo", "id": rid}))
 			raw = {"id": "_noop"}
 		# Action-based cooldowns: taking an action ages this player's cooldowns
 		# by one BEFORE legalizing, so a spell cast in slot 0 is still on cooldown
@@ -406,7 +406,7 @@ static func _do_move(s: Dictionary, actor: Combatant, target: Combatant,
 	# your move this turn -> cancelled" and "a root carried from last turn blocks your first move".
 	if actor.statuses.has("rooted"):
 		actor.statuses.erase("rooted")
-		events.append(_ev("move_blocked", tick, actor.id, {"reason": "rooted"}))
+		events.append(_ev(ResolverEvents.MOVE_BLOCKED, tick, actor.id, {"reason": "rooted"}))
 		s["_resolved"] = true
 		actor.reroute_armed = true      # a following move this turn inherits THIS move's target
 		actor.reroute_tile = s["tile"]  # (grenade spec c: double-mover advances to the first tile)
@@ -424,8 +424,8 @@ static func _do_move(s: Dictionary, actor: Combatant, target: Combatant,
 		target.pos = ap
 		s["_resolved"] = true
 		foe_move["_resolved"] = true
-		events.append(_ev("move", tick, actor.id, {"to": actor.pos, "swap": true}))
-		events.append(_ev("move", tick, target.id, {"to": target.pos, "swap": true}))
+		events.append(_ev(ResolverEvents.MOVE, tick, actor.id, {"to": actor.pos, "swap": true}))
+		events.append(_ev(ResolverEvents.MOVE, tick, target.id, {"to": target.pos, "swap": true}))
 		return
 	# ── CONTESTED TILE (Fra's RPS): both step onto the SAME empty tile at the SAME
 	# tick. If BOTH steps are FORWARD-relative, the pre-declared stances clash:
@@ -441,16 +441,16 @@ static func _do_move(s: Dictionary, actor: Combatant, target: Combatant,
 		if not (fwd_a and fwd_b):
 			actor.energy = mini(Config.MAX_ENERGY, actor.energy + int(s.get("energy_cost", 0)))
 			target.energy = mini(Config.MAX_ENERGY, target.energy + int(foe_move.get("energy_cost", 0)))
-			events.append(_ev("move_blocked", tick, actor.id, {"reason": "contested"}))
-			events.append(_ev("move_blocked", tick, target.id, {"reason": "contested"}))
+			events.append(_ev(ResolverEvents.MOVE_BLOCKED, tick, actor.id, {"reason": "contested"}))
+			events.append(_ev(ResolverEvents.MOVE_BLOCKED, tick, target.id, {"reason": "contested"}))
 			return
 		var sa := String(s.get("stance", "push"))
 		var sb := String(foe_move.get("stance", "push"))
 		if sa == sb:
 			actor.energy = maxi(0, actor.energy - Config.CLASH_BOUNCE_COST)
 			target.energy = maxi(0, target.energy - Config.CLASH_BOUNCE_COST)
-			events.append(_ev("clash", tick, actor.id, {"stance": sa, "result": "bounce"}))
-			events.append(_ev("clash", tick, target.id, {"stance": sb, "result": "bounce"}))
+			events.append(_ev(ResolverEvents.CLASH, tick, actor.id, {"stance": sa, "result": "bounce"}))
+			events.append(_ev(ResolverEvents.CLASH, tick, target.id, {"stance": sb, "result": "bounce"}))
 			return
 		var beats := {"push": "pull", "pull": "feint", "feint": "push"}
 		var a_wins: bool = beats[sa] == sb
@@ -462,20 +462,20 @@ static func _do_move(s: Dictionary, actor: Combatant, target: Combatant,
 			"push":
 				w.pos = T
 				_apply_damage(l, Config.CLASH_PUSH_DAMAGE, tick, damaged_tick, dead_tick)
-				events.append(_ev("move", tick, w.id, {"to": T}))
-				events.append(_ev("clash", tick, w.id, {"stance": ws, "result": "win", "damage": Config.CLASH_PUSH_DAMAGE}))
+				events.append(_ev(ResolverEvents.MOVE, tick, w.id, {"to": T}))
+				events.append(_ev(ResolverEvents.CLASH, tick, w.id, {"stance": ws, "result": "win", "damage": Config.CLASH_PUSH_DAMAGE}))
 			"pull":
 				w.pos = T
 				l.pos = w_origin                              # yanked into the winner's wake
 				l.facing = _face_toward(l.pos, w.pos)         # forced to face the grabber
-				events.append(_ev("move", tick, w.id, {"to": T}))
-				events.append(_ev("move", tick, l.id, {"to": l.pos, "pulled": true}))
-				events.append(_ev("clash", tick, w.id, {"stance": ws, "result": "win"}))
+				events.append(_ev(ResolverEvents.MOVE, tick, w.id, {"to": T}))
+				events.append(_ev(ResolverEvents.MOVE, tick, l.id, {"to": l.pos, "pulled": true}))
+				events.append(_ev(ResolverEvents.CLASH, tick, w.id, {"stance": ws, "result": "win"}))
 			"feint":
 				l.pos = T                                     # the feinter CONCEDES the tile...
 				l.statuses["staggered"] = int(Config.status_def("staggered").get("duration", 1))
-				events.append(_ev("move", tick, l.id, {"to": T}))
-				events.append(_ev("clash", tick, w.id, {"stance": ws, "result": "win", "staggered": l.id}))
+				events.append(_ev(ResolverEvents.MOVE, tick, l.id, {"to": T}))
+				events.append(_ev(ResolverEvents.CLASH, tick, w.id, {"stance": ws, "result": "win", "staggered": l.id}))
 		return
 	# Foe sits on the destination and is moving elsewhere this tick: the one being
 	# moved into resolves first, then we take the vacated tile.
@@ -504,11 +504,11 @@ static func _simple_move(s: Dictionary, mover: Combatant, other: Combatant,
 		grid: Grid, tick: int, events: Array) -> void:
 	if _can_move(grid, mover, other, Vector2i(s["tile"])):
 		mover.pos = s["tile"]
-		events.append(_ev("move", tick, mover.id, {"to": s["tile"]}))
+		events.append(_ev(ResolverEvents.MOVE, tick, mover.id, {"to": s["tile"]}))
 	else:
 		var refund := int(s.get("energy_cost", 0))
 		mover.energy = mini(Config.MAX_ENERGY, mover.energy + refund)
-		events.append(_ev("move_blocked", tick, mover.id, {"to": s["tile"], "refunded": refund}))
+		events.append(_ev(ResolverEvents.MOVE_BLOCKED, tick, mover.id, {"to": s["tile"], "refunded": refund}))
 
 static func _attack(attacker: Combatant, target: Combatant, s: Dictionary,
 		tick: int, guarding: Dictionary, guard_blocked: Dictionary,
@@ -519,13 +519,13 @@ static func _attack(attacker: Combatant, target: Combatant, s: Dictionary,
 		# Ooze: the strike hits ALL 4 adjacent tiles at once -- foe is hit if CARDINALLY
 		# adjacent at strike time, wherever the aim tile pointed.
 		if _near(target, attacker.pos) != 1:
-			events.append(_ev("attack_whiff", tick, attacker.id, {"tile": s["tile"], "dir": dir}))
+			events.append(_ev(ResolverEvents.ATTACK_WHIFF, tick, attacker.id, {"tile": s["tile"], "dir": dir}))
 			return
 	elif _near(attacker, s["tile"]) > attacker.attack_range:   # a body reaches from its NEAREST cell
-		events.append(_ev("attack_whiff", tick, attacker.id, {"tile": s["tile"], "dir": dir}))
+		events.append(_ev(ResolverEvents.ATTACK_WHIFF, tick, attacker.id, {"tile": s["tile"], "dir": dir}))
 		return
 	if not attacker.attack_all_adjacent and not _occupies(target, s["tile"]):
-		events.append(_ev("attack_whiff", tick, attacker.id, {"tile": s["tile"], "dir": dir}))
+		events.append(_ev(ResolverEvents.ATTACK_WHIFF, tick, attacker.id, {"tile": s["tile"], "dir": dir}))
 		return
 	var rel := _flank(target, attacker.pos)
 	# Per-unit attack POWER (story units carry their own via their MobSpec loadout).
@@ -538,11 +538,11 @@ static func _attack(attacker: Combatant, target: Combatant, s: Dictionary,
 		guard_blocked[target.id] = int(Config.GUARD_REFUND_TIER[rel])
 		var blocked: float = float(Config.GUARD_BLOCK[rel])
 		if blocked >= 1.0:
-			events.append(_ev("attack_blocked", tick, attacker.id, {"target": target.id, "dir": dir}))
+			events.append(_ev(ResolverEvents.ATTACK_BLOCKED, tick, attacker.id, {"target": target.id, "dir": dir}))
 			return
 		dmg = int(round(dmg * (1.0 - blocked)))   # side graze / back bypass leaks through
 	_apply_damage(target, dmg, tick, damaged_tick, dead_tick)
-	events.append(_ev("attack_hit", tick, attacker.id, {"target": target.id, "damage": dmg, "flank": rel, "dir": dir}))
+	events.append(_ev(ResolverEvents.ATTACK_HIT, tick, attacker.id, {"target": target.id, "damage": dmg, "flank": rel, "dir": dir}))
 
 # ── Spells (data-driven) ────────────────────────────────────────────────
 static func _cast_spell(grid: Grid, caster: Combatant, target: Combatant, s: Dictionary,
@@ -554,7 +554,7 @@ static func _cast_spell(grid: Grid, caster: Combatant, target: Combatant, s: Dic
 		caster.spent_once[id] = true   # burn the single use for the whole match
 
 	var tiles := _shape_tiles(grid, caster, d, s.get("tile", caster.pos))
-	events.append(_ev("spell_cast", tick, caster.id, {"spell": id, "tiles": tiles}))
+	events.append(_ev(ResolverEvents.SPELL_CAST, tick, caster.id, {"spell": id, "tiles": tiles}))
 
 	var eff: Dictionary = d["effect"]
 	match eff["type"]:
@@ -565,7 +565,7 @@ static func _cast_spell(grid: Grid, caster: Combatant, target: Combatant, s: Dic
 			var st: String = eff["status"]
 			who.statuses[st] = int(Config.status_def(st)["duration"])
 			fresh[who.id]["status"].append(st)
-			events.append(_ev("buff_applied", tick, who.id, {"status": st}))
+			events.append(_ev(ResolverEvents.BUFF_APPLIED, tick, who.id, {"status": st}))
 		"damage":
 			# Spell damage is flat (no flank multiplier) by design.
 			if Config.is_projectile(id):
@@ -573,9 +573,9 @@ static func _cast_spell(grid: Grid, caster: Combatant, target: Combatant, s: Dic
 			elif _hit_any(target, tiles):
 				var dmg := int(eff["amount"])
 				_apply_damage(target, dmg, tick, damaged_tick, dead_tick)
-				events.append(_ev("spell_hit", tick, caster.id, {"target": target.id, "damage": dmg, "spell": id}))
+				events.append(_ev(ResolverEvents.SPELL_HIT, tick, caster.id, {"target": target.id, "damage": dmg, "spell": id}))
 			else:
-				events.append(_ev("spell_miss", tick, caster.id, {"spell": id}))
+				events.append(_ev(ResolverEvents.SPELL_MISS, tick, caster.id, {"spell": id}))
 
 # Which tiles a spell touches, given its shape.
 static func _shape_tiles(grid: Grid, caster: Combatant, d: Dictionary, target_tile: Vector2i) -> Array:
@@ -675,12 +675,12 @@ static func _launch_blink(grid: Grid, s: Dictionary, caster: Combatant, target: 
 	# ARRIVAL by _blink_settle, so a foe that retreats off the tile (or that we simply land
 	# beside) is handled then -- and if the exact tile is still taken we settle one closer.
 	if bdir == Vector2i.ZERO or not _blink_has_landing(grid, caster.pos, bdir, rng):
-		events.append(_ev("blink_fizzle", tick, caster.id, {}))
+		events.append(_ev(ResolverEvents.BLINK_FIZZLE, tick, caster.id, {}))
 		return
 	var dest: Vector2i = caster.pos + bdir * rng   # intended full-range tile; settled on arrival
 	var origin := caster.pos
 	var face := int(s.get("facing", caster.facing))
-	events.append(_ev("blink_depart", tick, caster.id, {"from": origin, "to": dest}))
+	events.append(_ev(ResolverEvents.BLINK_DEPART, tick, caster.id, {"from": origin, "to": dest}))
 	caster.pos = IN_TRANSIT                       # off the board until arrival -- untargetable
 	sched.append({
 		"owner": caster.id, "id": s["id"], "category": "blink_arrive",
@@ -732,7 +732,7 @@ static func _launch_projectile(grid: Grid, s: Dictionary, caster: Combatant, sch
 		# the throw can be geometrically invalid from the LIVE tile. The shape rule is
 		# the single source of truth: invalid -> a miss, never a ghost flight.
 		if _shape_tiles(grid, caster, pd, s["tile"]).is_empty():
-			events.append(_ev("spell_miss", int(s["tick"]), caster.id, {"spell": s["id"]}))
+			events.append(_ev(ResolverEvents.SPELL_MISS, int(s["tick"]), caster.id, {"spell": s["id"]}))
 			return
 		# Thrown (grenade): fly straight AT the target tile, diagonal steps included,
 		# and land exactly there -- so a diagonal throw animates diagonally.
@@ -780,7 +780,7 @@ static func _move_into_projectile(mover: Combatant, sched: Array, tick: int,
 		if tick >= int(e["tick"]) and tick < int(e["tick"]) + int(e["dwell"]):
 			var dmg := int(e["damage"])
 			_apply_damage(mover, dmg, tick, damaged_tick, dead_tick)
-			events.append(_ev("spell_hit", tick, mover.id, {"target": mover.id, "damage": dmg, "spell": e["id"]}))
+			events.append(_ev(ResolverEvents.SPELL_HIT, tick, mover.id, {"target": mover.id, "damage": dmg, "spell": e["id"]}))
 			if not bool(e["pierce"]):
 				consumed[e["pid"]] = true
 			return
@@ -795,7 +795,7 @@ static func _projectile_step(s: Dictionary, actor: Combatant, target: Combatant,
 	if consumed.get(pid, false):
 		return
 	var tile: Vector2i = s["tile"]
-	events.append(_ev("projectile_step", tick, actor.id, {"tile": tile, "from": s.get("from", tile), "step": int(s["step"]), "spell": s["id"]}))
+	events.append(_ev(ResolverEvents.PROJECTILE_STEP, tick, actor.id, {"tile": tile, "from": s.get("from", tile), "step": int(s["step"]), "spell": s["id"]}))
 	if _occupies(target, tile) and dead_tick[target.id] == -1:
 		var eff: Dictionary = Config.def(s["id"]).get("effect", {})
 		if String(eff.get("type", "")) == "disrupt":
@@ -803,7 +803,7 @@ static func _projectile_step(s: Dictionary, actor: Combatant, target: Combatant,
 		else:
 			var dmg := int(s["damage"])
 			_apply_damage(target, dmg, tick, damaged_tick, dead_tick)
-			events.append(_ev("spell_hit", tick, actor.id, {"target": target.id, "damage": dmg, "spell": s["id"]}))
+			events.append(_ev(ResolverEvents.SPELL_HIT, tick, actor.id, {"target": target.id, "damage": dmg, "spell": s["id"]}))
 		if not bool(s["pierce"]):
 			consumed[pid] = true
 
@@ -822,7 +822,7 @@ static func _apply_disrupt(eff: Dictionary, s: Dictionary, actor: Combatant, tar
 	var dmg := int(eff.get("amount", 0))
 	if dmg > 0:
 		_apply_damage(target, dmg, tick, damaged_tick, dead_tick)
-	events.append(_ev("spell_hit", tick, actor.id, {"target": target.id, "damage": dmg, "spell": s["id"], "disrupt": true, "drain": drain}))
+	events.append(_ev(ResolverEvents.SPELL_HIT, tick, actor.id, {"target": target.id, "damage": dmg, "spell": s["id"], "disrupt": true, "drain": drain}))
 
 static func _flank(defender: Combatant, attacker_pos: Vector2i) -> String:
 	# THE flank rule lives once in Config; this is just the resolver-side adapter.
@@ -851,7 +851,7 @@ static func _rest_regen(c: Combatant, sched: Array, own: Dictionary, events: Arr
 	var mp_gain := int(round(Config.MAX_MP * 0.10 * (0.5 + scale)))
 	c.hp = mini(Config.MAX_HP, c.hp + hp_gain)
 	c.mp = mini(Config.MAX_MP, c.mp + mp_gain)
-	events.append(_ev("rest_regen", int(own["tick"]), c.id, {"hp": hp_gain, "mp": mp_gain}))
+	events.append(_ev(ResolverEvents.REST_REGEN, int(own["tick"]), c.id, {"hp": hp_gain, "mp": mp_gain}))
 
 static func _tick_down(timers: Dictionary, skip: Array) -> void:
 	for key in timers.keys():

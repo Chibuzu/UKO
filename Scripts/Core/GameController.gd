@@ -37,19 +37,8 @@ var _pause_menu: PauseMenu       # Esc pause overlay (null when not paused)
 var opponent: OpponentSource         # AI or remote human -- swap this for online play
 var match_config: MatchConfig        # map seed + loadouts + which side is local
 
-# Lobby handoff: set these before change_scene_to_file(game) and _ready consumes them.
-# Null -> single-player defaults. (static so they survive the scene change.)
-static var pending_config: MatchConfig
-static var pending_opponent: OpponentSource
-
-# Story/overworld hooks (single-player): a custom B loadout (a mob's kit), where to
-# return when the match ends, and the last result -- so the overworld can hand off a
-# mob duel and read the outcome back. Empty/"" -> normal (AI gear, return to menu).
-static var pending_b_gear: Array = []
-static var pending_b_mob: String = ""   # "bat"/"ooze": restricts B to the mob toolkit + attack profile
-var b_mob := ""   # this match's consumed mob identity ("" = normal duel)
-static var pending_return_scene: String = ""
-static var last_match_won: bool = false
+# Scene handoff arrives exclusively through MatchBootstrap (see that file);
+# this controller holds no cross-scene statics of its own.
 
 # Pin the base (1152x648) to a keep-aspect canvas so it's always centred in the window, then, if the
 # window is taller/wider than the usable screen (its bottom clipped by the title bar/taskbar -- which
@@ -73,16 +62,10 @@ func _center_display() -> void:
 
 func _ready() -> void:
 	_center_display()   # base is centred in the window regardless of project.godot / window size
-	difficulty = AI.selected_difficulty   # whatever the menu's difficulty page picked
-	# Lobby handoff (set before the scene change). Null -> single-player vs the AI.
-	match_config = pending_config
-	opponent = pending_opponent
-	pending_config = null      # consume: a later single-player match must not inherit these
-	pending_opponent = null
-	var b_gear_override: Array = pending_b_gear
-	b_mob = pending_b_mob
-	pending_b_mob = ""   # consume with the gear
-	pending_b_gear = []        # consume: a later match must not inherit a story mob's kit
+	difficulty = MatchBootstrap.difficulty   # the tier the menu's difficulty page picked
+	# Scene handoff -- MatchBootstrap is the one channel. Null -> single-player vs the AI.
+	match_config = MatchBootstrap.take_config()
+	opponent = MatchBootstrap.take_opponent()
 
 	var rng := RandomNumberGenerator.new()
 	if match_config != null:
@@ -107,20 +90,11 @@ func _ready() -> void:
 	a = Combatant.new("A", grid.spawn_a, Config.Facing.EAST)
 	b = Combatant.new("B", grid.spawn_b, Config.Facing.WEST)
 	if match_config != null:
-		print("[MP] loadout_a=", match_config.loadout_a, " loadout_b=", match_config.loadout_b)
 		a.equip(match_config.loadout_a)
 		b.equip(match_config.loadout_b)
 	else:
-		a.equip(PlayerProfile.loadout())   # offline: your shop gear vs the AI's (or a story mob's) kit
-		b.equip(AI_GEAR if b_gear_override.is_empty() else b_gear_override)
-	if b_mob == "bat":
-		b.attack_range = 2                # strikes from two tiles away
-		b.hp = 45                         # TUNE: fragile skirmisher
-		b.energy = 100                    # full stamina (Fra); costs + pulse meter the pace
-	elif b_mob == "ooze":
-		b.attack_all_adjacent = true      # every attack hits ALL 4 adjacent tiles
-		b.hp = 70                         # TUNE: tanky brawler
-		b.energy = 100                    # full stamina (Fra)
+		a.equip(PlayerProfile.loadout())   # offline: your shop gear vs the AI's kit
+		b.equip(AI_GEAR)
 
 	ua = UnitView.new()
 	board.add_child(ua)
@@ -189,7 +163,7 @@ func _game_loop() -> void:
 	var opp_model := OpponentModel.new()   # learns the local player's habits
 	opp_model.load_disk()                  # ...and remembers them across matches
 	if opponent == null:
-		opponent = AIOpponent.new(difficulty, get_tree(), b_mob)   # offline default; a lobby swaps in NetworkOpponent
+		opponent = AIOpponent.new(difficulty, get_tree())   # offline default; a lobby swaps in NetworkOpponent
 	while true:
 		turn_num += 1
 		_shift_notes.clear()
@@ -281,7 +255,7 @@ func _rotate_map() -> void:
 # Push a shift/crush line to the live log AND remember it for this turn, so the
 # replay reproduces it (these lines live outside the turn's resolved events).
 func _log_shift(text: String, color: Color) -> void:
-	combat_log._push(text, color)
+	combat_log.add_line(text, color)
 	_shift_notes.append({"text": text, "color": color})
 
 # Telegraph: on the turn BEFORE a shift, ghost the tiles that will become walls so
@@ -290,7 +264,7 @@ func _log_shift(text: String, color: Color) -> void:
 func _update_shift_telegraph() -> void:
 	if turn_num % Config.MAP_ROTATE_EVERY == 0:
 		board.set_ghost(grid.incoming_walls())
-		combat_log._push("Quadrants shift next turn -- amber tiles become walls", ViewConfig.COL_DRAW)
+		combat_log.add_line("Quadrants shift next turn -- amber tiles become walls", ViewConfig.COL_DRAW)
 	else:
 		board.clear_ghost()
 
@@ -299,7 +273,6 @@ func _show_result(result: String) -> void:
 	var text := "DRAW"
 	var color := ViewConfig.COL_DRAW
 	var reward := Config.GOLD_REWARD_DRAW
-	last_match_won = false
 	if result == "a_wins" or result == "b_wins":
 		var a_won := result == "a_wins"
 		text = "A WINS" if a_won else "B WINS"
@@ -307,7 +280,6 @@ func _show_result(result: String) -> void:
 		# Gold is a single-player progression reward for beating the AI. Online play
 		# mints nothing (no farming), so a PvP result pays 0 regardless of who won.
 		var local_won := a_won == _local_is_a()
-		last_match_won = local_won
 		reward = Config.gold_reward(difficulty) if (local_won and match_config == null) else 0
 	var balance := PlayerProfile.gold()
 	if reward > 0:
@@ -332,9 +304,7 @@ func _on_end_choice(which: String) -> void:
 		"rematch":
 			get_tree().reload_current_scene()      # fresh match, same scene
 		"menu":
-			var dest := pending_return_scene if pending_return_scene != "" else MENU_SCENE
-			pending_return_scene = ""    # consume: normal matches return to the menu
-			get_tree().change_scene_to_file(dest)
+			get_tree().change_scene_to_file(MENU_SCENE)
 		"replay":
 			replay.enter(end_screen)
 
@@ -368,6 +338,4 @@ func _on_pause_choice(which: String) -> void:
 			get_tree().reload_current_scene()               # fresh match, same scene
 		"menu":
 			get_tree().paused = false
-			var dest := pending_return_scene if pending_return_scene != "" else MENU_SCENE
-			pending_return_scene = ""
-			get_tree().change_scene_to_file(dest)
+			get_tree().change_scene_to_file(MENU_SCENE)

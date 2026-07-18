@@ -14,7 +14,6 @@ extends Node
 const TILE := ViewConfig.TILE
 # The story window (VIEW_TILES / VIEW_RADIUS) lives in ViewConfig -- it's a layout number and
 # WorldBoard reads the same source, so the window size is defined once.
-const EDGE := 3                   # deadzone: the window only scrolls when you get this close to its edge
 const MENU_SCENE := "res://MainMenu.tscn"
 const DEATH_GOLD_PENALTY := 25
 
@@ -68,7 +67,7 @@ var turn_num: int = 0
 var _phase: int = Phase.ROAM
 var _roam_cd: float = 0.0
 var _seed: int = 0                    # world seed; regenerating from it restores the exact map
-var _win: Vector2i = Vector2i.ZERO    # current top-left world tile of the visible window
+var cam := CameraRig.new()            # window position policy (edge-scroll follow) lives there
 var pause_menu: StoryPauseMenu        # ESC overlay (gear / inventory / exit)
 var quest_dialog: QuestDialog         # NPC quest overlay (accept / turn in)
 var npcs: Array = []                  # [{id, uv, tile}] -- village quest-givers (visual discs)
@@ -92,21 +91,6 @@ func _ready() -> void:
 
 	omap = OverworldMap.new()
 	omap.generate(_seed)                           # same seed -> same map, so a save restores exactly
-	# --- CAVERN CAGE SELF-CHECK (prints to the Godot Output panel on load) ---
-	var _cage_walls := 0
-	for _cy in range(OverworldMap.CAVERN_BOX.position.y, OverworldMap.CAVERN_BOX.end.y):
-		for _cx in range(OverworldMap.CAVERN_BOX.position.x, OverworldMap.CAVERN_BOX.end.x):
-			if omap.is_solid(Vector2i(_cx, _cy)):
-				_cage_walls += 1
-	print("========================================================")
-	print("[CAVERN] box=", OverworldMap.CAVERN_BOX, " door=", OverworldMap.CAVERN_DOOR)
-	print("[CAVERN] grid wall_tiles=", _cage_walls, " (expect 27)")
-	if _cage_walls == 27:
-		print("[CAVERN] OK -- the cage is carved. Walk to the TOP-RIGHT corner (x~48-55, y~3-10).")
-	else:
-		print("[CAVERN] !! CARVE FAILED -- grid has ", _cage_walls, " walls, not 27. The map code did not run.")
-	print("[CAVERN] This build also DRAWS the cage ring in bright purple regardless, so you WILL see it.")
-	print("========================================================")
 	grid = WorldGrid.new()
 	grid.build(omap)
 
@@ -269,7 +253,7 @@ func _seal_cavern(closed: bool) -> void:
 	board.queue_redraw()
 
 func _mob_visible(e: Dictionary) -> bool:
-	return _in_window(e["combatant"].pos, _win)
+	return cam.contains(e["combatant"].pos)
 
 # New game: scatter mobs on open tiles outside the spawn village, types by weight.
 func _spawn_mobs_procedural() -> void:
@@ -641,43 +625,22 @@ func _die() -> void:
 	PlayerProfile.spend_gold(mini(DEATH_GOLD_PENALTY, PlayerProfile.gold()))
 	get_tree().change_scene_to_file(MENU_SCENE)
 
-# ── windowing (edge-scroll follow, not constant re-centering) ─────────────────
-# Start centered on the player.
+# ── windowing (position policy in CameraRig; visibility application here) ─────
 func _init_window() -> void:
-	var lim := OverworldMap.SIZE - ViewConfig.VIEW_TILES
-	_win = Vector2i(
-		clampi(player.pos.x - ViewConfig.VIEW_RADIUS, 0, lim),
-		clampi(player.pos.y - ViewConfig.VIEW_RADIUS, 0, lim))
+	cam.center_on(player.pos)
 	_apply_window()
 
-# Keep the player inside a centered deadzone; the window slides ONLY when they push
-# within EDGE of a border. So on open ground you watch yourself walk across the board,
-# and the world scrolls only at the margins -- the standard tile-RPG camera feel.
 func _follow_window() -> void:
-	var lim := OverworldMap.SIZE - ViewConfig.VIEW_TILES
-	_win = Vector2i(
-		_axis(player.pos.x, _win.x, lim),
-		_axis(player.pos.y, _win.y, lim))
+	cam.follow(player.pos)
 	_apply_window()
 
-func _axis(p: int, cur: int, lim: int) -> int:
-	var lo := cur + EDGE
-	var hi := cur + ViewConfig.VIEW_TILES - 1 - EDGE
-	var o := cur
-	if p < lo:
-		o = cur - (lo - p)
-	elif p > hi:
-		o = cur + (p - hi)
-	return clampi(o, 0, lim)
-
+# The controller-side half: push the window to the board and re-derive which of
+# OUR entities are visible in it. CameraRig never touches entities.
 func _apply_window() -> void:
-	board.set_window(_win)
+	board.set_window(cam.win)
 	player_uv.visible = true
 	for m in mobs:
-		m["uv"].visible = _in_window(m["combatant"].pos, _win)
-
-func _in_window(p: Vector2i, o: Vector2i) -> bool:
-	return p.x >= o.x and p.x < o.x + ViewConfig.VIEW_TILES and p.y >= o.y and p.y < o.y + ViewConfig.VIEW_TILES
+		m["uv"].visible = cam.contains(m["combatant"].pos)
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 # Engaged == visible in your window: exactly "fight what enters your view".

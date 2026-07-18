@@ -34,7 +34,7 @@ const SPELLS := {
 		"energy_cost": 0, "mp_cost": 30, "cooldown": 2,
 		"needs_tile": false,
 		"shape": "around",
-		"effect": { "type": "damage", "amount": 15 },   # [PH] less than a basic attack
+		"effect": { "type": "damage", "amount": 15 },   # equals Config.ATTACK_DAMAGE (15) -- keep in mind when tuning either
 		"ai_role": "aoe",
 		"vfx": { "style": "aoe", "cast_anim": "" },
 	},

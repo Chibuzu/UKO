@@ -133,7 +133,7 @@ public static class Resolver
 				if (guarding[s.Owner] && IsOffensive(s))
 				{
 					guarding[s.Owner] = false;
-					events.Add(Ev("guard_dropped", tick, s.Owner));
+					events.Add(Ev(ResolverEvents.GuardDropped, tick, s.Owner));
 				}
 
 			// TRUE SIMULTANEITY: phase 1 = state (pivots/moves/arrivals/rest/wait),
@@ -146,7 +146,7 @@ public static class Resolver
 				Combatant target = s.Owner == "A" ? b : a;
 				if (deadTick[actor.Id] != -1 && deadTick[actor.Id] < tick)
 				{
-					events.Add(Ev("dead_skip", tick, actor.Id));
+					events.Add(Ev(ResolverEvents.DeadSkip, tick, actor.Id));
 					continue;
 				}
 				switch (s.Category)
@@ -154,15 +154,15 @@ public static class Resolver
 					case "guard":
 						guarding[actor.Id] = true;
 						guarded[actor.Id] = true;
-						events.Add(Ev("guard_raised", tick, actor.Id));
+						events.Add(Ev(ResolverEvents.GuardRaised, tick, actor.Id));
 						break;
 					case "pivot":
 						if (actor.Statuses.ContainsKey("rooted"))
-							events.Add(Ev("illegal_action", tick, actor.Id));
+							events.Add(Ev(ResolverEvents.IllegalAction, tick, actor.Id));
 						else
 						{
 							actor.Facing = s.Facing;
-							events.Add(Ev("pivot", tick, actor.Id));
+							events.Add(Ev(ResolverEvents.Pivot, tick, actor.Id));
 						}
 						break;
 					case "move":
@@ -180,14 +180,14 @@ public static class Resolver
 					case "blink_arrive":
 						actor.Pos = BlinkSettle(grid, target, s.Origin, s.Dest);
 						actor.Facing = s.Facing;
-						events.Add(Ev("blink", tick, actor.Id));
+						events.Add(Ev(ResolverEvents.Blink, tick, actor.Id));
 						break;
 					case "rest":
-						events.Add(Ev("rest", tick, actor.Id));
+						events.Add(Ev(ResolverEvents.Rest, tick, actor.Id));
 						break;
 					case "wait":
 						actor.Energy = Math.Min(Config.MAX_ENERGY, actor.Energy + Config.WAIT_ENERGY);
-						events.Add(Ev("wait", tick, actor.Id));
+						events.Add(Ev(ResolverEvents.Wait, tick, actor.Id));
 						break;
 					case "noop":
 						break;
@@ -207,7 +207,7 @@ public static class Resolver
 				Combatant target = s.Owner == "A" ? b : a;
 				if (deadTick[actor.Id] != -1 && deadTick[actor.Id] < tick)
 				{
-					events.Add(Ev("dead_skip", tick, actor.Id));
+					events.Add(Ev(ResolverEvents.DeadSkip, tick, actor.Id));
 					continue;
 				}
 				switch (s.Category)
@@ -239,9 +239,9 @@ public static class Resolver
 				{
 					c.Energy = Math.Min(Config.MAX_ENERGY, c.Energy + guardBlocked[c.Id]);
 					c.SpeedBoost = true;
-					events.Add(Ev("guard_success", -1, c.Id));
+					events.Add(Ev(ResolverEvents.GuardSuccess, -1, c.Id));
 				}
-				else events.Add(Ev("guard_failed", -1, c.Id));
+				else events.Add(Ev(ResolverEvents.GuardFailed, -1, c.Id));
 			}
 
 		// Rest regen, only if uninterrupted.
@@ -250,7 +250,7 @@ public static class Resolver
 			{
 				Combatant c = s.Owner == "A" ? a : b;
 				if (damagedTick[c.Id] == -1) RestRegen(c, sched, s, events);
-				else events.Add(Ev("rest_interrupted", damagedTick[c.Id], c.Id));
+				else events.Add(Ev(ResolverEvents.RestInterrupted, damagedTick[c.Id], c.Id));
 			}
 
 		// End of turn: tick down statuses (skip ones applied this turn).
@@ -264,7 +264,7 @@ public static class Resolver
 		b.RestReady = damagedTick["B"] == -1;
 
 		string result = ResultOf(a, b);
-		if (result != "ongoing") events.Add(Ev("game_over", -1, ""));
+		if (result != "ongoing") events.Add(Ev(ResolverEvents.GameOver, -1, ""));
 
 		return new ResolveResult { A = a, B = b, Events = events, Result = result };
 	}
@@ -277,24 +277,24 @@ public static class Resolver
 		var d = Config.Def(id);
 		if (d.IsEmpty || id == "_noop")
 		{
-			events.Add(Ev("illegal_action", -1, c.Id));
+			events.Add(Ev(ResolverEvents.IllegalAction, -1, c.Id));
 			return new PlanAction("_noop");
 		}
 		if (Config.IsSpell(id) && !c.SpellIds().Contains(id))
-		{ events.Add(Ev("illegal_action", -1, c.Id)); return new PlanAction("_noop"); }
+		{ events.Add(Ev(ResolverEvents.IllegalAction, -1, c.Id)); return new PlanAction("_noop"); }
 		if (Config.IsSpell(id) && c.Cooldowns.GetValueOrDefault(id, 0) > 0)
-		{ events.Add(Ev("illegal_action", -1, c.Id)); return new PlanAction("_noop"); }
+		{ events.Add(Ev(ResolverEvents.IllegalAction, -1, c.Id)); return new PlanAction("_noop"); }
 		if (d.OncePerMatch && c.SpentOnce.ContainsKey(id))
-		{ events.Add(Ev("illegal_action", -1, c.Id)); return new PlanAction("_noop"); }
+		{ events.Add(Ev(ResolverEvents.IllegalAction, -1, c.Id)); return new PlanAction("_noop"); }
 		if (d.Category == "rest" && !c.RestReady)
-		{ events.Add(Ev("illegal_action", -1, c.Id)); return new PlanAction("_noop"); }
+		{ events.Add(Ev(ResolverEvents.IllegalAction, -1, c.Id)); return new PlanAction("_noop"); }
 		if (d.Category == "move" && action.HasTile)
 		{
 			if (c.Energy < Config.EffectiveMoveCost(vfacing, vpos, action.Tile.Value, statuses))
-			{ events.Add(Ev("illegal_action", -1, c.Id)); return new PlanAction("_noop"); }
+			{ events.Add(Ev(ResolverEvents.IllegalAction, -1, c.Id)); return new PlanAction("_noop"); }
 		}
 		else if (!Config.CanAfford(c.Energy, c.Mp, statuses, id))
-		{ events.Add(Ev("illegal_action", -1, c.Id)); return new PlanAction("_noop"); }
+		{ events.Add(Ev(ResolverEvents.IllegalAction, -1, c.Id)); return new PlanAction("_noop"); }
 		return action;
 	}
 
@@ -348,7 +348,7 @@ public static class Resolver
 		{
 			count -= Config.ENERGY_PULSE_ACTIONS;
 			c.Energy = Math.Min(Config.MAX_ENERGY, c.Energy + Config.ENERGY_REGEN);
-			events.Add(Ev("energy_pulse", -1, id));
+			events.Add(Ev(ResolverEvents.EnergyPulse, -1, id));
 		}
 		c.ActionCount = count;
 	}
@@ -373,7 +373,7 @@ public static class Resolver
 			c.Statuses.Remove("staggered");
 			if (seq.Count > 1)
 			{
-				events.Add(Ev("illegal_action", -1, c.Id));
+				events.Add(Ev(ResolverEvents.IllegalAction, -1, c.Id));
 				seq = seq.GetRange(0, 1);
 			}
 		}
@@ -385,7 +385,7 @@ public static class Resolver
 			bool wantNg = Config.IsSpell(rid) && Config.Def(rid).NoGuardCombo;
 			if ((wantGuard && seenNoGuardSpell) || (wantNg && seenGuard))
 			{
-				events.Add(Ev("illegal_action", -1, c.Id));
+				events.Add(Ev(ResolverEvents.IllegalAction, -1, c.Id));
 				raw = new PlanAction("_noop");
 			}
 			AgeCooldowns(c);
@@ -474,7 +474,7 @@ public static class Resolver
 		if (actor.Statuses.ContainsKey("rooted"))
 		{
 			actor.Statuses.Remove("rooted");
-			events.Add(Ev("move_blocked", tick, actor.Id));
+			events.Add(Ev(ResolverEvents.MoveBlocked, tick, actor.Id));
 			s.Resolved = true;
 			actor.RerouteArmed = true;
 			actor.RerouteTile = s.Tile;
@@ -496,8 +496,8 @@ public static class Resolver
 			target.Pos = ap;
 			s.Resolved = true;
 			foeMove.Resolved = true;
-			events.Add(Ev("move", tick, actor.Id));
-			events.Add(Ev("move", tick, target.Id));
+			events.Add(Ev(ResolverEvents.Move, tick, actor.Id));
+			events.Add(Ev(ResolverEvents.Move, tick, target.Id));
 			return;
 		}
 		// ── CONTESTED TILE (mirrors Resolver.gd's clash RPS exactly) ──
@@ -511,8 +511,8 @@ public static class Resolver
 			{
 				actor.Energy = Math.Min(Config.MAX_ENERGY, actor.Energy + s.EnergyCost);
 				target.Energy = Math.Min(Config.MAX_ENERGY, target.Energy + foeMove.EnergyCost);
-				events.Add(Ev("move_blocked", tick, actor.Id));
-				events.Add(Ev("move_blocked", tick, target.Id));
+				events.Add(Ev(ResolverEvents.MoveBlocked, tick, actor.Id));
+				events.Add(Ev(ResolverEvents.MoveBlocked, tick, target.Id));
 				return;
 			}
 			string sa = s.Stance ?? "push";
@@ -521,8 +521,8 @@ public static class Resolver
 			{
 				actor.Energy = Math.Max(0, actor.Energy - Config.CLASH_BOUNCE_COST);
 				target.Energy = Math.Max(0, target.Energy - Config.CLASH_BOUNCE_COST);
-				events.Add(Ev("clash", tick, actor.Id));
-				events.Add(Ev("clash", tick, target.Id));
+				events.Add(Ev(ResolverEvents.Clash, tick, actor.Id));
+				events.Add(Ev(ResolverEvents.Clash, tick, target.Id));
 				return;
 			}
 			var beats = new Dictionary<string, string> { ["push"] = "pull", ["pull"] = "feint", ["feint"] = "push" };
@@ -536,22 +536,22 @@ public static class Resolver
 				case "push":
 					w.Pos = T;
 					ApplyDamage(l, Config.CLASH_PUSH_DAMAGE, tick, damagedTick, deadTick);
-					events.Add(Ev("move", tick, w.Id));
-					events.Add(Ev("clash", tick, w.Id));
+					events.Add(Ev(ResolverEvents.Move, tick, w.Id));
+					events.Add(Ev(ResolverEvents.Clash, tick, w.Id));
 					break;
 				case "pull":
 					w.Pos = T;
 					l.Pos = wOrigin;
 					l.Facing = FaceToward(l.Pos, w.Pos);
-					events.Add(Ev("move", tick, w.Id));
-					events.Add(Ev("move", tick, l.Id));
-					events.Add(Ev("clash", tick, w.Id));
+					events.Add(Ev(ResolverEvents.Move, tick, w.Id));
+					events.Add(Ev(ResolverEvents.Move, tick, l.Id));
+					events.Add(Ev(ResolverEvents.Clash, tick, w.Id));
 					break;
 				case "feint":
 					l.Pos = T;
 					l.Statuses["staggered"] = Config.StatusDef("staggered")?.Duration ?? 1;
-					events.Add(Ev("move", tick, l.Id));
-					events.Add(Ev("clash", tick, w.Id));
+					events.Add(Ev(ResolverEvents.Move, tick, l.Id));
+					events.Add(Ev(ResolverEvents.Clash, tick, w.Id));
 					break;
 			}
 			return;
@@ -580,13 +580,13 @@ public static class Resolver
 		if (CanMove(grid, mover, other, s.Tile))
 		{
 			mover.Pos = s.Tile;
-			events.Add(Ev("move", tick, mover.Id));
+			events.Add(Ev(ResolverEvents.Move, tick, mover.Id));
 		}
 		else
 		{
 			int refund = s.EnergyCost;
 			mover.Energy = Math.Min(Config.MAX_ENERGY, mover.Energy + refund);
-			events.Add(Ev("move_blocked", tick, mover.Id));
+			events.Add(Ev(ResolverEvents.MoveBlocked, tick, mover.Id));
 		}
 	}
 
@@ -596,21 +596,21 @@ public static class Resolver
 	{
 		if (attacker.AttackAllAdjacent)
 		{
-			if (Grid.Dist(attacker.Pos, target.Pos) != 1) { events.Add(Ev("attack_whiff", tick, attacker.Id)); return; }
+			if (Grid.Dist(attacker.Pos, target.Pos) != 1) { events.Add(Ev(ResolverEvents.AttackWhiff, tick, attacker.Id)); return; }
 		}
-		else if (Grid.Dist(attacker.Pos, s.Tile) > attacker.AttackRange) { events.Add(Ev("attack_whiff", tick, attacker.Id)); return; }
-		if (!attacker.AttackAllAdjacent && target.Pos != s.Tile) { events.Add(Ev("attack_whiff", tick, attacker.Id)); return; }
+		else if (Grid.Dist(attacker.Pos, s.Tile) > attacker.AttackRange) { events.Add(Ev(ResolverEvents.AttackWhiff, tick, attacker.Id)); return; }
+		if (!attacker.AttackAllAdjacent && target.Pos != s.Tile) { events.Add(Ev(ResolverEvents.AttackWhiff, tick, attacker.Id)); return; }
 		string rel = Flank(target, attacker.Pos);
 		int dmg = Rnd(Config.ATTACK_DAMAGE * Config.FLANK_MULT[rel]);
 		if (guarding[target.Id])
 		{
 			guardBlocked[target.Id] = Config.GUARD_REFUND_TIER[rel];
 			double blocked = Config.GUARD_BLOCK[rel];
-			if (blocked >= 1.0) { events.Add(Ev("attack_blocked", tick, attacker.Id)); return; }
+			if (blocked >= 1.0) { events.Add(Ev(ResolverEvents.AttackBlocked, tick, attacker.Id)); return; }
 			dmg = Rnd(dmg * (1.0 - blocked));
 		}
 		ApplyDamage(target, dmg, tick, damagedTick, deadTick);
-		events.Add(Ev("attack_hit", tick, attacker.Id));
+		events.Add(Ev(ResolverEvents.AttackHit, tick, attacker.Id));
 	}
 
 	// ── Spells (data-driven) ────────────────────────────────────────────────
@@ -623,7 +623,7 @@ public static class Resolver
 		if (d.OncePerMatch) caster.SpentOnce[id] = true;
 
 		var tiles = ShapeTiles(grid, caster, d, s.Tile);
-		events.Add(Ev("spell_cast", tick, caster.Id));
+		events.Add(Ev(ResolverEvents.SpellCast, tick, caster.Id));
 
 		var eff = d.Effect;
 		switch (eff.Type)
@@ -636,7 +636,7 @@ public static class Resolver
 				string st = eff.Status;
 				who.Statuses[st] = Config.StatusDef(st).Duration;
 				fresh[who.Id].Add(st);
-				events.Add(Ev("buff_applied", tick, who.Id));
+				events.Add(Ev(ResolverEvents.BuffApplied, tick, who.Id));
 				break;
 			}
 			case "damage":
@@ -645,9 +645,9 @@ public static class Resolver
 				{
 					int dmg = eff.Amount ?? 0;
 					ApplyDamage(target, dmg, tick, damagedTick, deadTick);
-					events.Add(Ev("spell_hit", tick, caster.Id));
+					events.Add(Ev(ResolverEvents.SpellHit, tick, caster.Id));
 				}
-				else events.Add(Ev("spell_miss", tick, caster.Id));
+				else events.Add(Ev(ResolverEvents.SpellMiss, tick, caster.Id));
 				break;
 		}
 	}
@@ -744,11 +744,11 @@ public static class Resolver
 		int rng = d.Range ?? 1;
 		Vec2I bdir = DirFrom(caster.Pos, s.Tile);
 		if (bdir == new Vec2I(0, 0) || !BlinkHasLanding(grid, caster.Pos, bdir, rng))
-		{ events.Add(Ev("blink_fizzle", tick, caster.Id)); return; }
+		{ events.Add(Ev(ResolverEvents.BlinkFizzle, tick, caster.Id)); return; }
 		Vec2I dest = caster.Pos + bdir * rng;
 		Vec2I origin = caster.Pos;
 		int face = s.Facing;
-		events.Add(Ev("blink_depart", tick, caster.Id));
+		events.Add(Ev(ResolverEvents.BlinkDepart, tick, caster.Id));
 		caster.Pos = IN_TRANSIT;
 		sched.Add(new SchedEntry
 		{
@@ -792,7 +792,7 @@ public static class Resolver
 			// Invalid from the LIVE tile (earlier action fizzled) -> miss, no ghost flight.
 			if (ShapeTiles(grid, caster, pd, s.Tile).Count == 0)
 			{
-				events.Add(Ev("spell_miss", s.Tick, caster.Id));
+				events.Add(Ev(ResolverEvents.SpellMiss, s.Tick, caster.Id));
 				return;
 			}
 			path = new List<Config.PathStep>();
@@ -843,7 +843,7 @@ public static class Resolver
 			{
 				int dmg = e.Damage;
 				ApplyDamage(mover, dmg, tick, damagedTick, deadTick);
-				events.Add(Ev("spell_hit", tick, mover.Id));
+				events.Add(Ev(ResolverEvents.SpellHit, tick, mover.Id));
 				if (!e.Pierce) consumed[e.Pid] = true;
 				return;
 			}
@@ -856,7 +856,7 @@ public static class Resolver
 		string pid = s.Pid;
 		if (consumed.GetValueOrDefault(pid, false)) return;
 		Vec2I tile = s.Tile;
-		events.Add(Ev("projectile_step", tick, actor.Id));
+		events.Add(Ev(ResolverEvents.ProjectileStep, tick, actor.Id));
 		if (target.Pos == tile && deadTick[target.Id] == -1)
 		{
 			var eff = Config.Def(s.Id).Effect;
@@ -866,7 +866,7 @@ public static class Resolver
 			{
 				int dmg = s.Damage;
 				ApplyDamage(target, dmg, tick, damagedTick, deadTick);
-				events.Add(Ev("spell_hit", tick, actor.Id));
+				events.Add(Ev(ResolverEvents.SpellHit, tick, actor.Id));
 			}
 			if (!s.Pierce) consumed[pid] = true;
 		}
@@ -882,7 +882,7 @@ public static class Resolver
 		if (drain > 0) target.Energy = Math.Max(0, target.Energy - drain);
 		int dmg = eff.Amount ?? 0;
 		if (dmg > 0) ApplyDamage(target, dmg, tick, damagedTick, deadTick);   // rides the normal path: rest interrupt + block
-		events.Add(Ev("spell_hit", tick, actor.Id));
+		events.Add(Ev(ResolverEvents.SpellHit, tick, actor.Id));
 	}
 
 	private static string Flank(Combatant defender, Vec2I attackerPos)
@@ -899,7 +899,7 @@ public static class Resolver
 		int mpGain = Rnd(Config.MAX_MP * 0.10 * (0.5 + scale));
 		c.Hp = Math.Min(Config.MAX_HP, c.Hp + hpGain);
 		c.Mp = Math.Min(Config.MAX_MP, c.Mp + mpGain);
-		events.Add(Ev("rest_regen", own.Tick, c.Id));
+		events.Add(Ev(ResolverEvents.RestRegen, own.Tick, c.Id));
 	}
 
 	private static void TickDown(Dictionary<string, int> timers, List<string> skip)

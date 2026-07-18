@@ -103,6 +103,19 @@ func cells_facing(at: Vector2i, f: int) -> Array:
 		out.append(at + right * off.x + fwd * off.y)
 	return out
 
+# THE marshal dict for the C# bridge boundary (BrainBridge/ResolverBridge read
+# this exact 14-key contract in CombatantFrom/FromDict). This is the ONLY place
+# the GDScript side builds it -- AI.gd, BrainAgreement, BridgeBench, and the
+# overnight tools all call this. Renaming a key means updating the C# readers
+# in the same change (a missing key marshals as 0/false with NO error).
+# GD-side only by design: the C# Combatant never serializes itself outward.
+func to_bridge_dict() -> Dictionary:
+	return {"id": id, "x": pos.x, "y": pos.y, "facing": facing,
+		"hp": hp, "mp": mp, "energy": energy,
+		"action_count": action_count, "rest_ready": rest_ready, "speed_boost": speed_boost,
+		"cooldowns": cooldowns.duplicate(), "statuses": statuses.duplicate(),
+		"spent_once": spent_once.duplicate(), "gear": gear.duplicate()}
+
 func clone() -> Combatant:
 	var c := Combatant.new(id, pos, facing)
 	c.hp = hp

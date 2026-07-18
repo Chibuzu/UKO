@@ -1,6 +1,6 @@
 # GDSyncSession.gd
-# The online hub built on the GD-Sync plugin (managed global relay + lobbies), the
-# drop-in replacement for NetworkSession. GD-Sync solves the two things raw ENet
+# The online hub built on the GD-Sync plugin (managed global relay + lobbies).
+# GD-Sync solves the two things a raw socket transport
 # couldn't for worldwide play: its relay removes all NAT/firewall/port-forwarding
 # pain (clients only make OUTBOUND connections), and its lobbies provide matchmaking.
 #
@@ -26,6 +26,11 @@ signal opponent_left()                    # the other player dropped mid-match
 
 const CONTENT_VERSION := "0.1"            # must match across both builds
 const SEAT_LIMIT := 2                     # 1v1
+const DEBUG_NET := false                  # true -> verbose lobby/handshake tracing to stdout
+
+func _net_log(msg: String) -> void:
+	if DEBUG_NET:
+		print("[GDSync] ", msg)
 
 enum Intent { NONE, QUICK, HOST_CODE, JOIN_CODE }
 
@@ -96,7 +101,7 @@ func _on_connected() -> void:
 		return                              # already creating/joining -> ignore a re-fired connect
 	_lobby_busy = true
 	_connected_ok = true
-	print("[GDSync] connected as ", GDSync.get_client_id(), "; intent=", _intent)
+	_net_log("connected as %d; intent=%d" % [GDSync.get_client_id(), _intent])
 	match _intent:
 		Intent.QUICK:
 			GDSync.get_public_lobbies()        # -> _on_lobbies_received
@@ -114,10 +119,16 @@ func _on_lobbies_received(lobbies: Array) -> void:
 		if tags.get("game", "") == "UKO" and int(l.get("PlayerCount", SEAT_LIMIT)) < SEAT_LIMIT:
 			GDSync.lobby_join(l.get("Name", ""), "")
 			return
-	GDSync.lobby_create("uko_%d" % (randi() % 1000000), "", true, SEAT_LIMIT, {"game": "UKO"})
+	GDSync.lobby_create(_fresh_lobby_name(), "", true, SEAT_LIMIT, {"game": "UKO"})
+
+# Collision-safe quick-match lobby name: client id (unique per connection) + 32
+# random bits. The old bare randi()%1000000 had birthday-level collision odds
+# across concurrent hosts, and a name clash kills the create.
+func _fresh_lobby_name() -> String:
+	return "uko_%d_%08x" % [GDSync.get_client_id(), randi()]
 
 func _on_lobby_created(name: String) -> void:
-	print("[GDSync] lobby created: ", name, " -> joining")
+	_net_log("lobby created: %s -> joining" % name)
 	GDSync.lobby_join(name, "")                # must join within 5s of creating
 
 func _on_lobby_creation_failed(name: String, error: int) -> void:
@@ -128,27 +139,27 @@ func _on_lobby_join_failed(name: String, error: int) -> void:
 	push_warning("[GDSync] lobby join failed: %s error=%d" % [name, error])
 	if _intent == Intent.QUICK:
 		# the lobby filled between browse and join -> make our own and wait
-		GDSync.lobby_create("uko_%d" % (randi() % 1000000), "", true, SEAT_LIMIT, {"game": "UKO"})
+		GDSync.lobby_create(_fresh_lobby_name(), "", true, SEAT_LIMIT, {"game": "UKO"})
 	else:
 		match_failed.emit("Could not join that match (wrong code or already full).")
 
 func _on_lobby_joined(_name: String) -> void:
 	_joined_ok = true
-	print("[GDSync] joined lobby ", _name, " as client ", GDSync.get_client_id(), " host=", GDSync.is_host())
+	_net_log("joined lobby %s as client %d host=%s" % [_name, GDSync.get_client_id(), GDSync.is_host()])
 	# Announce ourselves to whoever else is in the lobby. If we're the joiner, this
 	# reaches the host and triggers the start; if we're the host (alone), it reaches
 	# no one yet and the joiner's own hello will trigger it later.
 	GDSync.call_func(_recv_hello, [_my_loadout])
 
 func _on_client_joined(client_id: int) -> void:
-	print("[GDSync] client_joined ", client_id, " (me=", GDSync.get_client_id(), ", host=", GDSync.is_host(), ")")
+	_net_log("client_joined %d (me=%d, host=%s)" % [client_id, GDSync.get_client_id(), GDSync.is_host()])
 
 # ── handshake (host orchestrates) ────────────────────────────────────────────
 func _recv_hello(data: Array) -> void:
 	if not GDSync.is_host() or _in_match:
 		return                                 # only the host starts, and only once
 	var opp_loadout: Array = data[0]           # GD-Sync delivers params as one array arg
-	print("[GDSync] host got hello -> starting match")
+	_net_log("host got hello -> starting match")
 	var seed_value := randi()                  # host picks the shared map seed
 	_am_host = true
 	_mediator = MatchMediator.new()

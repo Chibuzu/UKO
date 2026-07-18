@@ -1,0 +1,8 @@
+; Copy this file to override.cfg (git-ignored) and fill in the real keys from
+; the GD-Sync dashboard. Godot merges override.cfg over project.godot at boot,
+; so the keys work exactly as before without ever being committed.
+
+[GD-Sync]
+
+publicKey="YOUR_PUBLIC_KEY"
+privateKey="YOUR_PRIVATE_KEY"

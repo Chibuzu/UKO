@@ -5,7 +5,7 @@
 #   front (added after the board):  the inset board frame, so it reads as a window the live
 #         board renders inside.
 # Crisp straight purple borders, matching the reference exactly. The board rectangle is left
-# transparent -- the live 12x12 board, figures and effects render there. Pure decoration.
+# transparent -- the live 8x8 board, figures and effects render there. Pure decoration.
 class_name UIFrame
 extends Node2D
 

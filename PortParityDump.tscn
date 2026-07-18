@@ -1,6 +1,0 @@
-[gd_scene format=3 uid="uid://d2lub3c54qe0l"]
-
-[ext_resource type="Script" uid="uid://dqc4wbpl4jjiu" path="res://Scripts/Port/CSharp/PortParityDump.cs" id="1_ibyb3"]
-
-[node name="Node" type="Node" unique_id=1434689823]
-script = ExtResource("1_ibyb3")

@@ -15,6 +15,3 @@ func _init(session: GDSyncSession) -> void:
 
 func submit_sequence(turn: int, seq: Array) -> void:
 	_session.submit_local(turn, seq)
-
-func handshake() -> Dictionary:
-	return {}   # handled by GDSyncSession.match_ready before the loop starts

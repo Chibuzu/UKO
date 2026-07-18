@@ -42,7 +42,6 @@ const MAX_MP := 100
 const MAX_ENERGY := 100
 const ENERGY_REGEN := 30
 const ENERGY_PULSE_ACTIONS := 6   # a fighter regains energy every 6 of their OWN non-Wait actions
-const ENERGY_PULSE_TURNS := 3     # legacy, unused (kept so any old harness still compiles)
 const WAIT_ENERGY := 10           # small personal energy top-up WAIT now grants (tunable)
 
 # ── Rewards: gold for beating the AI ────────────────────────────────────
@@ -275,6 +274,3 @@ static func apply_planned_self_buff(statuses: Dictionary, action_id: String) -> 
 		var st: String = eff.get("status", "")
 		if st != "":
 			statuses[st] = int(status_def(st).get("duration", 0))
-
-static func energy_pulse_due(turn: int) -> bool:
-	return turn > 0 and turn % ENERGY_PULSE_TURNS == 0

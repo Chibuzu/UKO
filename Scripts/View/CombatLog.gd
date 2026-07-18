@@ -58,6 +58,14 @@ func add_note(text: String, color: Color = ViewConfig.COL_TEXT) -> void:
 		lines = lines.slice(lines.size() - ViewConfig.LOG_MAX_LINES, lines.size())
 	queue_redraw()
 
+# An un-prefixed line from outside the resolver's event stream (shift/crush notes,
+# replay reconstruction). The public door -- callers must not reach into _push.
+func add_line(text: String, color: Color) -> void:
+	_push(text, color)
+	if lines.size() > ViewConfig.LOG_MAX_LINES:
+		lines = lines.slice(lines.size() - ViewConfig.LOG_MAX_LINES, lines.size())
+	queue_redraw()
+
 func _push(text: String, color: Color) -> void:
 	lines.append({"text": text, "color": color})
 
@@ -73,49 +81,73 @@ func _format(e: Dictionary) -> String:
 	# log cannot say WHICH creature acted.
 	var o: String = e.get("name", e.get("owner", ""))
 	match e["type"]:
-		"move":
+		ResolverEvents.MOVE:
 			return "%s moves to %s" % [o, _t(e["to"])]
-		"blink":
+		ResolverEvents.BLINK:
 			return "%s blinks to %s" % [o, _t(e["to"])]
-		"move_blocked":
+		ResolverEvents.MOVE_BLOCKED:
 			return "%s move blocked" % o
-		"pivot":
+		ResolverEvents.PIVOT:
 			return "%s turns %s" % [o, _facing(e["facing"])]
-		"attack_hit":
+		ResolverEvents.ATTACK_HIT:
 			return "%s hits %s  -%d (%s)" % [o, e["target"], e["damage"], e["flank"]]
-		"attack_whiff":
+		ResolverEvents.ATTACK_WHIFF:
 			return "%s swings, misses" % o
-		"attack_blocked":
+		ResolverEvents.ATTACK_BLOCKED:
 			return "%s hits %s  BLOCKED" % [o, e["target"]]
-		"guard_success":
+		ResolverEvents.GUARD_SUCCESS:
 			return "%s guard holds (counter ready)" % o
-		"guard_failed":
+		ResolverEvents.GUARD_FAILED:
 			return "%s guards, nothing to block" % o
-		"rest_regen":
+		ResolverEvents.REST_REGEN:
 			return "%s rests  +%d hp  +%d mp" % [o, e["hp"], e["mp"]]
-		"rest_interrupted":
+		ResolverEvents.REST_INTERRUPTED:
 			return "%s rest interrupted" % o
-		"wait":
+		ResolverEvents.WAIT:
 			return "%s waits (+%d en, next action faster)" % [o, Config.WAIT_ENERGY]
-		"energy_pulse":
+		ResolverEvents.ENERGY_PULSE:
 			return "%s +%d energy" % [o, int(e.get("amount", 0))]
-		"spell_cast":
+		ResolverEvents.SPELL_CAST:
 			return "%s casts %s" % [o, _spell(e["spell"])]
-		"spell_hit":
+		ResolverEvents.SPELL_HIT:
 			return "   %s hits %s  -%d" % [_spell(e["spell"]), e["target"], e["damage"]]
-		"spell_miss":
+		ResolverEvents.SPELL_MISS:
 			return "   %s misses" % _spell(e["spell"])
-		"buff_applied":
+		ResolverEvents.BUFF_APPLIED:
 			return "   %s active" % _status(e["status"])
-		"game_over":
+		ResolverEvents.GAME_OVER:
 			return "== %s ==" % _result(e["result"])
-		"guard_raised":
+		ResolverEvents.GUARD_RAISED:
 			return "%s guards" % o
+		ResolverEvents.CLASH:
+			# Contested-tile RPS receipt: who bounced / who took the tile, and the rider.
+			var stance := String(e.get("stance", "push"))
+			if String(e.get("result", "")) == "bounce":
+				return "%s clash (%s) -- bounced back" % [o, stance]
+			if e.has("staggered"):
+				return "%s clash: %s takes the tile -- %s STAGGERED" % [o, stance, e["staggered"]]
+			if e.has("damage"):
+				return "%s clash: %s takes the tile  -%d" % [o, stance, int(e["damage"])]
+			return "%s clash: %s takes the tile" % [o, stance]
+		ResolverEvents.BLINK_FIZZLE:
+			return "%s blink fizzles" % o
+		ResolverEvents.REST, ResolverEvents.BLINK_DEPART, ResolverEvents.PROJECTILE_STEP, \
+		ResolverEvents.GUARD_DROPPED, ResolverEvents.DEAD_SKIP, ResolverEvents.ILLEGAL_ACTION:
+			return ""    # deliberately hidden: paced/bookkeeping events, not narration
 		_:
-			return ""    # rest, dead_skip, illegal_action: hidden
+			_warn_unknown(String(e["type"]))
+			return ""
+
+# A resolver event type this consumer doesn't know: warn ONCE (a rename/addition
+# in Resolver must be a loud mismatch here, never a silently dropped line).
+static var _unknown_warned := {}
+func _warn_unknown(t: String) -> void:
+	if not _unknown_warned.has(t):
+		_unknown_warned[t] = true
+		push_warning("[CombatLog] unknown resolver event type '%s' -- update ResolverEvents/the match" % t)
 
 func _line_color(e: Dictionary) -> Color:
-	if e["type"] == "game_over":
+	if e["type"] == ResolverEvents.GAME_OVER:
 		return ViewConfig.COL_LOG_HEADER
 	match e.get("owner", ""):
 		"A": return ViewConfig.COL_WIN_A

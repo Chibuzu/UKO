@@ -1,6 +1,6 @@
 # OvernightArena.gd -- OVERNIGHT SELF-PLAY. Two experiments in one run:
 #   PHASE 1  "cs_d3 vs cs_d2"  : does DEPTH buy skill? (the whole point of the port)
-#   PHASE 2  "cs_d2 vs econ"   : C# ExtremeAI vs the old live-EXTREME (EconomyAI).
+#   PHASE 2  "cs_d2 vs gd"     : C# ExtremeAI vs the GDScript ExtremeAI (port check).
 # Real gear (FULL_GEAR -- sidesteps the SelfPlayArena kit bug), seeded arenas, seat
 # alternation, live rotation/zone clock. Appends running results to
 # user://overnight_results.txt so partial progress survives an interruption.
@@ -21,7 +21,7 @@ func _init() -> void:
 	_log("==== OVERNIGHT RUN start %s | %d matches/phase, max %d turns ====" %
 			[Time.get_datetime_string_from_system(), MATCHES_PER_PHASE, MAX_TURNS])
 	_phase("cs_d3_vs_cs_d2", "cs3", "cs2")
-	_phase("cs_d2_vs_econ", "cs2", "econ")
+	_phase("cs_d2_vs_gd", "cs2", "gd")
 	_log("==== OVERNIGHT RUN done %s ====" % Time.get_datetime_string_from_system())
 	quit(0)
 
@@ -86,9 +86,9 @@ func _choose(brain: String, me: Combatant, foe: Combatant, g: Grid) -> Array:
 		"cs2":
 			bridge.SetDepth(2)
 			return _bridge_choose(me, foe, g)
-		"econ":
-			ExtremeAI.set_profile("extreme")   # weights/profile as the old live EXTREME set them
-			return EconomyAI.choose_sequence(me, foe, g, [], null)
+		"gd":
+			ExtremeAI.set_profile("extreme")   # the GDScript twin at the live EXTREME dials
+			return ExtremeAI.choose_sequence(me, foe, g, me.spell_ids(), null)
 	return [{"id": "wait"}]
 
 func _bridge_choose(me: Combatant, foe: Combatant, g: Grid) -> Array:
@@ -106,11 +106,7 @@ func _rows(blocked: Array) -> PackedStringArray:
 	return rows
 
 func _cd(c: Combatant) -> Dictionary:
-	return {"id": c.id, "x": c.pos.x, "y": c.pos.y, "facing": c.facing,
-		"hp": c.hp, "mp": c.mp, "energy": c.energy,
-		"action_count": c.action_count, "rest_ready": c.rest_ready, "speed_boost": c.speed_boost,
-		"cooldowns": c.cooldowns.duplicate(), "statuses": c.statuses.duplicate(),
-		"spent_once": c.spent_once.duplicate(), "gear": c.gear.duplicate()}
+	return c.to_bridge_dict()   # the ONE marshal contract lives on Combatant
 
 func _log(s: String) -> void:
 	print(s)

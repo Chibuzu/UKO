@@ -152,17 +152,6 @@ func _bolt_sf() -> SpriteFrames:
 	_bolt_frames = sf if any else null
 	return _bolt_frames
 
-# Grenade flight frames (Items/Grenade_1..6) at 6 FPS. Same "bolt" anim name so the flier plays
-# it the same way. Built once and cached; null if the art isn't present.
-var _grenade_frames: SpriteFrames = null
-var _grenade_checked := false
-func _grenade_sf() -> SpriteFrames:
-	if _grenade_checked:
-		return _grenade_frames
-	_grenade_checked = true
-	_grenade_frames = _grenade_frames_sf("fly", 1, 4, true)   # legacy caller; travel loop
-	return _grenade_frames
-
 # Build a SpriteFrames from Grenade_<first..last>.png at 6 FPS. Cached by the callers below.
 func _grenade_frames_sf(anim: String, first: int, last: int, loop: bool) -> SpriteFrames:
 	var sf := SpriteFrames.new()
@@ -176,15 +165,7 @@ func _grenade_frames_sf(anim: String, first: int, last: int, loop: bool) -> Spri
 			sf.add_frame(anim, load(path)); any = true
 	return sf if any else null
 
-# Travel loop (frames 1-4) and one-shot explosion (frames 5-6), each cached.
-var _gren_fly: SpriteFrames = null
-var _gren_fly_checked := false
-func _grenade_fly_sf() -> SpriteFrames:
-	if not _gren_fly_checked:
-		_gren_fly_checked = true
-		_gren_fly = _grenade_frames_sf("fly", 1, 4, true)
-	return _gren_fly
-
+# One-shot explosion (frames 5-6), cached.
 var _gren_burst: SpriteFrames = null
 var _gren_burst_checked := false
 func _grenade_burst_sf() -> SpriteFrames:

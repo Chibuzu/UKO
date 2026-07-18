@@ -154,13 +154,7 @@ func _c(id: String, pos: Vector2i, facing: int, hp: int, mp: int, energy: int, o
 	return c
 
 func _to_dict(c: Combatant) -> Dictionary:
-	return {
-		"id": c.id, "x": c.pos.x, "y": c.pos.y, "facing": c.facing,
-		"hp": c.hp, "mp": c.mp, "energy": c.energy,
-		"action_count": c.action_count, "rest_ready": c.rest_ready, "speed_boost": c.speed_boost,
-		"cooldowns": c.cooldowns.duplicate(), "statuses": c.statuses.duplicate(),
-		"spent_once": c.spent_once.duplicate(), "gear": c.gear.duplicate(),
-	}
+	return c.to_bridge_dict()   # the ONE marshal contract lives on Combatant
 
 func _fp_c(c: Combatant) -> String:
 	return "%d,%d,%d,%d,%d,%d,%d,%d,%d,%s,%s,%s" % [
