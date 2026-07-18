@@ -22,6 +22,9 @@
 - R4: legacy budget-strike mob path DELETED (never executed; all creatures true-action). Guard-refund pass + roam facing + pairwise walling KEPT. PLAYTEST: bat/ooze(split)/twin-boss fights, roam tracking, loot.
 - R5: **MinigameOverlay** base (shared open/finish/dim/button; contract = finished(quality: float), AttunementWave now emits 1.0/0.0) + **DayNightClock** extracted (split step 2 — pure time policy; controller applies effects). BUG FIX: the clock now PERSISTS in saves — reloading no longer resets to day 1 (walls still re-derive from seed at load; only the time side is restored). PLAYTEST: gather (gem + mushroom + attunement), a nightfall + dawn, save at night → reload keeps night.
 
+## 2026-07-18 ROUND 6 — MainMenu split (router + GearShopPage + LobbyPage)
+- MainMenu is a ROUTER again (title + difficulty + scene routing, ~150 lines). The shop is **GearShopPage**, the whole online lobby lifecycle (GDSyncSession create/teardown, quick/host/join, code LineEdit, handshake → MatchBootstrap → scene change) is **LobbyPage**; the menu knows only their `closed` signals. Behavior-identical: same layouts, same hover ids, same session /root parenting. PLAYTEST: shop buy/equip/unequip/BACK + hover; lobby open/BACK, host shows a code, short join code warns, quick-match status line; PLAY/STORY/difficulty routing.
+
 ## 2026-07-18 ROUND 3 — de-hardcoding pass, zero behavior change
 - **ui_slot**: SpellBook defs gained an explicit `ui_slot`; ActionMenu reads it (never `ai_role`) — retuning the AI can no longer rewire the player's buttons. Same values today.
 - **flip_when**: per-creature sprite-mirroring is DATA in SpriteBook sets; UnitView names no creature (old ooze/bat branch encoded verbatim: bat [], ooze [west,north], default [west]).
