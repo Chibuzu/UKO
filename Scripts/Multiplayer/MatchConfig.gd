@@ -22,16 +22,3 @@ static func make(seed_value: int, version: String, la: Array, lb: Array, local_a
 	c.loadout_b = lb.duplicate()
 	c.local_is_a = local_a
 	return c
-
-# Which mediator slot this client submits as ("A" or "B").
-func local_slot() -> String:
-	return "A" if local_is_a else "B"
-
-# Two configs describe the SAME match iff every shared field matches (the per-client
-# local_is_a is allowed to differ). Used to validate a handshake.
-func agrees_with(other: MatchConfig) -> bool:
-	return map_seed == other.map_seed \
-		and content_version == other.content_version \
-		and loadout_a == other.loadout_a \
-		and loadout_b == other.loadout_b \
-		and local_is_a != other.local_is_a

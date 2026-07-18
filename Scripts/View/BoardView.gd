@@ -1,5 +1,5 @@
 # BoardView.gd
-# Draws the 12x12 arena from a Grid. Pure rendering — it reads grid data and
+# Draws the 8x8 arena from a Grid. Pure rendering — it reads grid data and
 # paints tiles; it never changes game state. Units and floating numbers are
 # added as children so they sit in board-local coordinates.
 class_name BoardView
@@ -18,7 +18,7 @@ var _base_pos: Vector2 = ViewConfig.BOARD_ORIGIN # rest position (shake offsets 
 var _shake := 0.0                                # current shake magnitude
 var _quake_t := 0.0                              # earthquake time remaining (seconds)
 var _quake_amp := 0.0                            # current per-wall tremble amplitude (for _draw)
-const BG_PATH := "res://assets/sprites/map_bg.png"
+const BG_PATH := "res://Assets/Sprites/map_bg.png"
 var bg_tex: Texture2D = null                     # decorative floor; live blockers draw on top
 const BLOCKER_PATH := "res://Assets/Sprites/Blocker 2.png"
 var blocker_tex: Texture2D = null                # interior wall art; rotated per-tile for variety

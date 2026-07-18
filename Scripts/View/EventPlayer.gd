@@ -72,19 +72,19 @@ func _visualize(e: Dictionary) -> float:
 	var u: UnitView = units.get(owner, null)
 
 	match e["type"]:
-		"move":
+		ResolverEvents.MOVE:
 			if u:
 				u.tween_to(e["to"])
 			return ViewConfig.MOVE_DUR
-		"move_blocked":
+		ResolverEvents.MOVE_BLOCKED:
 			if u:
 				u.flash(ViewConfig.FLASH_BLOCK)
 			return ViewConfig.FLASH_DUR
-		"pivot":
+		ResolverEvents.PIVOT:
 			if u:
 				u.set_facing(e["facing"])
 			return ViewConfig.PIVOT_DUR
-		"blink":
+		ResolverEvents.BLINK:
 			# Teleport ARRIVES: pop in at the destination, reface, and play the
 			# rematerialize half (frames 5→9). Snap alpha back to full first so the
 			# reappear frames are visible; the frame content carries the fade-in.
@@ -102,21 +102,21 @@ func _visualize(e: Dictionary) -> float:
 				var tw := create_tween()
 				tw.tween_property(u, "modulate:a", 1.0, ViewConfig.FLASH_DUR)
 			return ViewConfig.FLASH_DUR
-		"attack_hit":
+		ResolverEvents.ATTACK_HIT:
 			if u:
 				u.play_anim("attack", Vector2(e.get("dir", Config.FACING_VEC[u.facing])))
 			_impact(units.get(e["target"], null), int(e["damage"]), ViewConfig.FLASH_HIT, ViewConfig.SHAKE_HIT)
 			return ViewConfig.HIT_DUR
-		"attack_whiff":
+		ResolverEvents.ATTACK_WHIFF:
 			if u:
 				u.play_anim("attack", Vector2(e.get("dir", Config.FACING_VEC[u.facing])))
 			return ViewConfig.FLASH_DUR
-		"attack_blocked":
+		ResolverEvents.ATTACK_BLOCKED:
 			if u:
 				u.play_anim("attack", Vector2(e.get("dir", Config.FACING_VEC[u.facing])))
 			board.shake(ViewConfig.SHAKE_HIT * 0.5)
 			return ViewConfig.HIT_DUR
-		"guard_raised":
+		ResolverEvents.GUARD_RAISED:
 			if u:
 				# Rotate the shield so its OPEN side sits behind the fighter (closed
 				# side toward the facing), and HOLD the cube up for the rest of the
@@ -124,15 +124,15 @@ func _visualize(e: Dictionary) -> float:
 				u.hold_anim("guard_up", Vector2(Config.FACING_VEC[u.facing]), 0.0)
 				u.flash(ViewConfig.FLASH_GUARD)
 			return ViewConfig.FLASH_DUR
-		"guard_dropped":
+		ResolverEvents.GUARD_DROPPED:
 			if u:
 				u.clear_hold()   # an offensive action this turn drops the shield
 			return 0.0
-		"guard_success":
+		ResolverEvents.GUARD_SUCCESS:
 			if u:
 				u.flash(ViewConfig.FLASH_GUARD_OK)
 			return ViewConfig.FLASH_DUR
-		"rest", "rest_regen":
+		ResolverEvents.REST, ResolverEvents.REST_REGEN:
 			if u:
 				u.play_rest()
 				u.flash(ViewConfig.FLASH_HEAL)
@@ -141,19 +141,19 @@ func _visualize(e: Dictionary) -> float:
 					board.spawn_number(u.position, "+%d" % int(e["hp"]), ViewConfig.COL_HEAL)
 					fx.burst(u.position, ViewConfig.COL_HEAL, 8)
 			return ViewConfig.FLASH_DUR
-		"rest_interrupted":
+		ResolverEvents.REST_INTERRUPTED:
 			if u:
 				u.flash(ViewConfig.FLASH_HIT)
 			return ViewConfig.FLASH_DUR
-		"wait":
+		ResolverEvents.WAIT:
 			if u:
 				u.flash(ViewConfig.FLASH_GUARD)
 				board.spawn_number(u.position, "WAIT", ViewConfig.COL_TEXT)
 			return ViewConfig.FLASH_DUR
-		"spell_cast":
+		ResolverEvents.SPELL_CAST:
 			_cast_visual(u, e)
 			return ViewConfig.FX_DUR
-		"spell_hit":
+		ResolverEvents.SPELL_HIT:
 			if e.get("disrupt", false):
 				# The grenade's full receipt: chip damage (rest-breaker), root, drain.
 				_impact(units.get(e["target"], null), int(e["damage"]), ViewConfig.FLASH_HIT, ViewConfig.SHAKE_SPELL)
@@ -177,13 +177,13 @@ func _visualize(e: Dictionary) -> float:
 					if tgt:
 						fx.grenade_burst(tgt.position)
 			return ViewConfig.HIT_DUR
-		"buff_applied":
+		ResolverEvents.BUFF_APPLIED:
 			if u:
 				board.spawn_number(u.position, "BUFF", ViewConfig.COL_HEAL)
 			return ViewConfig.FLASH_DUR
-		"spell_miss":
+		ResolverEvents.SPELL_MISS:
 			return ViewConfig.FX_DUR
-		"blink_depart":
+		ResolverEvents.BLINK_DEPART:
 			# Teleport DEPARTS: vanish at the origin. Play the dissolve half
 			# (frames 1→5) and fade alpha out over the same span, so the unit
 			# stays hidden once it returns to idle — the proportional gap until
@@ -196,19 +196,35 @@ func _visualize(e: Dictionary) -> float:
 				tw.tween_property(u, "modulate:a", 0.0, dout)
 				return dout
 			return ViewConfig.FLASH_DUR
-		"projectile_step":
+		ResolverEvents.PROJECTILE_STEP:
 			# The visible bolt is ONE sprite launched at spell_cast that flies the
 			# whole path (see _cast_visual / _plan_flights). These step events now
 			# only PACE the timeline — their tick spacing is the inter-group gap, so
 			# the bolt stays in sync with the sim and the hit lands on time.
 			return 0.0
-		_:
+		ResolverEvents.CLASH, ResolverEvents.BLINK_FIZZLE, ResolverEvents.ENERGY_PULSE, \
+		ResolverEvents.GUARD_FAILED, ResolverEvents.GAME_OVER, \
+		ResolverEvents.DEAD_SKIP, ResolverEvents.ILLEGAL_ACTION:
+			# Deliberately unrendered here: CombatLog narrates these (clash animations
+			# are the tick bundle's pending Stage C).
 			return 0.0
+		_:
+			_warn_unknown(String(e["type"]))
+			return 0.0
+
+# A resolver event type this consumer doesn't know: warn ONCE (a rename/addition
+# in Resolver must be a loud mismatch here, never a silently skipped visual).
+static var _unknown_warned := {}
+func _warn_unknown(t: String) -> void:
+	if not _unknown_warned.has(t):
+		_unknown_warned[t] = true
+		push_warning("[EventPlayer] unknown resolver event type '%s' -- update ResolverEvents/the match" % t)
 
 # A landed hit: the drawn hurt flinch + damage number + screen shake.
 func _impact(tgt: UnitView, dmg: int, color: Color, shake: float) -> void:
 	if tgt == null:
 		return
+	tgt.flash(color)   # the hit tint callers pass (FLASH_HIT) -- was threaded through but never applied
 	tgt.play_anim("hurt")
 	tgt.set_display_hp(tgt.display_hp - dmg)
 	board.spawn_number(tgt.position, "-%d" % dmg, ViewConfig.COL_DMG)
@@ -244,7 +260,7 @@ func _cast_visual(caster: UnitView, e: Dictionary) -> void:
 			if not fx.aoe_anim(caster.position):
 				board.flash_tiles(tiles, color)            # fallback if art missing
 			board.shake(ViewConfig.SHAKE_HIT * 0.7)
-		"blink":
+		ResolverEvents.BLINK:
 			pass   # depart/arrive visuals are driven by the blink_depart / blink events
 		"self_buff":
 			fx.burst(caster.position, color, 10)
@@ -259,7 +275,7 @@ func _style_color(style: String) -> Color:
 			return ViewConfig.COL_FX_BOLT
 		"self_buff":
 			return ViewConfig.COL_FX_BUFF
-		"blink":
+		ResolverEvents.BLINK:
 			return ViewConfig.COL_FX_BUFF
 		_:
 			return ViewConfig.COL_FX_AOE

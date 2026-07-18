@@ -4,6 +4,13 @@
 # Run headless:  godot --headless --script "res://Scripts/AI/Tuning/PositionTests.gd"
 # Add a position every time a playtest finds a misplay: harvest the state with the
 # replay's arrow keys, script it here, and no future change can regress it silently.
+#
+# 2026-07-17 RE-SITE: gates 1-4 still used coordinates from the old 12x12 board;
+# on today's 8x8 (border walls at 0/7, interior 1..6) their fighters stood
+# off-board or on walls -- e.g. the flee gate's kill line attacked a border-wall
+# tile, so it could never connect and the gate passed vacuously. All fixtures now
+# sit in the 1..6 interior with the same tactical shape (distances, facings,
+# resources unchanged). First green run after this change re-baselines the suite.
 extends SceneTree
 
 const SAMPLES := 21
@@ -61,9 +68,9 @@ func _check(name: String, rate: float, minimum: float, maximum: float = 1.0) -> 
 # into a kill ("the AI should never give up").
 func _test_flee_not_wait() -> void:
 	var g := _blank_grid()
-	var atk := _mk("A", Vector2i(8, 6), Config.Facing.WEST, 100, 100)
-	var run := _mk("B", Vector2i(6, 6), Config.Facing.WEST, 22, 60)
-	var kill: Array = [{"id": "move", "tile": Vector2i(7, 6)}, {"id": "attack", "tile": Vector2i(6, 6)}]
+	var atk := _mk("A", Vector2i(5, 4), Config.Facing.WEST, 100, 100)
+	var run := _mk("B", Vector2i(3, 4), Config.Facing.WEST, 22, 60)
+	var kill: Array = [{"id": "move", "tile": Vector2i(4, 4)}, {"id": "attack", "tile": Vector2i(3, 4)}]
 	print("[positions] 1/3 flee-not-wait...")
 	var alive := 0
 	for _i in range(SAMPLES):
@@ -77,8 +84,8 @@ func _test_flee_not_wait() -> void:
 # (its option value), not fished with.
 func _test_hold_grenade() -> void:
 	var g := _blank_grid()
-	var me := _mk("B", Vector2i(8, 6), Config.Facing.WEST, 100, 100)
-	var foe := _mk("A", Vector2i(3, 6), Config.Facing.EAST, 100, 100)
+	var me := _mk("B", Vector2i(6, 4), Config.Facing.WEST, 100, 100)
+	var foe := _mk("A", Vector2i(1, 4), Config.Facing.EAST, 100, 100)
 	print("[positions] 2/3 hold-grenade...")
 	var thrown := 0
 	for _i in range(SAMPLES):
@@ -92,7 +99,7 @@ func _test_hold_grenade() -> void:
 # 3) Hurt and completely safe: resting should dominate.
 func _test_safe_rest() -> void:
 	var g := _blank_grid()
-	var me := _mk("B", Vector2i(10, 10), Config.Facing.WEST, 40, 60)
+	var me := _mk("B", Vector2i(6, 6), Config.Facing.WEST, 40, 60)
 	me.mp = 40
 	var foe := _mk("A", Vector2i(1, 1), Config.Facing.EAST, 100, 10)
 	print("[positions] 3/3 safe-rest...")
@@ -111,9 +118,9 @@ func _test_safe_rest() -> void:
 func _test_critical_rest() -> void:
 	print("[positions] 4/4 critical-rest...")
 	var g := _blank_grid()
-	var me := _mk("B", Vector2i(6, 6), Config.Facing.EAST, 15, 60)
+	var me := _mk("B", Vector2i(5, 4), Config.Facing.EAST, 15, 60)
 	me.mp = 60
-	var foe := _mk("A", Vector2i(7, 6), Config.Facing.WEST, 100, 0)
+	var foe := _mk("A", Vector2i(6, 4), Config.Facing.WEST, 100, 0)
 	var rested := 0
 	for _i in range(SAMPLES):
 		var seq := ExtremeAI.choose_sequence(me, foe, g, me.spell_ids())

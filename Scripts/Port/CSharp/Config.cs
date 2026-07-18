@@ -76,7 +76,6 @@ public static class Config
 	public const int MAX_ENERGY = 100;
 	public const int ENERGY_REGEN = 30;
 	public const int ENERGY_PULSE_ACTIONS = 6;
-	public const int ENERGY_PULSE_TURNS = 3;   // legacy/unused (kept for parity)
 	public const int WAIT_ENERGY = 10;
 
 	// ── Rewards (gold for beating the AI), keyed by difficulty int ───────────
@@ -270,8 +269,6 @@ public static class Config
 			}
 		}
 	}
-
-	public static bool EnergyPulseDue(int turn) => turn > 0 && turn % ENERGY_PULSE_TURNS == 0;
 
 	// ── Grid-dependent helper (un-deferred at the Grid stage) ────────────────
 	// A projectile's flight path from `from` along cardinal `dir`: one entry per tile,

@@ -5,7 +5,7 @@
 # A player who waits to "see" the opponent's plan first gets nothing to see.
 #
 # Transport-agnostic: a host wraps this and ferries submit()/deliver over the wire;
-# the in-process LoopbackTransport wraps it for testing. It never runs the Resolver
+# the live GDSyncSession runs it on the host. It never runs the Resolver
 # (that's the relay/lockstep model -- each client resolves the revealed pair). A
 # server-authoritative variant would resolve here and deliver an event list instead.
 class_name MatchMediator

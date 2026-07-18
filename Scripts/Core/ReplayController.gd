@@ -155,5 +155,5 @@ func _rebuild_log_through(idx: int) -> void:
 	for i in range(idx + 1):
 		var t := match_record.get_turn(i)
 		for note in t.get("notes", []):
-			combat_log._push(note["text"], note["color"])   # shift/crush lines precede the turn
+			combat_log.add_line(note["text"], note["color"])   # shift/crush lines precede the turn
 		combat_log.add_turn(t["turn"], t["events"])

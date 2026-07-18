@@ -1,0 +1,13 @@
+Godot Engine v4.7.stable.mono.official.5b4e0cb0f - https://godotengine.org
+
+ERROR: Can't send message. No active debugger
+   at: send_message (core/core_bind.cpp:2222)
+   GDScript backtrace (most recent call first):
+       [0] _ready (res://addons/GD-Sync/Scripts/Logger.gd:59)
+       [1] _ready (res://addons/GD-Sync/MultiplayerClient.gd:235)
+[parity-cs] wrote 678 cases -> C:/Users/franc/AppData/Roaming/Godot/app_userdata/UKO/parity_cs.txt
+648|0000000000000000000000000000000000000000000000000000000000000000|3,4,1,100,100,100,0,1,0,{},{},{}|4,4,1,100,100,100,0,1,0,{},{},{}|attack@4.4|wait|2=>ongoing|3,4,1,100,100,80,1,1,0,{},{},{}|4,4,1,70,100,100,0,0,0,{},{},{}|attack_hit:1;wait:1
+650|0000000000000000000000000000000000000000000000000000000000000000|3,4,1,100,100,100,0,1,0,{},{},{}|4,4,3,100,100,100,0,1,0,{},{},{}|attack@4.4|guard|2=>ongoing|3,4,1,100,100,80,1,1,0,{},{},{}|4,4,3,100,100,85,1,1,1,{},{},{}|attack_blocked:1;guard_raised:1;guard_success:1
+668|0000000000000000000000000000000000000000000000000000000000000000|3,4,1,100,100,100,0,1,0,{},{},{}|4,4,1,12,100,100,0,1,0,{},{},{}|attack@4.4|wait|8=>a_wins|3,4,1,100,100,80,1,1,0,{},{},{}|4,4,1,0,100,100,0,0,0,{},{},{}|attack_hit:1;dead_skip:1;game_over:1
+ERROR: Capture not registered: 'gdsyncprofiler'.
+   at: unregister_message_capture (core/debugger/engine_debugger.cpp:62)

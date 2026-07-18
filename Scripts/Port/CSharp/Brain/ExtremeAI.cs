@@ -23,7 +23,6 @@ public static class ExtremeAI
 
 	public static readonly Dictionary<string, Profile> Profiles = new()
 	{
-		["mob"] = new Profile { BudgetMs = 90, BudgetEndMs = 90, Rows = 2, Cols = 4, RowsEnd = 2, ColsEnd = 4, Lambda = 0.0 },
 		["challenging"] = new Profile { BudgetMs = 250, BudgetEndMs = 250, Rows = 3, Cols = 6, RowsEnd = 5, ColsEnd = 9, Lambda = 0.0 },
 		["extreme"] = new Profile { BudgetMs = 700, BudgetEndMs = 1400, Rows = 4, Cols = 8, RowsEnd = 6, ColsEnd = 10, Lambda = 0.6 },
 	};

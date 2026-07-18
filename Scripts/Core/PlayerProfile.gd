@@ -1,7 +1,7 @@
 # PlayerProfile.gd
 # The player's PERSISTENT account: gold, owned gear, and the equipped loadout.
 # Saved to user://profile.cfg so it survives between sessions. Kept as a static
-# carrier (like AI.selected_difficulty) rather than an autoload — any script
+# carrier (like MatchBootstrap.difficulty) rather than an autoload — any script
 # reads it via PlayerProfile.gold() / .loadout() and the file loads itself
 # lazily on first touch.
 #

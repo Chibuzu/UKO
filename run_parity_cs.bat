@@ -36,6 +36,6 @@ type parity_cs_run.txt
 
 echo.
 echo ==================== 3/3  Diffing vs the golden file ====================
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0diff_parity.ps1"
+call "%~dp0diff_parity.bat"
 echo.
 pause

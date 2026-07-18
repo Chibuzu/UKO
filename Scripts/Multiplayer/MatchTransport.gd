@@ -1,7 +1,7 @@
 # MatchTransport.gd  (abstract)
-# The link to the match mediator. Hides the wire details (ENet, WebSocket, a headless
-# Godot host, or a Loopback stub for local protocol tests) and the authority model
-# from the rest of the game. NetworkOpponent talks only to this contract.
+# The link to the match mediator. Hides the wire details and the authority model
+# from the rest of the game. NetworkOpponent talks only to this contract; the one
+# live implementation is GDSyncTransport (over the GD-Sync relay).
 #
 # The mediator's ONE non-negotiable job: never release a player's submitted sequence
 # to the opponent until the opponent has also submitted (the simultaneity guarantee).
@@ -16,16 +16,10 @@ signal turn_revealed(bundle: Dictionary)
 
 # Emitted if the remote peer drops mid-match. NetworkOpponent surfaces this (via
 # aborted()) so the turn loop can end the match rather than wait forever for a reveal
-# that will never come. The Loopback transport never fires it.
+# that will never come.
 signal opponent_left()
 
 # Send our planned sequence for `turn`. The mediator must withhold it from the
 # opponent until they too have submitted.
 func submit_sequence(turn: int, seq: Array) -> void:
 	push_error("MatchTransport.submit_sequence is abstract")
-
-# Agree on the match's starting conditions before turn 1: map seed, both loadouts
-# (gear ids -> spells are derived), and a content version so both clients share rules.
-func handshake() -> Dictionary:
-	push_error("MatchTransport.handshake is abstract")
-	return {}
