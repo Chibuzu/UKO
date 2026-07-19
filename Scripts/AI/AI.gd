@@ -50,6 +50,12 @@ static func _get_bridge():
 	_bridge.LoadModel()         # warm-start from what past matches learned (same cfg the GD model writes)
 	_bridge.SetDepth(3)         # sweep-validated (2 nights, ~54% + positive margins at EQUAL time):
 	                            # depth 3 @ the same 700ms budget -- free strength, zero added latency
+	# LEARNED VALUE JUDGE (adopted 2026-07-19: 64.6% over 450 arena matches, then
+	# all six behavior gates green with it armed). Reads user://value_fn.cfg; if
+	# the file is missing/invalid this is a no-op and EXTREME plays the hand eval
+	# exactly as before. The cfg IS the switch -- delete it to roll back, refit
+	# (run_fit_value.bat) to update. The bridge serves ONLY the EXTREME tier.
+	_bridge.SetValueEnabled(_bridge.LoadValueFn())
 	return _bridge
 
 # GameController forwards each observed local-player move here so the C# brain's
@@ -65,8 +71,10 @@ static func _csharp_choose(me: Combatant, foe: Combatant, grid: Grid, opp_model)
 	var b = _get_bridge()
 	if b == null:
 		# Same brain, GDScript body: the numeric twin the agreement harness
-		# verified. EXTREME must never silently become a different fighter.
+		# verified. EXTREME must never silently become a different fighter --
+		# including its judge: arm the learned value here too (same cfg).
 		ExtremeAI.set_profile("extreme")
+		Eval.VALUE_ON = _value_loaded()
 		return ExtremeAI.choose_sequence(me, foe, grid, me.spell_ids(), opp_model)
 	var rows := _grid_rows(grid.blocked)
 	var brows := _grid_rows(grid.base_blocked)
@@ -91,8 +99,21 @@ static func _combatant_dict(c: Combatant) -> Dictionary:
 # (The menu's picked difficulty now travels through MatchBootstrap.difficulty —
 # the one cross-scene handoff channel — not a static here.)
 
+# One-time load of the learned value cfg for the GDSCRIPT extreme fallback
+# (-1 unknown / 0 absent / 1 loaded). The C# path arms itself in _get_bridge().
+static var _value_ok := -1
+static func _value_loaded() -> bool:
+	if _value_ok < 0:
+		_value_ok = 1 if Eval.load_value_fn() else 0
+	return _value_ok == 1
+
 static func choose_sequence(difficulty: int, me: Combatant, foe: Combatant,
 		grid: Grid, spells: Array, opp_model = null) -> Array:
+	# TIER HYGIENE: Eval.VALUE_ON is a global static, so it must be re-asserted
+	# per decision or an EXTREME duel would leak the learned judge into a later
+	# CHALLENGING/HARD duel in the same session. EXTREME re-arms below; every
+	# other tier plays the frozen hand eval, always.
+	Eval.VALUE_ON = false
 	match difficulty:
 		Difficulty.EASY:
 			return StubOpponent.choose_sequence(me, foe, grid, spells)
@@ -107,6 +128,7 @@ static func choose_sequence(difficulty: int, me: Combatant, foe: Combatant,
 			if USE_CSHARP_EXTREME:
 				return _csharp_choose(me, foe, grid, opp_model)   # verified C# ExtremeAI (Nash + depth)
 			ExtremeAI.set_profile("extreme")   # full budget, wider search, adaptive model
+			Eval.VALUE_ON = _value_loaded()    # the adopted judge rides with the tier
 			return ExtremeAI.choose_sequence(me, foe, grid, spells, opp_model)
 		_:
 			return StubOpponent.choose_sequence(me, foe, grid, spells)

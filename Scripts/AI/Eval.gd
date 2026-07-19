@@ -35,6 +35,9 @@ static var W_CENTER   := 0.5        # per ring of edge-depth advantage once the 
 static var W_ITEM     := 2.0        # an unspent grenade is a standing threat (option value)
 static var W_LETHAL   := 2.5        # danger multiplier when the foe's incoming can KILL me outright --
 									#   at one hit from death, exposure is the match, not a cost
+static var W_DOORSTEP := 2.0        # per hp point inside one-turn-kill range (death's door): hp is
+									#   CONVEX near zero -- a 10-pt heal at 15 hp doubles the swings
+									#   needed to kill me; the linear dealt/taken terms can't see that
 
 # ── Lookahead (EXTREME's depth-2 search) [all tunable] ────────────────────
 const LOOKAHEAD_DEPTH := 2   # turns EXTREME sees: 1 = shallow (this turn + heuristic);
@@ -66,7 +69,8 @@ static func _static_init() -> void:
 
 const TUNABLE := ["W_DEAL", "W_TAKE", "W_ENERGY", "W_MP", "W_LOCK", "W_DANGER_MELEE",
 	"W_DANGER_SPELL", "W_PRESSURE", "W_ATTRITION", "W_TEMPO", "W_MOBILITY", "W_PRESS",
-	"W_INCOMING", "W_CENTER", "W_ITEM", "W_LETHAL", "W_SURE_PRESS", "W_REST_PATH", "DISCOUNT"]
+	"W_INCOMING", "W_CENTER", "W_ITEM", "W_LETHAL", "W_SURE_PRESS", "W_REST_PATH",
+	"W_DOORSTEP", "DISCOUNT"]
 
 static func get_weights() -> Dictionary:
 	return {"W_DEAL": W_DEAL, "W_TAKE": W_TAKE, "W_ENERGY": W_ENERGY, "W_MP": W_MP,
@@ -74,7 +78,8 @@ static func get_weights() -> Dictionary:
 		"W_PRESSURE": W_PRESSURE, "W_ATTRITION": W_ATTRITION, "W_TEMPO": W_TEMPO,
 		"W_MOBILITY": W_MOBILITY, "W_PRESS": W_PRESS, "W_INCOMING": W_INCOMING,
 		"W_CENTER": W_CENTER, "W_ITEM": W_ITEM, "W_LETHAL": W_LETHAL,
-		"W_SURE_PRESS": W_SURE_PRESS, "W_REST_PATH": W_REST_PATH, "DISCOUNT": DISCOUNT}
+		"W_SURE_PRESS": W_SURE_PRESS, "W_REST_PATH": W_REST_PATH,
+		"W_DOORSTEP": W_DOORSTEP, "DISCOUNT": DISCOUNT}
 
 static func set_weights(w: Dictionary) -> void:
 	for k in w:
@@ -98,6 +103,7 @@ static func set_weights(w: Dictionary) -> void:
 			"W_LETHAL": W_LETHAL = v
 			"W_SURE_PRESS": W_SURE_PRESS = v
 			"W_REST_PATH": W_REST_PATH = v
+			"W_DOORSTEP": W_DOORSTEP = v
 			"DISCOUNT": DISCOUNT = v
 
 # Per-decision transposition cache for solved subgame values. The same state is
@@ -141,7 +147,7 @@ static func score_deep(me: Combatant, foe: Combatant, grid: Grid, my_seq: Array,
 		s -= W_WIN
 	# Depth 0, or the duel already ended this turn -> static read of the result.
 	if depth <= 0 or res == "a_wins" or res == "b_wins":
-		return s + _eval_situation(me_after, foe_after, grid)
+		return s + _leaf(me_after, foe_after, grid)
 	# Deeper: the value of this position IS the equilibrium value of the next turn.
 	return s + DISCOUNT * _subgame_value(me_after, foe_after, grid, depth)
 
@@ -159,7 +165,7 @@ static func _subgame_value(me: Combatant, foe: Combatant, grid: Grid, depth: int
 static func _subgame_value_raw(me: Combatant, foe: Combatant, grid: Grid, depth: int) -> float:
 	var my_c := _capped_cands(me, foe, grid)
 	if my_c.is_empty():
-		return _eval_situation(me, foe, grid)
+		return _leaf(me, foe, grid)
 	var foe_c := _capped_cands(foe, me, grid)
 	if foe_c.is_empty():
 		foe_c = [[{"id": "rest"}]]
@@ -195,6 +201,20 @@ static func _capped_cands(me: Combatant, foe: Combatant, grid: Grid) -> Array:
 	var out: Array = []
 	for k in range(DEEP_CANDS):
 		out.append(ranked[k]["seq"])
+	# NEVER a suicidal self-model: the aggro-flavored rank above must not strip
+	# the recover line from my own reply set -- a subgame whose every reply
+	# stands and trades reads survivable spots as death (and vice versa). If
+	# [rest] was offered at all, it stays in the cap (replacing the last pick).
+	var has_rest := false
+	for s in out:
+		if s.size() == 1 and String(s[0].get("id", "")) == "rest":
+			has_rest = true
+			break
+	if not has_rest:
+		for c in clean:
+			if c.size() == 1 and String(c[0].get("id", "")) == "rest":
+				out[out.size() - 1] = c
+				break
 	return out
 
 # Cheap ranking for subgame capping: project the sequence and read the threat both
@@ -202,9 +222,96 @@ static func _capped_cands(me: Combatant, foe: Combatant, grid: Grid) -> Array:
 # the deeper search stay affordable.
 static func _cheap_rank(me: Combatant, foe: Combatant, grid: Grid, seq: Array) -> float:
 	var m := me.clone()
+	# Damage the sequence itself COMMITS (nominal), not just the threat left after
+	# it. Without this, spending actions ranked LOW (projection drains energy ->
+	# post-state threat ~0) and hoarding ranked HIGH -- so capped subgames dropped
+	# the foe's actual punishes and deep values went blind exactly at knife-edges.
+	var committed := 0.0
 	for a in seq:
+		var aid := String(a.get("id", ""))
+		if aid == "attack":
+			committed += float(Config.ATTACK_DAMAGE)
+		else:
+			var d := Config.def(aid)
+			var eff: Dictionary = d.get("effect", {})
+			if String(eff.get("type", "")) == "damage":
+				committed += float(eff.get("amount", 0))
 		AIToolkit.apply_projection(m, a)
-	return ThreatModel.worst_damage(m, foe, grid) * W_DEAL - ThreatModel.worst_damage(foe, m, grid) * W_TAKE
+	# WIN-RELEVANT units, not raw points: damage beyond a fighter's remaining hp
+	# is worthless, and LETHAL reach is worth a whole health bar. Without this a
+	# foe's killing swing ranked BELOW a sidestep (15 dmg "worth" less than the
+	# counter-threat), so capped subgames modeled the foe as politely walking away.
+	var deal := committed + float(ThreatModel.worst_damage(m, foe, grid))
+	var take := float(ThreatModel.worst_damage(foe, m, grid))
+	var r := minf(deal, float(foe.hp)) * W_DEAL - minf(take, float(m.hp)) * W_TAKE
+	if deal >= float(foe.hp):
+		r += float(Config.MAX_HP)   # I can end it: worth a full bar
+	if take >= float(m.hp):
+		r -= float(Config.MAX_HP)   # it can end me: costs a full bar
+	return r
+
+# ── LEARNED VALUE (the sweep's verdict: search plateaued, the JUDGE is the lever) ──
+# When loaded AND enabled, the leaf judge becomes a logistic value function fitted
+# on self-play (user://value_fn.cfg, written by FitValue.gd from selfplay_v2.csv):
+# p(win) from the v2 feature vector, mapped onto the hand-eval scale. OFF by
+# default -- nothing changes live until it wins the ValueArena A/B and the gates.
+# Mirrored EXACTLY in Eval.cs (the agreement harness runs with it off).
+static var VALUE_ON := false
+static var _vw: Array = []      # 28 feature weights + [28] = bias
+static var _vmean: Array = []   # per-feature standardization (from the fit)
+static var _vstd: Array = []
+const VALUE_SCALE := 100.0      # maps (2p-1) onto hand-eval units at the leaf
+
+static func load_value_fn() -> bool:
+	var cf := ConfigFile.new()
+	if cf.load("user://value_fn.cfg") != OK:
+		return false
+	_vw = cf.get_value("value", "w", [])
+	_vmean = cf.get_value("value", "mean", [])
+	_vstd = cf.get_value("value", "std", [])
+	return _vw.size() == 29 and _vmean.size() == 28 and _vstd.size() == 28
+
+# The leaf judge: hand eval, or the learned value when armed. ONE dispatch point.
+static func _leaf(me: Combatant, foe: Combatant, grid: Grid) -> float:
+	if VALUE_ON and _vw.size() == 29:
+		return VALUE_SCALE * (2.0 * learned_p(me, foe, grid) - 1.0)
+	return _eval_situation(me, foe, grid)
+
+# p(win) from the fitted logistic. Standardize features exactly as the fit did.
+static func learned_p(me: Combatant, foe: Combatant, grid: Grid) -> float:
+	var f := value_features(me, foe, grid)
+	var z: float = float(_vw[28])
+	for i in 28:
+		var sd: float = float(_vstd[i])
+		z += float(_vw[i]) * ((float(f[i]) - float(_vmean[i])) / (sd if sd > 0.0 else 1.0))
+	return 1.0 / (1.0 + exp(-z))
+
+# THE v2 feature vector -- 28 values, EXACTLY the selfplay_v2.csv columns
+# (hp..foe_cc, in header order). Fit, harvest, and inference must always agree;
+# change one, change all three (FitValue.gd reads by position).
+static func value_features(me: Combatant, foe: Combatant, grid: Grid) -> Array:
+	var rel_map := {"front": 0, "side": 1, "back": 2}
+	var epa := Config.ENERGY_PULSE_ACTIONS
+	return [
+		float(me.hp), float(me.mp), float(me.energy),
+		float(foe.hp), float(foe.mp), float(foe.energy),
+		float(Grid.dist(me.pos, foe.pos)), float(grid.shrink_level),
+		float(me.action_count), float(foe.action_count),
+		0.0 if me.spent_once.has("grenade") else 1.0,
+		0.0 if foe.spent_once.has("grenade") else 1.0,
+		float(rel_map[Config.rel_of(foe.facing, foe.pos, me.pos)]),
+		float(rel_map[Config.rel_of(me.facing, me.pos, foe.pos)]),
+		float(epa - (me.action_count % epa)), float(epa - (foe.action_count % epa)),
+		1.0 if me.energy < Config.COST_ATTACK else 0.0,
+		1.0 if foe.energy < Config.COST_ATTACK else 0.0,
+		1.0 if me.energy < Config.COST_GUARD else 0.0,
+		1.0 if foe.energy < Config.COST_GUARD else 0.0,
+		1.0 if me.rest_ready else 0.0, 1.0 if foe.rest_ready else 0.0,
+		float(me.cooldowns.get("aoe_burst", 0)), float(me.cooldowns.get("dark_bolt", 0)),
+		float(foe.cooldowns.get("aoe_burst", 0)), float(foe.cooldowns.get("dark_bolt", 0)),
+		1.0 if me.statuses.has("rooted") or me.statuses.has("staggered") else 0.0,
+		1.0 if foe.statuses.has("rooted") or foe.statuses.has("staggered") else 0.0,
+	]
 
 # Value of the resulting position from `me`'s side. The heart of the strategist:
 # it reads what each side can ACTUALLY do next turn (ThreatModel), not geometry in
@@ -237,6 +344,19 @@ static func _eval_situation(me: Combatant, foe: Combatant, grid: Grid) -> float:
 	var fear := 1.0 + 1.2 * (1.0 - float(me.hp) / float(Config.MAX_HP))
 	v -= ((W_DANGER_MELEE * float(danger["blockable"]) + W_DANGER_SPELL * float(danger["unblockable"])) * lethal_mult) * fear
 	v += W_PRESSURE * float(int(mine["blockable"]) + int(mine["unblockable"]))
+
+	# DEATH'S DOOR (hp convexity): inside one full-power foe turn (two swings) of
+	# dying, each hp point IS the match -- a 10-point heal at 15 hp doubles the
+	# swings needed to kill me; 10 damage on a 100-hp foe changes little. The
+	# linear dealt/taken terms can't see that, so aggro always outbid the heal at
+	# death's door (gate 4 red). Priced at the LEAF so every line, at every depth,
+	# feels staying in (or pushing the foe into) one-turn-kill range. Symmetric.
+	# Mirrored in Eval.cs.
+	var doorstep := 2.0 * float(Config.ATTACK_DAMAGE)
+	if float(me.hp) < doorstep:
+		v -= W_DOORSTEP * (doorstep - float(me.hp))
+	if float(foe.hp) < doorstep:
+		v += W_DOORSTEP * (doorstep - float(foe.hp))
 
 	# Attrition: a foe who can't even afford to attack while I still can is losing
 	# the resource war -- worth pressing, and worth trading some HP to reach.

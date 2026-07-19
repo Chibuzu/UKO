@@ -39,10 +39,36 @@ public static class ExtremeAI
 		// Calibration (CAL_A) is loaded by the BRIDGE from user://calibration.cfg.
 	}
 
+	public const double TERMINAL_CAP = 0.70;   // max prob any line keeps at a starved endstate
+
 	public static List<PlanAction> ChooseSequence(Combatant me, Combatant foe, Grid grid, OpponentModel oppModel = null)
 	{
 		var r = ChooseMix(me, foe, grid, oppModel);
-		return r.Cands[Sample(r.Mix)];
+		// TERMINAL ANTI-TELL (gate #8): play-time spread on the SAMPLED path only --
+		// ChooseMix / the agreement harness stay outside it. Mirrors ExtremeAI.gd.
+		var mix = me.Energy < Config.COST_GUARD ? TerminalSpread(r.Mix) : r.Mix;
+		return r.Cands[Sample(mix)];
+	}
+
+	// Cap the top entry at TERMINAL_CAP; hand the excess to the other live lines,
+	// proportionally. No-op when support is a single line (GD mirror: _terminal_spread).
+	private static double[] TerminalSpread(double[] mix)
+	{
+		int top = 0, live = 0;
+		for (int i = 0; i < mix.Length; i++)
+		{
+			if (mix[i] > 0.0) live++;
+			if (mix[i] > mix[top]) top = i;
+		}
+		if (live < 2 || mix[top] <= TERMINAL_CAP) return mix;
+		double excess = mix[top] - TERMINAL_CAP;
+		double rest = 1.0 - mix[top];
+		var outp = (double[])mix.Clone();
+		outp[top] = TERMINAL_CAP;
+		for (int i = 0; i < outp.Length; i++)
+			if (i != top && outp[i] > 0.0)
+				outp[i] = outp[i] + excess * (mix[i] / rest);
+		return outp;
 	}
 
 	// GuaranteedValue: min over foe columns of mixᵀM -- the floor this mix secures.

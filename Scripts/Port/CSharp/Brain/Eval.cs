@@ -12,6 +12,7 @@ public static class Eval
 	// ── Transition weights ────────────────────────────────────────────────────
 	public static double W_DEAL = 1.0;
 	public static double W_TAKE = 1.25;
+	public static double W_DOORSTEP = 2.0;
 	public const double W_WIN = 1000.0;
 
 	// ── Situational weights ───────────────────────────────────────────────────
@@ -53,7 +54,8 @@ public static class Eval
 		["W_PRESSURE"] = W_PRESSURE, ["W_ATTRITION"] = W_ATTRITION, ["W_TEMPO"] = W_TEMPO,
 		["W_MOBILITY"] = W_MOBILITY, ["W_PRESS"] = W_PRESS, ["W_INCOMING"] = W_INCOMING,
 		["W_CENTER"] = W_CENTER, ["W_ITEM"] = W_ITEM, ["W_LETHAL"] = W_LETHAL,
-		["W_SURE_PRESS"] = W_SURE_PRESS, ["W_REST_PATH"] = W_REST_PATH, ["DISCOUNT"] = DISCOUNT,
+		["W_SURE_PRESS"] = W_SURE_PRESS, ["W_REST_PATH"] = W_REST_PATH,
+		["W_DOORSTEP"] = W_DOORSTEP, ["DISCOUNT"] = DISCOUNT,
 	};
 
 	public static void SetWeights(Dictionary<string, double> w)
@@ -81,6 +83,7 @@ public static class Eval
 				case "W_LETHAL": W_LETHAL = v; break;
 				case "W_SURE_PRESS": W_SURE_PRESS = v; break;
 				case "W_REST_PATH": W_REST_PATH = v; break;
+				case "W_DOORSTEP": W_DOORSTEP = v; break;
 				case "DISCOUNT": DISCOUNT = v; break;
 			}
 		}
@@ -114,7 +117,7 @@ public static class Eval
 		if (res == myWin) s += W_WIN;
 		else if (res == "a_wins" || res == "b_wins") s -= W_WIN;
 		if (depth <= 0 || res == "a_wins" || res == "b_wins")
-			return s + EvalSituation(meAfter, foeAfter, grid);
+			return s + Leaf(meAfter, foeAfter, grid);
 		return s + DISCOUNT * SubgameValue(meAfter, foeAfter, grid, depth);
 	}
 
@@ -130,7 +133,7 @@ public static class Eval
 	private static double SubgameValueRaw(Combatant me, Combatant foe, Grid grid, int depth)
 	{
 		var myC = CappedCands(me, foe, grid);
-		if (myC.Count == 0) return EvalSituation(me, foe, grid);
+		if (myC.Count == 0) return Leaf(me, foe, grid);
 		var foeC = CappedCands(foe, me, grid);
 		if (foeC.Count == 0)
 			foeC = new List<List<PlanAction>> { new() { new PlanAction("rest") } };
@@ -156,7 +159,17 @@ public static class Eval
 			ranked.Add((c, CheapRank(me, foe, grid, c)));
 		// Godot's sort_custom is UNSTABLE; the GDScript side now uses an explicit
 		// value-then-index tie-break to match this stable top-k (defined behavior).
-		return StableTop(ranked, DEEP_CANDS);
+		var top = StableTop(ranked, DEEP_CANDS);
+		// NEVER a suicidal self-model: the aggro-flavored rank above must not strip
+		// the recover line from my own reply set -- a subgame whose every reply
+		// stands and trades reads survivable spots as death (and vice versa). If
+		// [rest] was offered at all, it stays in the cap (replacing the last pick).
+		bool hasRest = false;
+		foreach (var s in top) if (s.Count == 1 && s[0].Id == "rest") { hasRest = true; break; }
+		if (!hasRest)
+			foreach (var c in clean)
+				if (c.Count == 1 && c[0].Id == "rest") { top[top.Count - 1] = c; break; }
+		return top;
 	}
 
 	// Stable descending top-k (preserves original order on ties, like GDScript's insertion sort).
@@ -178,11 +191,90 @@ public static class Eval
 	private static double CheapRank(Combatant me, Combatant foe, Grid grid, List<PlanAction> seq)
 	{
 		var m = me.Clone();
-		foreach (var a in seq) AIToolkit.ApplyProjection(m, a);
-		return ThreatModel.WorstDamage(m, foe, grid) * W_DEAL - ThreatModel.WorstDamage(foe, m, grid) * W_TAKE;
+		// Damage the sequence itself COMMITS (nominal), not just the threat left after
+		// it. Without this, spending actions ranked LOW (projection drains energy ->
+		// post-state threat ~0) and hoarding ranked HIGH -- so capped subgames dropped
+		// the foe's actual punishes and deep values went blind exactly at knife-edges.
+		double committed = 0.0;
+		foreach (var a in seq)
+		{
+			if (a.Id == "attack") committed += Config.ATTACK_DAMAGE;
+			else
+			{
+				var d = Config.Def(a.Id);
+				if (d != null && d.Effect != null && d.Effect.Type == "damage")
+					committed += d.Effect.Amount ?? 0;
+			}
+			AIToolkit.ApplyProjection(m, a);
+		}
+		// WIN-RELEVANT units, not raw points: damage beyond a fighter's remaining hp
+		// is worthless, and LETHAL reach is worth a whole health bar. Without this a
+		// foe's killing swing ranked BELOW a sidestep (15 dmg "worth" less than the
+		// counter-threat), so capped subgames modeled the foe as politely walking away.
+		double deal = committed + ThreatModel.WorstDamage(m, foe, grid);
+		double take = ThreatModel.WorstDamage(foe, m, grid);
+		double r = Math.Min(deal, foe.Hp) * W_DEAL - Math.Min(take, m.Hp) * W_TAKE;
+		if (deal >= foe.Hp) r += Config.MAX_HP;   // I can end it: worth a full bar
+		if (take >= m.Hp) r -= Config.MAX_HP;     // it can end me: costs a full bar
+		return r;
 	}
 
 	// ── Situation value (the strategist's heart; mirrors _eval_situation) ────
+	// ── LEARNED VALUE (mirror of Eval.gd's block; agreement harness runs with it OFF) ──
+	public static bool VALUE_ON = false;
+	public static double[] VW = System.Array.Empty<double>();     // 28 weights + [28] bias
+	public static double[] VMEAN = System.Array.Empty<double>();
+	public static double[] VSTD = System.Array.Empty<double>();
+	public const double VALUE_SCALE = 100.0;
+
+	// The leaf judge: hand eval, or the learned value when armed. ONE dispatch point.
+	private static double Leaf(Combatant me, Combatant foe, Grid grid)
+	{
+		if (VALUE_ON && VW.Length == 29)
+			return VALUE_SCALE * (2.0 * LearnedP(me, foe, grid) - 1.0);
+		return EvalSituation(me, foe, grid);
+	}
+
+	public static double LearnedP(Combatant me, Combatant foe, Grid grid)
+	{
+		var f = ValueFeatures(me, foe, grid);
+		double z = VW[28];
+		for (int i = 0; i < 28; i++)
+		{
+			double sd = VSTD[i] > 0.0 ? VSTD[i] : 1.0;
+			z += VW[i] * ((f[i] - VMEAN[i]) / sd);
+		}
+		return 1.0 / (1.0 + Math.Exp(-z));
+	}
+
+	// THE v2 feature vector -- 28 values, EXACTLY the selfplay_v2.csv columns.
+	// Fit (FitValue.gd), harvest (OvernightSweep) and inference must always agree.
+	public static double[] ValueFeatures(Combatant me, Combatant foe, Grid grid)
+	{
+		int Tier(string r) => r == "front" ? 0 : r == "side" ? 1 : 2;
+		int epa = Config.ENERGY_PULSE_ACTIONS;
+		return new double[]
+		{
+			me.Hp, me.Mp, me.Energy, foe.Hp, foe.Mp, foe.Energy,
+			Grid.Dist(me.Pos, foe.Pos), grid.ShrinkLevel,
+			me.ActionCount, foe.ActionCount,
+			me.SpentOnce.ContainsKey("grenade") ? 0.0 : 1.0,
+			foe.SpentOnce.ContainsKey("grenade") ? 0.0 : 1.0,
+			Tier(Config.RelOf(foe.Facing, foe.Pos, me.Pos)),
+			Tier(Config.RelOf(me.Facing, me.Pos, foe.Pos)),
+			epa - (me.ActionCount % epa), epa - (foe.ActionCount % epa),
+			me.Energy < Config.COST_ATTACK ? 1.0 : 0.0,
+			foe.Energy < Config.COST_ATTACK ? 1.0 : 0.0,
+			me.Energy < Config.COST_GUARD ? 1.0 : 0.0,
+			foe.Energy < Config.COST_GUARD ? 1.0 : 0.0,
+			me.RestReady ? 1.0 : 0.0, foe.RestReady ? 1.0 : 0.0,
+			me.Cooldowns.GetValueOrDefault("aoe_burst", 0), me.Cooldowns.GetValueOrDefault("dark_bolt", 0),
+			foe.Cooldowns.GetValueOrDefault("aoe_burst", 0), foe.Cooldowns.GetValueOrDefault("dark_bolt", 0),
+			me.Statuses.ContainsKey("rooted") || me.Statuses.ContainsKey("staggered") ? 1.0 : 0.0,
+			foe.Statuses.ContainsKey("rooted") || foe.Statuses.ContainsKey("staggered") ? 1.0 : 0.0,
+		};
+	}
+
 	public static double EvalSituation(Combatant me, Combatant foe, Grid grid)
 	{
 		double v = 0.0;
@@ -199,6 +291,16 @@ public static class Eval
 		double fear = 1.0 + 1.2 * (1.0 - (double)me.Hp / Config.MAX_HP);
 		v -= ((W_DANGER_MELEE * danger.Blockable + W_DANGER_SPELL * danger.Unblockable) * lethalMult) * fear;
 		v += W_PRESSURE * (mine.Blockable + mine.Unblockable);
+
+		// DEATH'S DOOR (hp convexity): inside one full-power foe turn (two swings) of
+		// dying, each hp point IS the match -- a 10-point heal at 15 hp doubles the
+		// swings needed to kill me; 10 damage on a 100-hp foe changes little. The
+		// linear dealt/taken terms can't see that, so aggro always outbid the heal at
+		// death's door (gate 4 red). Priced at the LEAF so every line, at every depth,
+		// feels staying in (or pushing the foe into) one-turn-kill range. Symmetric.
+		double doorstep = 2.0 * Config.ATTACK_DAMAGE;
+		if (me.Hp < doorstep) v -= W_DOORSTEP * (doorstep - me.Hp);
+		if (foe.Hp < doorstep) v += W_DOORSTEP * (doorstep - foe.Hp);
 
 		// Foe cannot afford GUARD: my blockable melee threat is UNANSWERABLE.
 		if (foe.Energy < Config.COST_GUARD && mine.Blockable > 0)

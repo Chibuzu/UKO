@@ -19,15 +19,19 @@ public static class ThreatModel
 			Vec2I t = def.Pos + dv;
 			if (!grid.InBounds(t) || grid.IsBlocked(t)) continue;
 			int cost;
+			int budget = att.Energy;
 			if (att.Pos == t)
-				cost = Config.COST_ATTACK;
+			{
+				cost = Config.COST_ATTACK;          // already adjacent: just swing (1 slot)...
+				budget += Config.WAIT_ENERGY;       // ...so the OTHER slot can WAIT (+10) first (GD mirror)
+			}
 			else if (Grid.Dist(att.Pos, t) == 1)
 				cost = Config.EffectiveMoveCost(att.Facing, att.Pos, t, att.Statuses) + Config.COST_ATTACK;
 			else if (blinkTiles.Contains(t))
 				cost = Config.COST_ATTACK;
 			else
 				continue;
-			if (att.Energy < cost) continue;
+			if (budget < cost) continue;
 			string rel = FlankOf(def, t);
 			best = Math.Max(best, Rnd(Config.ATTACK_DAMAGE * Config.FLANK_MULT[rel]));
 		}
@@ -45,6 +49,7 @@ public static class ThreatModel
 			if (eff == null || eff.Type != "damage") continue;
 			if (att.Cooldowns.GetValueOrDefault(sid, 0) > 0) continue;
 			if (att.Mp < d.MpCost) continue;
+			if (att.Energy < d.EnergyCost) continue;   // future-proof: all current spells cost 0 energy
 			int amt = eff.Amount ?? 0;
 			switch (d.Shape)
 			{

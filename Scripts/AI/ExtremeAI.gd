@@ -163,7 +163,37 @@ static func choose_sequence(me: Combatant, foe: Combatant, grid: Grid, spells: A
 			mix[i] = (1.0 - lam) * float(mix[i]) + lam * float(exploit[i])
 
 	mix = _prune_support(mix, MIN_MIX)   # keep mixing, but never play negligible lines
+	# TERMINAL ANTI-TELL (gate #8, both live losses): at starved endstates a collapsed
+	# near-pure mix is a read a human exploits ("low energy -> it will guard"). Cap the
+	# top line and re-spread the rest, ONLY when starved -- normal play is untouched.
+	# Play-time spread on the SAMPLED path only: ChooseMix / the agreement harness's
+	# deterministic pipeline are deliberately outside it. Mirrored in ExtremeAI.cs.
+	if me.energy < Config.COST_GUARD:
+		mix = _terminal_spread(mix)
 	return my_cands[_sample(mix)]
+
+const TERMINAL_CAP := 0.70   # max probability any single line keeps at a starved endstate
+
+# Cap the mix's top entry at TERMINAL_CAP and hand the excess to the other live
+# lines, proportionally. No-op when support is a single line (nothing to spread to).
+static func _terminal_spread(mix: Array) -> Array:
+	var top := 0
+	var live := 0
+	for i in mix.size():
+		if float(mix[i]) > 0.0:
+			live += 1
+		if float(mix[i]) > float(mix[top]):
+			top = i
+	if live < 2 or float(mix[top]) <= TERMINAL_CAP:
+		return mix
+	var excess := float(mix[top]) - TERMINAL_CAP
+	var rest := 1.0 - float(mix[top])
+	var out := mix.duplicate()
+	out[top] = TERMINAL_CAP
+	for i in out.size():
+		if i != top and float(out[i]) > 0.0:
+			out[i] = float(out[i]) + excess * (float(mix[i]) / rest)
+	return out
 
 # Drop empty sequences from a candidate list.
 static func _clean(cands: Array) -> Array:

@@ -37,6 +37,80 @@
 - **DELIBERATELY NOT SPLIT: the serpent span/turn + 2-tile reach-clip machinery.** Its branches encode a graveyard of fixed visual bugs (stranded mid-tile sprites, compounding drift, double-draws — the comments document each). Splitting it into subclasses blind (no runtime here) risks re-introducing exactly those; it should only be attempted WITH the game running on the same screen. It is contained, documented, and correct — leave it until then.
 - PLAYTEST: one duel (player anims: idle/move/attack/guard cube/buff/teleport + gear overlays on idle), one story fight (bat rotation aims, ooze mirror + spit, twin boss slither/turn/2-tile bites), an NPC village walk.
 
+## 2026-07-19 ROUND 9d — THE JUDGE GOES LIVE (adoption complete)
+Full protocol passed: arena FINAL 124-68 (64.6%, +12.4 avg margin, 450 matches) →
+six gates green value-OFF → six gates green value-ON (critical-survival 81%). Live
+wiring, all in AI.gd (the dispatcher — no harness routes through it, each keeps its
+own explicit dial): the C# bridge arms once at setup (SetValueEnabled(LoadValueFn())
+— missing/invalid cfg = no-op, hand eval as before; **user://value_fn.cfg IS the
+switch**: delete to roll back, run_fit_value.bat to update); the GD extreme fallback
+arms via a one-time-loaded cache; and choose_sequence() re-asserts Eval.VALUE_ON =
+false per decision so the judge can NEVER leak into CHALLENGING/HARD (tier hygiene —
+VALUE_ON is a global static). BrainAgreement stays value-off both languages by design.
+**GENERATION 2 (queued, needs Fra):** harvest is still played value-off; next harvest
+night should play WITH the judge (more decisive games → sharper labels), then refit →
+arena ON-vs-current → adopt if it wins again. That loop is now the standing
+improvement engine. PLAYTEST: one EXTREME duel (feel + latency — the judge is a
+cheaper leaf than the hand eval, so turns should not get slower), one CHALLENGING
+duel (must feel exactly as approved).
+
+## 2026-07-19 ROUND 9c — ADOPTION GATE (arena came back ADOPT)
+Fra's 450-match arena (on the 9b brain, both seats): ADOPT locked mathematically at
+420/450 — the learned judge won 114-63 decisive (64%), avg margin +12 hp, stable from
+match 150 on. Protocol before it goes LIVE: PositionTests gained **USE_VALUE** (flip
+true → loads user://value_fn.cfg and arms Eval.VALUE_ON for the whole suite) — the
+judge must keep ALL SIX gates green, then the live flip ships (BrainBridge LoadValueFn
++ SetValueEnabled(true) for the EXTREME profile only; CHALLENGING keeps the frozen
+hand-eval feel). Draw rate is still the story (243/420 = 58%) — generation 2's
+harvest, played WITH the judge, should be more decisive and train a sharper one.
+
+## 2026-07-18 ROUND 9b — GATE TRUTH + HP CONVEXITY (from Fra's first round-9 night results)
+Fra's paste: fit fine (21,284 rows, 60.1% train acc, hp +/-0.808 dominant — sane first
+generation; note 35,974 draw rows skipped = the stall meta starving the fitter), but
+critical-rest still 0% and press-starving 38%. Diagnosed OFFLINE against the C# twin
+(exact ChooseMix probabilities, no sampling noise). Three findings, three fixes:
+- **BOTH red gates had ARMED "harmless" foes (premise bugs #2 and #3).** Gate 5's
+  "locked-out" foe held default FULL MP = two DARK BOLTS (bolt costs 0 energy); the
+  brain's hedge was correct play. With foe.mp=0 it presses 100% — its favourite line
+  is blink-in -> aoe_burst, which the old predicate (attack/bolt/move only) scored as
+  passivity! Predicate now counts burst + blink-close as pressing. Gate 4's foe still
+  held the once-per-match GRENADE (costs NO energy, NO mp — drains 20 + roots + cancels
+  rest). Premise now spends it: 0 energy + 0 mp + grenade gone = actually harmless.
+- **THE BRAIN'S REAL DISEASE (both languages, Eval): hp priced LINEARLY.** A 10-pt heal
+  at 15 hp doubles the swings needed to kill you; 10 damage on a 100-hp foe changes
+  ~nothing — but dealt/taken and the cheap subgame rank treated them as equal, so aggro
+  always outbid survival at death's door. Fixes: (1) **W_DOORSTEP** (new tunable, 2.0):
+  leaf term, symmetric — each hp point inside one-turn-kill range (2×ATTACK_DAMAGE) is
+  priced; every line at every depth now feels one-shot exposure. (2) **_cheap_rank/
+  CheapRank rewritten in win-relevant units**: counts the damage a sequence itself
+  COMMITS (spending ranked low before — capped subgames modeled the foe as politely
+  walking away instead of swinging the kill), caps damage at remaining hp, lethal
+  reach = +/- one full bar. (3) **_capped_cands keeps [rest] in the self-model** when
+  offered — a reply set that can only stand-and-trade reads survivable spots as death.
+- **GATE 4 RESPEC'D: critical-rest -> critical-SURVIVAL.** With the foe truly inert the
+  brain found a line STRICTLY better than resting in place (rest-in-place eats next
+  turn's wait->swing, taking the heal right back): chip + step where 20 energy can't
+  reach, THEN rest safely. Demanding the literal "rest" id punished better play, so the
+  gate now asserts the SPIRIT: after the chosen turn, alive and OUT of the foe's
+  next-turn one-shot range (worst incoming < hp). The old stand-and-bang death line
+  FAILS this check; any true survival play passes.
+- Offline C#-twin gate probabilities after the fixes (expect ~this on the machine, mod
+  21-sample noise): flee 100 / grenade 0 / safe-rest 100 / critical-survival 100 /
+  press-starving ~100 / no-lead-wait 100. Agreement harness: GD+CS changed in lockstep,
+  stays green. Resolver untouched — parity goldens byte-identical.
+- **ARENA NOTE:** the round-9 arena verdict must be measured ON this brain — if one ran
+  on round-9 code, re-run run_value_arena.bat after 9b for the adoption decision (the
+  fit itself, value_fn.cfg, stays valid: it learned states->outcomes, not the brain).
+- **FRA'S NIGHT CHECKLIST (9b):** verify_all.bat (green) -> run_position_tests.bat
+  (expect SIX green) -> run_value_arena.bat overnight -> paste both.
+
+## 2026-07-18 ROUND 9 — THE AI ROUND (first behavior changes; Fra-ratified "go")
+- **ThreatModel wait-aware swing (both languages):** an ADJACENT foe at 10-19 energy was read as harmless, but wait(+10)->swing is real -- the model now budgets energy+WAIT_ENERGY for the swing-only case (2-slot step+swing and blink+swing unchanged: no free slot). Also future-proofed spell energy_cost checks both sides.
+- **GATE 4 PREMISE FIXED:** post-kit-fix the "harmless" foe held full MP -> could BURST an adjacent rester (mp-powered, needs no energy) -- the brain was RIGHT not to rest. The gate now zeroes foe.mp too. Expect critical-rest to go green on merit.
+- **TERMINAL ANTI-TELL (gate #8, both live losses):** at starved endstates (energy < COST_GUARD) the SAMPLED mix caps its top line at 0.70 and re-spreads the excess -- "low energy -> it will guard" stops being a read. Play-time only: ChooseMix + the agreement harness are deliberately OUTSIDE it (agreement stays green untouched).
+- **LEARNED VALUE PIPELINE (built, ships OFF):** the sweep's verdict was "the judge is the bottleneck" -- the leaf judge (_eval_situation) now sits behind ONE dispatch (_leaf/Leaf, both languages) that can swap in a logistic p(win) fitted on selfplay_v2.csv. Flow: run_fit_value.bat (fits + reports + writes user://value_fn.cfg) -> run_value_arena.bat (value-ON vs value-OFF, 150 matches d3@700, ADOPT >=55% / KEEP <50%) -> position gates -> only then flip it on live (BrainBridge.SetValueEnabled). Features = EXACTLY the v2 CSV columns; fit/harvest/inference must change together. Next generations: play with the new judge -> harvest -> refit -> arena again.
+- **FRA'S NIGHT CHECKLIST:** verify_all.bat (green; goldens unchanged -- engine untouched) -> run_position_tests.bat (expect critical-rest GREEN now; note all six rates) -> run_fit_value.bat -> run_value_arena.bat overnight -> paste both results.
+
 ## 2026-07-18 ROUND 3 — de-hardcoding pass, zero behavior change
 - **ui_slot**: SpellBook defs gained an explicit `ui_slot`; ActionMenu reads it (never `ai_role`) — retuning the AI can no longer rewire the player's buttons. Same values today.
 - **flip_when**: per-creature sprite-mirroring is DATA in SpriteBook sets; UnitView names no creature (old ooze/bat branch encoded verbatim: bat [], ooze [west,north], default [west]).

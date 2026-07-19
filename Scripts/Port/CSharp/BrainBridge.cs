@@ -38,6 +38,26 @@ public partial class BrainBridge : RefCounted
 			? (double)cf.GetValue("cal", "a", 0.0) : 0.0;
 	}
 
+	// ── learned value function (fitted by FitValue.gd -> user://value_fn.cfg) ──
+	public void SetValueEnabled(bool on) => Eval.VALUE_ON = on;
+
+	public bool LoadValueFn()
+	{
+		var cf = new ConfigFile();
+		if (cf.Load("user://value_fn.cfg") != Error.Ok) return false;
+		Eval.VW = ToDoubles(cf.GetValue("value", "w", new GC.Array()).AsGodotArray());
+		Eval.VMEAN = ToDoubles(cf.GetValue("value", "mean", new GC.Array()).AsGodotArray());
+		Eval.VSTD = ToDoubles(cf.GetValue("value", "std", new GC.Array()).AsGodotArray());
+		return Eval.VW.Length == 29 && Eval.VMEAN.Length == 28 && Eval.VSTD.Length == 28;
+	}
+
+	private static double[] ToDoubles(GC.Array a)
+	{
+		var outp = new double[a.Count];
+		for (int i = 0; i < a.Count; i++) outp[i] = a[i].AsDouble();
+		return outp;
+	}
+
 	// ── the one call per decision ────────────────────────────────────────────
 	public GC.Array ChooseSequence(string[] gridRows, string[] baseRows, int rotStep, int shrinkLevel,
 			GC.Dictionary me, GC.Dictionary foe, bool useModel)

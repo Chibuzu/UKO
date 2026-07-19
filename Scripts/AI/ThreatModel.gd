@@ -29,16 +29,21 @@ static func melee_damage(att: Combatant, def: Combatant, grid: Grid) -> int:
 		if not grid.in_bounds(t) or grid.is_blocked(t):
 			continue
 		var cost := -1
+		var budget := att.energy
 		if att.pos == t:
-			cost = Config.COST_ATTACK            # already adjacent: just swing (1 slot)
+			cost = Config.COST_ATTACK            # already adjacent: just swing (1 slot)...
+			budget += Config.WAIT_ENERGY         # ...so the OTHER slot can WAIT (+10) first.
+			                                     # A foe at 10-19 energy is NOT harmless: wait->swing
+			                                     # is real (the model used to dismiss it -- resting
+			                                     # next to such a foe walked into a hit).
 		elif Grid.dist(att.pos, t) == 1:
-			# step into t, then swing (2 slots). t is orthogonally next to att.
+			# step into t, then swing (2 slots -- no room for a wait). t is orthogonally next to att.
 			cost = Config.effective_move_cost(att.facing, att.pos, t, att.statuses) + Config.COST_ATTACK
 		elif t in blink_tiles:
 			cost = Config.COST_ATTACK             # blink relocates (mp); only the swing costs energy
 		else:
 			continue                              # can't both reach t and swing this turn
-		if att.energy < cost:
+		if budget < cost:
 			continue
 		var rel := flank_of(def, t)
 		best = maxi(best, int(round(Config.ATTACK_DAMAGE * float(Config.FLANK_MULT[rel]))))
@@ -58,6 +63,8 @@ static func spell_damage(att: Combatant, def: Combatant, grid: Grid) -> int:
 			continue
 		if att.mp < int(d.get("mp_cost", 0)):
 			continue
+		if att.energy < int(d.get("energy_cost", 0)):
+			continue                              # future-proof: all current spells cost 0 energy
 		var amt := int(eff.get("amount", 0))
 		match String(d.get("shape", "")):
 			"around":                             # BURST: needs to be adjacent (Chebyshev 1)
