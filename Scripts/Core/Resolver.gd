@@ -125,6 +125,8 @@ static func resolve(grid: Grid, in_a: Combatant, in_b: Combatant,
 		for s in group:
 			if not (s["category"] in ["attack", "spell", "projectile"]):
 				continue
+			if bool(s.get("_resolved", false)):
+				continue   # cancelled upstream (e.g. DRAINED DRY broke this swing)
 			var actor2: Combatant = a if s["owner"] == "A" else b
 			var target2: Combatant = b if s["owner"] == "A" else a
 			if dead_tick[actor2.id] != -1 and dead_tick[actor2.id] < tick:
@@ -140,7 +142,7 @@ static func resolve(grid: Grid, in_a: Combatant, in_b: Combatant,
 					elif Config.is_blink(s["id"]):
 						_launch_blink(grid, s, actor2, target2, sched, i, tick, events)
 				"projectile":
-					_projectile_step(s, actor2, target2, tick, proj_consumed, grid, damaged_tick, dead_tick, events)
+					_projectile_step(s, actor2, target2, tick, proj_consumed, grid, sched, damaged_tick, dead_tick, events)
 			if actor2.statuses.has("rooted"):
 				actor2.statuses.erase("rooted")
 
@@ -795,7 +797,7 @@ static func _move_into_projectile(mover: Combatant, sched: Array, tick: int,
 # after any earlier move/blink this tick resolved) it takes the hit. A non-piercing
 # bolt is then spent and its remaining steps are skipped.
 static func _projectile_step(s: Dictionary, actor: Combatant, target: Combatant,
-		tick: int, consumed: Dictionary, grid: Grid,
+		tick: int, consumed: Dictionary, grid: Grid, sched: Array,
 		damaged_tick: Dictionary, dead_tick: Dictionary, events: Array) -> void:
 	var pid: String = s["pid"]
 	if consumed.get(pid, false):
@@ -805,7 +807,7 @@ static func _projectile_step(s: Dictionary, actor: Combatant, target: Combatant,
 	if _occupies(target, tile) and dead_tick[target.id] == -1:
 		var eff: Dictionary = Config.def(s["id"]).get("effect", {})
 		if String(eff.get("type", "")) == "disrupt":
-			_apply_disrupt(eff, s, actor, target, tick, events, damaged_tick, dead_tick)
+			_apply_disrupt(eff, s, actor, target, tick, sched, events, damaged_tick, dead_tick)
 		else:
 			var dmg := int(s["damage"])
 			_apply_damage(target, dmg, tick, damaged_tick, dead_tick)
@@ -815,7 +817,7 @@ static func _projectile_step(s: Dictionary, actor: Combatant, target: Combatant,
 
 # THE one place the grenade's landing rules live (root + drain + event) -- any
 # future disrupt-style effect is edited here, never inlined at a hit site again.
-static func _apply_disrupt(eff: Dictionary, s: Dictionary, actor: Combatant, target: Combatant, tick: int, events: Array,
+static func _apply_disrupt(eff: Dictionary, s: Dictionary, actor: Combatant, target: Combatant, tick: int, sched: Array, events: Array,
 		damaged_tick: Dictionary, dead_tick: Dictionary) -> void:
 	var st: String = String(eff.get("status", ""))
 	if st != "":
@@ -823,6 +825,16 @@ static func _apply_disrupt(eff: Dictionary, s: Dictionary, actor: Combatant, tar
 	var drain := int(eff.get("energy_drain", 0))
 	if drain > 0:
 		target.energy = maxi(0, target.energy - drain)
+		# DRAINED DRY (Fra): a disrupt that EMPTIES the tank also breaks the victim's
+		# queued basic ATTACK this turn -- no stamina left to swing. The swing's paid
+		# energy is NOT refunded (the drain ate it); the grenade's range-1 flight is
+		# faster than the ATTACK band exactly so this counterplay can exist.
+		if target.energy == 0:
+			for e in sched:
+				if String(e.get("owner", "")) == target.id and not bool(e.get("_resolved", false)) \
+						and String(e.get("category", "")) == "attack" and int(e["tick"]) > tick:
+					e["_resolved"] = true
+					events.append(_ev(ResolverEvents.ATTACK_DRAINED, int(e["tick"]), target.id, {"by": actor.id}))
 	# The chip damage rides the NORMAL damage path, so it interrupts an in-progress
 	# rest and blocks next turn's rest exactly like any other hit (Fra's spec).
 	var dmg := int(eff.get("amount", 0))
@@ -949,3 +961,16 @@ static func shape_rect(w: int, h: int) -> Array:
 		for x in range(w):
 			out.append(Vector2i(x, y))           # primary cell = the near-left corner
 	return out
+
+
+# ── Clash pre-detection (controller-side; deliberately GD-only) ───────────
+# Would resolving these two committed plans produce a contested-tile CLASH?
+# Deterministic dry run on clones -- the controller uses it to hold the stance
+# sub-round BEFORE the real resolve, so the resolver itself stays pure/one-shot.
+static func clash_pending(grid: Grid, a: Combatant, b: Combatant,
+		seq_a: Array, seq_b: Array, turn: int) -> bool:
+	var out := resolve(grid, a, b, seq_a, seq_b, turn)
+	for e in out["events"]:
+		if String(e.get("type", "")) == ResolverEvents.CLASH:
+			return true
+	return false

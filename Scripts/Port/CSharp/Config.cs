@@ -156,7 +156,7 @@ public static class Config
 	public static readonly Dictionary<string, ActionDef> ACTIONS = new()
 	{
 		["move"]  = new ActionDef { Id = "move",  Band = Band.MOVE,   BaseTick = 20, EnergyCost = COST_MOVE_FWD, MpCost = 0, NeedsTile = true,  Category = "move" },
-		["pivot"] = new ActionDef { Id = "pivot", Band = Band.PIVOT,  BaseTick = 10, EnergyCost = 0,             MpCost = 0, NeedsTile = false, Category = "pivot" },
+		["pivot"] = new ActionDef { Id = "pivot", Band = Band.PIVOT,  BaseTick = 10, EnergyCost = 5,             MpCost = 0, NeedsTile = false, Category = "pivot" },   // ROUND 11: pivots cost 5 (mirrors Config.gd)
 		["attack"]= new ActionDef { Id = "attack",Band = Band.ATTACK, BaseTick = 50, EnergyCost = COST_ATTACK,  MpCost = 0, NeedsTile = true,  Category = "attack" },
 		["guard"] = new ActionDef { Id = "guard", Band = Band.GUARD,  BaseTick = 0,  EnergyCost = COST_GUARD,   MpCost = 0, NeedsTile = false, Category = "guard" },
 		["rest"]  = new ActionDef { Id = "rest",  Band = Band.REST,   BaseTick = 90, EnergyCost = 0,             MpCost = 0, NeedsTile = false, Category = "rest" },

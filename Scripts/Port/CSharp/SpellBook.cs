@@ -51,7 +51,7 @@ public static class SpellBook
 			EnergyCost = 0, MpCost = 0, Cooldown = 0,
 			OncePerMatch = true,
 			NeedsTile = true, Shape = "throw", Range = 3, DiagRange = 1,
-			Projectile = true, TickPerTile = 180, Pierce = false,
+			Projectile = true, TickPerTile = 40, Pierce = false,   // ROUND 11: range-1 impact (340) beats the swing (350); range 2+ still loses the race
 			Effect = new Effect { Type = "disrupt", EnergyDrain = 20, Status = "rooted", Amount = 1 },
 			NoGuardCombo = true,
 		},

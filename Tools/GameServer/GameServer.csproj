@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- GameServer: the authoritative UKO match server. Compiles the SAME engine
+       sources the game ships plus the shared training-csv writer; a rules
+       change in the repo is automatically a rules change online. Run locally
+       via run_server.bat; deploy per DEPLOY_SERVER.md; verify with: —selftest
+       (see SelfTest.cs). No external packages, no Godot. -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <AssemblyName>GameServer</AssemblyName>
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../Scripts/Port/CSharp/Vec2I.cs" />
+    <Compile Include="../../Scripts/Port/CSharp/ResolverEvents.cs" />
+    <Compile Include="../../Scripts/Port/CSharp/Config.cs" />
+    <Compile Include="../../Scripts/Port/CSharp/SpellBook.cs" />
+    <Compile Include="../../Scripts/Port/CSharp/GearBook.cs" />
+    <Compile Include="../../Scripts/Port/CSharp/Combatant.cs" />
+    <Compile Include="../../Scripts/Port/CSharp/Grid.cs" />
+    <Compile Include="../../Scripts/Port/CSharp/Resolver.cs" />
+    <Compile Include="../../Scripts/Port/CSharp/Brain/AIToolkit.cs" />
+    <Compile Include="../../Scripts/Port/CSharp/Brain/Eval.cs" />
+    <Compile Include="../../Scripts/Port/CSharp/Brain/ExtremeAI.cs" />
+    <Compile Include="../../Scripts/Port/CSharp/Brain/NashSolver.cs" />
+    <Compile Include="../../Scripts/Port/CSharp/Brain/OpponentModel.cs" />
+    <Compile Include="../../Scripts/Port/CSharp/Brain/ThreatModel.cs" />
+    <Compile Include="../HarvestRunner/SimWorld.cs" />
+    <Compile Include="../HarvestRunner/ValueCfg.cs" />
+    <Compile Include="../Shared/TrainingCsv.cs" />
+    <Compile Include="WebSocketServer.cs" />
+    <Compile Include="Wire.cs" />
+    <Compile Include="MatchRoom.cs" />
+    <Compile Include="ServerMain.cs" />
+    <Compile Include="SelfTest.cs" />
+  </ItemGroup>
+</Project>

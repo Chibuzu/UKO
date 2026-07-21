@@ -18,6 +18,7 @@ const CLASH           := "clash"            # contested-tile RPS: result=bounce/
 const ATTACK_HIT      := "attack_hit"
 const ATTACK_WHIFF    := "attack_whiff"
 const ATTACK_BLOCKED  := "attack_blocked"
+const ATTACK_DRAINED  := "attack_drained"   # a disrupt emptied the tank -> the queued swing breaks
 # guard
 const GUARD_RAISED    := "guard_raised"
 const GUARD_DROPPED   := "guard_dropped"

@@ -4,4 +4,9 @@
     <TargetFramework Condition=" '$(GodotTargetPlatform)' == 'android' ">net9.0</TargetFramework>
     <EnableDynamicLoading>true</EnableDynamicLoading>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- Tools/ hosts standalone console programs (HarvestRunner) that compile the
+         engine sources into their own exes; keep them out of the game assembly. -->
+    <Compile Remove="Tools/**/*.cs" />
+  </ItemGroup>
 </Project>

@@ -222,15 +222,19 @@ public static class Eval
 	// ── Situation value (the strategist's heart; mirrors _eval_situation) ────
 	// ── LEARNED VALUE (mirror of Eval.gd's block; agreement harness runs with it OFF) ──
 	public static bool VALUE_ON = false;
-	public static double[] VW = System.Array.Empty<double>();     // 28 weights + [28] bias
+	public static double[] VW = System.Array.Empty<double>();     // (28+K) weights + bias last
 	public static double[] VMEAN = System.Array.Empty<double>();
 	public static double[] VSTD = System.Array.Empty<double>();
+	// v3: K crossed features (products of base-feature pairs) appended after the
+	// 28 base columns. The PAIR LIST travels in the cfg -- the fitter owns it;
+	// inference just replays it. Empty = a v1 cfg (pure linear, K = 0).
+	public static int[][] VCROSS = System.Array.Empty<int[]>();
 	public const double VALUE_SCALE = 100.0;
 
 	// The leaf judge: hand eval, or the learned value when armed. ONE dispatch point.
 	private static double Leaf(Combatant me, Combatant foe, Grid grid)
 	{
-		if (VALUE_ON && VW.Length == 29)
+		if (VALUE_ON && VW.Length >= 29)
 			return VALUE_SCALE * (2.0 * LearnedP(me, foe, grid) - 1.0);
 		return EvalSituation(me, foe, grid);
 	}
@@ -238,11 +242,14 @@ public static class Eval
 	public static double LearnedP(Combatant me, Combatant foe, Grid grid)
 	{
 		var f = ValueFeatures(me, foe, grid);
-		double z = VW[28];
-		for (int i = 0; i < 28; i++)
+		int nBase = f.Length;                       // 28
+		int n = nBase + VCROSS.Length;              // + crossed features
+		double z = VW[n];                           // bias is last
+		for (int i = 0; i < n; i++)
 		{
-			double sd = VSTD[i] > 0.0 ? VSTD[i] : 1.0;
-			z += VW[i] * ((f[i] - VMEAN[i]) / sd);
+			double x = i < nBase ? f[i] : f[VCROSS[i - nBase][0]] * f[VCROSS[i - nBase][1]];
+			double sd = VSTD[i];
+			z += VW[i] * ((x - VMEAN[i]) / (sd > 0.0 ? sd : 1.0));
 		}
 		return 1.0 / (1.0 + Math.Exp(-z));
 	}

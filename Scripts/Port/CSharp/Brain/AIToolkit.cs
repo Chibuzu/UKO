@@ -108,7 +108,7 @@ public static class AIToolkit
 			acts.Add(new PlanAction("attack", foe.Pos));
 
 		int face = FacingToward(c.Pos, foe.Pos);
-		if (face != c.Facing)
+		if (face != c.Facing && Config.CanAfford(c.Energy, c.Mp, c.Statuses, "pivot"))
 			acts.Add(new PlanAction("pivot", null, face));
 
 		if (Config.CanAfford(c.Energy, c.Mp, c.Statuses, "guard") && ThreatModel.HasMeleeThreat(foe, c, grid))

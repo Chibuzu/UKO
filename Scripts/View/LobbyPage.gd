@@ -22,7 +22,7 @@ var _buttons := [
 ]
 var _hover := -1
 var _status := ""               # connection status line shown on the page
-var _session: GDSyncSession     # live while on the page / handed to the match on connect
+var _session: ServerSession     # live while on the page / handed to the match on connect
 var _code_edit: LineEdit        # room code: shown for HOST PRIVATE, typed for JOIN PRIVATE
 
 func _ready() -> void:
@@ -58,14 +58,18 @@ func _leave() -> void:
 # the session must sit at the same path on both clients and survive the scene change.
 func _make_session() -> void:
 	_teardown_session()
-	var stale := get_tree().root.get_node_or_null("GDSyncSession")
+	# ROUND 14: the lobby talks to OUR OWN server (ServerSession) instead of the
+	# GD-Sync relay. The GDSync files stay in the tree as the fallback era;
+	# flipping back is re-instancing them here.
+	var stale := get_tree().root.get_node_or_null("ServerSession")
 	if stale != null:
-		stale.free()   # zombie from a prior match/attempt, still subscribed to GD-Sync signals
-	_session = GDSyncSession.new()
-	_session.name = "GDSyncSession"
+		stale.free()   # zombie from a prior match/attempt
+	_session = ServerSession.new()
+	_session.name = "ServerSession"
 	get_tree().root.add_child(_session)
 	_session.match_ready.connect(_on_match_ready)
 	_session.match_failed.connect(_on_match_failed)
+	_session.hosted.connect(_on_hosted)
 
 func _teardown_session() -> void:
 	if is_instance_valid(_session):
@@ -123,10 +127,10 @@ func _click(id: String) -> void:
 			_session.quick_match(PlayerProfile.loadout())
 			_status = "Searching for an opponent..."
 		"host_code":
-			var code := _gen_code()
-			_code_edit.text = code
-			_session.host_code(code, PlayerProfile.loadout())
-			_status = "Share code %s -- waiting for your friend..." % code
+			# The SERVER assigns the code now (authoritative, collision-free);
+			# it arrives via the `hosted` signal and fills the box then.
+			_session.host_code("", PlayerProfile.loadout())
+			_status = "Getting a room code..." 
 		"join_code":
 			var code := _code_edit.text.strip_edges().to_upper()
 			if code.length() < 3:
@@ -142,9 +146,14 @@ func _click(id: String) -> void:
 # the match via a NetworkOpponent (over GD-Sync) and switch scenes. The session stays
 # in /root (null our handle so _teardown won't free it) so its relay link survives.
 func _on_match_ready(config: MatchConfig) -> void:
-	MatchBootstrap.start_online(config, NetworkOpponent.new(GDSyncTransport.new(_session)))
+	MatchBootstrap.start_online(config, NetworkOpponent.new(ServerTransport.new(_session)))
 	_session = null
 	get_tree().change_scene_to_file(MainMenu.GAME_SCENE)
+
+func _on_hosted(code: String) -> void:
+	_code_edit.text = code
+	_status = "Share code %s -- waiting for your friend..." % code
+	queue_redraw()
 
 func _on_match_failed(reason: String) -> void:
 	_status = reason

@@ -22,7 +22,7 @@ echo Build succeeded.
 echo.
 echo ============ 2/2  DEPTH x BUDGET SWEEP + DATA HARVEST (leave this window open) ============
 echo Phase 1: d3@1400ms vs champion d2@700ms (80 matches)
-echo Phase 2: d4@2000ms vs champion (80)   Phase 3: d3@700 vs d2@700 (80)
+echo Phase 2: d4@2000ms vs champion (80)   Phase 3: d4@6000 vs d3@3000 (80)
 echo Progress prints every 10 matches and is also appended to:
 echo   %%APPDATA%%\Godot\app_userdata\UKO\sweep_results.txt  (+ selfplay_cs.csv training data)
 echo Expected duration: several hours. Safe to interrupt; partial results persist.

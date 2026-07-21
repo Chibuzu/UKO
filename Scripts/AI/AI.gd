@@ -99,6 +99,29 @@ static func _combatant_dict(c: Combatant) -> Dictionary:
 # (The menu's picked difficulty now travels through MatchBootstrap.difficulty —
 # the one cross-scene handoff channel — not a static here.)
 
+# ── Background thinking (ROUND 10): EXTREME's 3s+ budgets must not freeze the
+# window, so AIOpponent starts the C# search on a worker thread and polls it
+# each frame. These three statics are that seam; every non-EXTREME tier (and
+# the GD fallback) stays synchronous -- their budgets are small.
+static func start_async_choose(me: Combatant, foe: Combatant, grid: Grid, opp_model) -> bool:
+	if not USE_CSHARP_EXTREME:
+		return false
+	var b = _get_bridge()
+	if b == null or not b.has_method("StartChoose"):
+		return false
+	b.StartChoose(_grid_rows(grid.blocked), _grid_rows(grid.base_blocked),
+			grid.rot_step, grid.shrink_level, _combatant_dict(me), _combatant_dict(foe), true)
+	return true
+
+static func async_done() -> bool:
+	return _bridge == null or _bridge.ChooseDone()
+
+static func take_async_choice() -> Array:
+	if _bridge == null:
+		return [{"id": "wait"}]
+	var seq: Array = Array(_bridge.TakeChosen())
+	return seq if not seq.is_empty() else [{"id": "wait"}]
+
 # One-time load of the learned value cfg for the GDSCRIPT extreme fallback
 # (-1 unknown / 0 absent / 1 loaded). The C# path arms itself in _get_bridge().
 static var _value_ok := -1

@@ -41,11 +41,25 @@ const DOM_EPS        := 0.001 # strict-dominance margin for pruning the matrix
 # dicts are the ONLY tuning source -- the code reads P[...], nothing else.
 const PROFILES := {
 	"challenging": {"budget_ms": 250, "budget_end_ms": 250, "rows": 3, "cols": 6, "rows_end": 5, "cols_end": 9, "lambda": 0.0},
-	"extreme":     {"budget_ms": 700, "budget_end_ms": 1400, "rows": 4, "cols": 8, "rows_end": 6, "cols_end": 10, "lambda": 0.6},
+	"extreme":     {"budget_ms": 3000, "budget_end_ms": 6000, "rows": 4, "cols": 8, "rows_end": 6, "cols_end": 10, "lambda": 0.6},
+	# ROUND 10 (Fra-ratified "3s+"): EXTREME thinks 3s/turn (6s in the squeezed
+	# endgame, where depth converts to near-perfect play). At 3s the root matrix
+	# deepens to FULL coverage -- the old 700ms cap left half of it shallow. The
+	# live turn no longer blocks the UI (AIOpponent polls the bridge's background
+	# thread). Roll back = these two numbers.
 }
 static var P: Dictionary = PROFILES["extreme"]
 static func set_profile(name: String) -> void:
 	P = PROFILES.get(name, PROFILES["extreme"])
+	# WEB CLAMP (round 17): the website build has no C# and no background thread,
+	# so this brain runs ON the main thread -- a 3s/6s budget would freeze the
+	# page every AI turn. Same brain, shorter leash. Platform clamp, NOT a rules
+	# change: native builds keep full budgets (their C# twin owns the search),
+	# and BrainAgreement never runs with the "web" feature, so parity is silent.
+	if OS.has_feature("web") and int(P["budget_ms"]) > 900:
+		P = P.duplicate()
+		P["budget_ms"] = 900
+		P["budget_end_ms"] = mini(int(P["budget_end_ms"]), 1200)
 	# Weights ride with the tier: champion for EXTREME, hand defaults otherwise.
 	# Champion SHELVED after live-play regressions (passive waits, flank order,
 	# rest-into-bolt): it beat defaults in self-play but fails the richer human

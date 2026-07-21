@@ -58,7 +58,16 @@ static var DISCOUNT   := 0.9      # a future turn is worth slightly less than da
 static var CAL_A := 0.0
 static func load_calibration() -> void:
 	var cf := ConfigFile.new()
-	CAL_A = float(cf.get_value("cal", "a", 0.0)) if cf.load("user://calibration.cfg") == OK else 0.0
+	CAL_A = float(cf.get_value("cal", "a", 0.0)) if _cfg_load(cf, "calibration.cfg") else 0.0
+
+# ROUND 17 (web era): user:// first (refits always win), else the SHIPPED copy
+# in res://Data/. Fresh installs and the website build start with an empty
+# user:// -- without this fallback they'd silently lose the fitted judge and
+# calibration. Mirrored in BrainBridge.LoadWithFallback (C# twin).
+static func _cfg_load(cf: ConfigFile, name: String) -> bool:
+	if cf.load("user://" + name) == OK:
+		return true
+	return cf.load("res://Data/" + name) == OK
 static func to_winprob(score: float) -> float:
 	return 1.0 / (1.0 + exp(-CAL_A * score))
 
@@ -257,33 +266,47 @@ static func _cheap_rank(me: Combatant, foe: Combatant, grid: Grid, seq: Array) -
 # default -- nothing changes live until it wins the ValueArena A/B and the gates.
 # Mirrored EXACTLY in Eval.cs (the agreement harness runs with it off).
 static var VALUE_ON := false
-static var _vw: Array = []      # 28 feature weights + [28] = bias
+static var _vw: Array = []      # (28+K) feature weights + bias last
 static var _vmean: Array = []   # per-feature standardization (from the fit)
 static var _vstd: Array = []
+# v3: K crossed features (products of base-feature pairs) appended after the 28
+# base columns. The PAIR LIST travels in the cfg -- the fitter owns it; inference
+# just replays it. Empty = a v1 cfg (pure linear, K = 0). Mirrored in Eval.cs.
+static var _vcross: Array = []
 const VALUE_SCALE := 100.0      # maps (2p-1) onto hand-eval units at the leaf
 
 static func load_value_fn() -> bool:
 	var cf := ConfigFile.new()
-	if cf.load("user://value_fn.cfg") != OK:
+	if not _cfg_load(cf, "value_fn.cfg"):
 		return false
 	_vw = cf.get_value("value", "w", [])
 	_vmean = cf.get_value("value", "mean", [])
 	_vstd = cf.get_value("value", "std", [])
-	return _vw.size() == 29 and _vmean.size() == 28 and _vstd.size() == 28
+	_vcross = cf.get_value("value", "crosses", [])
+	var n := 28 + _vcross.size()
+	return _vw.size() == n + 1 and _vmean.size() == n and _vstd.size() == n
 
 # The leaf judge: hand eval, or the learned value when armed. ONE dispatch point.
 static func _leaf(me: Combatant, foe: Combatant, grid: Grid) -> float:
-	if VALUE_ON and _vw.size() == 29:
+	if VALUE_ON and _vw.size() >= 29:
 		return VALUE_SCALE * (2.0 * learned_p(me, foe, grid) - 1.0)
 	return _eval_situation(me, foe, grid)
 
 # p(win) from the fitted logistic. Standardize features exactly as the fit did.
 static func learned_p(me: Combatant, foe: Combatant, grid: Grid) -> float:
 	var f := value_features(me, foe, grid)
-	var z: float = float(_vw[28])
-	for i in 28:
+	var n_base := f.size()                        # 28
+	var n := n_base + _vcross.size()              # + crossed features
+	var z: float = float(_vw[n])                  # bias is last
+	for i in n:
+		var x: float
+		if i < n_base:
+			x = float(f[i])
+		else:
+			var pair: Array = _vcross[i - n_base]
+			x = float(f[int(pair[0])]) * float(f[int(pair[1])])
 		var sd: float = float(_vstd[i])
-		z += float(_vw[i]) * ((float(f[i]) - float(_vmean[i])) / (sd if sd > 0.0 else 1.0))
+		z += float(_vw[i]) * ((x - float(_vmean[i])) / (sd if sd > 0.0 else 1.0))
 	return 1.0 / (1.0 + exp(-z))
 
 # THE v2 feature vector -- 28 values, EXACTLY the selfplay_v2.csv columns

@@ -29,3 +29,10 @@ verify_*.txt
 # OS / editor junk
 .DS_Store
 Thumbs.db
+Tools/**/bin/
+Tools/**/obj/
+fast_harvest_build.txt
+# Web export lands here (Tools/GameServer/web) and is served by run_server.bat.
+# The build artifacts are big binaries -- never commit them.
+Tools/GameServer/web/*
+!Tools/GameServer/web/.gitkeep

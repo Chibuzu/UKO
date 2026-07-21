@@ -19,7 +19,7 @@ if errorlevel 1 (
 )
 echo Build succeeded.
 echo ==================== 2/2  VALUE ARENA: learned judge ON vs OFF ====================
-echo 150 matches, d3@700 both sides. This is a LONG run -- start it overnight.
+echo Champion vs challenger when value_fn_new.cfg exists; 450 matches d3@700.
 echo Progress appends to user://value_arena.txt as it goes.
 %GODOT% --headless --path . --script "res://Scripts/Port/ValueArena.gd"
 echo.

@@ -203,6 +203,8 @@ public static class Resolver
 			{
 				if (!(s.Category == "attack" || s.Category == "spell" || s.Category == "projectile"))
 					continue;
+				if (s.Resolved)
+					continue;   // cancelled upstream (e.g. DRAINED DRY broke this swing)
 				Combatant actor = s.Owner == "A" ? a : b;
 				Combatant target = s.Owner == "A" ? b : a;
 				if (deadTick[actor.Id] != -1 && deadTick[actor.Id] < tick)
@@ -223,7 +225,7 @@ public static class Resolver
 							LaunchBlink(grid, s, actor, target, sched, i, tick, events);
 						break;
 					case "projectile":
-						ProjectileStep(s, actor, target, tick, projConsumed, grid, damagedTick, deadTick, events);
+						ProjectileStep(s, actor, target, tick, projConsumed, grid, sched, damagedTick, deadTick, events);
 						break;
 				}
 				if (actor.Statuses.ContainsKey("rooted"))
@@ -851,7 +853,8 @@ public static class Resolver
 	}
 
 	private static void ProjectileStep(SchedEntry s, Combatant actor, Combatant target, int tick,
-			Dictionary<string, bool> consumed, Grid grid, Dictionary<string, int> damagedTick, Dictionary<string, int> deadTick, List<Event> events)
+			Dictionary<string, bool> consumed, Grid grid, List<SchedEntry> sched,
+			Dictionary<string, int> damagedTick, Dictionary<string, int> deadTick, List<Event> events)
 	{
 		string pid = s.Pid;
 		if (consumed.GetValueOrDefault(pid, false)) return;
@@ -861,7 +864,7 @@ public static class Resolver
 		{
 			var eff = Config.Def(s.Id).Effect;
 			if (eff != null && eff.Type == "disrupt")
-				ApplyDisrupt(eff, s, actor, target, tick, events, damagedTick, deadTick);
+				ApplyDisrupt(eff, s, actor, target, tick, sched, events, damagedTick, deadTick);
 			else
 			{
 				int dmg = s.Damage;
@@ -872,14 +875,27 @@ public static class Resolver
 		}
 	}
 
-	private static void ApplyDisrupt(Effect eff, SchedEntry s, Combatant actor, Combatant target, int tick, List<Event> events,
+	private static void ApplyDisrupt(Effect eff, SchedEntry s, Combatant actor, Combatant target, int tick, List<SchedEntry> sched, List<Event> events,
 			Dictionary<string, int> damagedTick, Dictionary<string, int> deadTick)
 	{
 		string st = eff.Status ?? "";
 		if (st != "")
 			target.Statuses[st] = Config.StatusDef(st)?.Duration ?? 1;
 		int drain = eff.EnergyDrain ?? 0;
-		if (drain > 0) target.Energy = Math.Max(0, target.Energy - drain);
+		if (drain > 0)
+		{
+			target.Energy = Math.Max(0, target.Energy - drain);
+			// DRAINED DRY (Fra): a disrupt that EMPTIES the tank breaks the victim's
+			// queued basic ATTACK this turn. No refund -- the drain ate it. Mirrors
+			// Resolver.gd exactly (parity-critical: same event type/tick/owner).
+			if (target.Energy == 0)
+				foreach (var e in sched)
+					if (e.Owner == target.Id && !e.Resolved && e.Category == "attack" && e.Tick > tick)
+					{
+						e.Resolved = true;
+						events.Add(Ev(ResolverEvents.AttackDrained, e.Tick, target.Id));
+					}
+		}
 		int dmg = eff.Amount ?? 0;
 		if (dmg > 0) ApplyDamage(target, dmg, tick, damagedTick, deadTick);   // rides the normal path: rest interrupt + block
 		events.Add(Ev(ResolverEvents.SpellHit, tick, actor.Id));

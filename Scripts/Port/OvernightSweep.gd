@@ -1,22 +1,27 @@
 # OvernightSweep.gd -- DEPTH x BUDGET SWEEP + LEARNED-VALUE DATA HARVEST.
-# Challenger (deeper look, bigger think-time) vs the current champion (d2@700ms):
-#   PHASE 1  d3@1400  vs d2@700   -- does paid-for depth beat the champion?
-#   PHASE 2  d4@2000  vs d2@700   -- and one notch further?
-#   PHASE 3  d3@700   vs d2@700   -- depth at EQUAL time (isolates depth itself)
+# ROUND-10 QUESTIONS (the old sweep's answers went stale the moment the judge
+# shipped -- "the eval is the bottleneck" no longer holds, and the live budget
+# is 3s now). The new ladder measures the brain that actually ships:
+#   PHASE 1  d3@3000 vs d3@700   -- what did the 3s think-time raise buy?
+#   PHASE 2  d4@3000 vs d3@3000  -- is DEPTH 4 the right way to spend 3s?
+#   PHASE 3  d4@6000 vs d3@3000  -- and with the endgame-scale budget on top?
+# If phase 2 wins >=55%, the live SetDepth(3) in AI.gd becomes SetDepth(4).
 # EVERY turn of EVERY match also appends a training row to user://selfplay_cs.csv
 # (state features + final outcome) -- the raw material for the learned value
 # function (priority #5). Results append live to user://sweep_results.txt.
 extends SceneTree
 
 const FULL_GEAR := ["discount_charm", "burst_node", "blink_boots", "dark_focus"]
-const MATCHES_PER_PHASE := 110   # ~10-12h total; interruption-safe (kill it when you're back, partials count)
+const MATCHES_PER_PHASE := 60    # 3s-budget matches are SLOW (~3-4h/phase; ~10-12h total);
+                                 # interruption-safe -- kill it when you're back, partials count
 const HARVEST_MATCHES := 450     # harvest mode: mirror champion selfplay, ~9-10h
 const MAX_TURNS := 80          # cap -> draw (no zone stall runs forever)
 const SEED_BASE := 770001
 const OUT := "user://sweep_results.txt"
-# v2: NEW-PHYSICS training data with the autopsy features (flank/pulse/lockout/cds).
-# Never mixes with the old-rules selfplay_cs.csv -- different game, different file.
-const CSV := "user://selfplay_v2.csv"
+# v3 (ROUND 11): the rules moved again (pivot costs 5, grenade drain-cancel at
+# range 1) -- different game, different file. v2 rows describe a game that no
+# longer exists; the first v3 fit needs a fresh harvest night.
+const CSV := "user://selfplay_v3.csv"
 
 var bridge = null
 var _csv_rows: Array = []      # per-match buffer; flushed with the outcome filled in
@@ -25,6 +30,13 @@ func _init() -> void:
 	bridge = load("res://Scripts/Port/CSharp/BrainBridge.cs").new()
 	bridge.SetProfile("extreme")
 	bridge.LoadCalibration()
+	# ROUND 10: nights play with the ADOPTED judge when one exists -- generation-2
+	# data must come from generation-1 play (decisive games -> sharper labels),
+	# and sweep conclusions must describe the brain that actually ships. Set
+	# UKO_VALUE=off for a hand-eval baseline night.
+	if OS.get_environment("UKO_VALUE") != "off" and bridge.LoadValueFn():
+		bridge.SetValueEnabled(true)
+		_log("[night] learned value judge ARMED (value_fn.cfg)")
 	_csv_header()
 	if OS.get_environment("UKO_MODE") == "harvest":
 		# HARVEST NIGHT: the live champion (d3@700) plays itself under the NEW physics.
@@ -38,9 +50,9 @@ func _init() -> void:
 		return
 	_log("==== SWEEP start %s | %d matches/phase, max %d turns ====" %
 			[Time.get_datetime_string_from_system(), MATCHES_PER_PHASE, MAX_TURNS])
-	_phase("d3_1400_vs_d2_700", "d3b1400", "d2b700")
-	_phase("d4_2000_vs_d2_700", "d4b2000", "d2b700")
-	_phase("d3_700_vs_d2_700", "d3b700", "d2b700")
+	_phase("d3_3000_vs_d3_700", "d3b3000", "d3b700")
+	_phase("d4_3000_vs_d3_3000", "d4b3000", "d3b3000")
+	_phase("d4_6000_vs_d3_3000", "d4b6000", "d3b3000")
 	_log("==== SWEEP done %s ====" % Time.get_datetime_string_from_system())
 	quit(0)
 

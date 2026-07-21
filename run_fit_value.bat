@@ -9,8 +9,8 @@ if not exist %GODOT% (
     exit /b 1
 )
 echo ==================== FITTING THE LEARNED VALUE FUNCTION ====================
-echo Reads user://selfplay_v2.csv, writes user://value_fn.cfg. A few minutes.
+echo Reads user://selfplay_v2.csv, writes user://value_fn_new.cfg -- the CHALLENGER.
 %GODOT% --headless --path . --script "res://Scripts/AI/Tuning/FitValue.gd"
 echo.
-echo Next: run_value_arena.bat to A/B the learned judge against the hand eval.
+echo Next: run_value_arena.bat -- the challenger must DETHRONE the live judge.
 pause

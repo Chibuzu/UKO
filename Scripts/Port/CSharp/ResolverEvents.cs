@@ -15,6 +15,7 @@ public static class ResolverEvents
 	public const string AttackHit = "attack_hit";
 	public const string AttackWhiff = "attack_whiff";
 	public const string AttackBlocked = "attack_blocked";
+	public const string AttackDrained = "attack_drained";   // a disrupt emptied the tank -> queued swing breaks
 	// guard
 	public const string GuardRaised = "guard_raised";
 	public const string GuardDropped = "guard_dropped";

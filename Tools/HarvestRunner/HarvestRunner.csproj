@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- HarvestRunner: the game's C# engine + EXTREME brain as a plain console
+       program (no Godot, no frame loop, just millions of resolver ticks).
+       Compiles the SAME source files the game ships (framework-free subset),
+       so a rules change in the repo is automatically a rules change here.
+       Run via run_fast_harvest.bat; see Program.cs for the loop. -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <AssemblyName>HarvestRunner</AssemblyName>
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../Scripts/Port/CSharp/Vec2I.cs" />
+    <Compile Include="../../Scripts/Port/CSharp/ResolverEvents.cs" />
+    <Compile Include="../../Scripts/Port/CSharp/Config.cs" />
+    <Compile Include="../../Scripts/Port/CSharp/SpellBook.cs" />
+    <Compile Include="../../Scripts/Port/CSharp/GearBook.cs" />
+    <Compile Include="../../Scripts/Port/CSharp/Combatant.cs" />
+    <Compile Include="../../Scripts/Port/CSharp/Grid.cs" />
+    <Compile Include="../../Scripts/Port/CSharp/Resolver.cs" />
+    <Compile Include="../../Scripts/Port/CSharp/Brain/AIToolkit.cs" />
+    <Compile Include="../../Scripts/Port/CSharp/Brain/Eval.cs" />
+    <Compile Include="../../Scripts/Port/CSharp/Brain/ExtremeAI.cs" />
+    <Compile Include="../../Scripts/Port/CSharp/Brain/NashSolver.cs" />
+    <Compile Include="../../Scripts/Port/CSharp/Brain/OpponentModel.cs" />
+    <Compile Include="../../Scripts/Port/CSharp/Brain/ThreatModel.cs" />
+    <Compile Include="SimWorld.cs" />
+    <Compile Include="ValueCfg.cs" />
+    <Compile Include="Program.cs" />
+  </ItemGroup>
+</Project>

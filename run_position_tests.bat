@@ -20,7 +20,7 @@ if not exist "Scripts\AI\Tuning\PositionTests.gd" (
 )
 
 echo Found Godot and the test script.
-echo Running the tests now -- this can be SILENT for 1-3 minutes while the AI
+echo Running the tests now -- this can be SILENT for 5-12 minutes while the AI
 echo thinks (63 full decisions) and Godot imports assets. Please wait...
 echo.
 "%GODOT%" --headless --path . --script "res://Scripts/AI/Tuning/PositionTests.gd" > tests_log.txt 2>&1

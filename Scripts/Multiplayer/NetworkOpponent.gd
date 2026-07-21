@@ -53,3 +53,7 @@ func opponent_sequence(me: Combatant, foe: Combatant, grid: Grid, turn_num: int,
 
 func aborted() -> bool:
 	return _aborted
+
+# The live transport -- GameController connects the clash sub-round through it.
+func transport() -> MatchTransport:
+	return _net

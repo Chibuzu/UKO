@@ -58,7 +58,9 @@ const SPELLS := {
 		"once_per_match": true,                          # a single use for the whole match (see _legalize)
 		"needs_tile": true,
 		"shape": "throw", "range": 3, "diag_range": 1,   # 3 tiles orthogonally, 1 tile diagonally
-		"projectile": true, "tick_per_tile": 180, "pierce": false,   # flies tile-by-tile; each tile a tick tax
+		"projectile": true, "tick_per_tile": 40, "pierce": false,    # ROUND 11 (Fra): at range 1 the impact
+		# lands at 340 -- BEFORE a basic attack's 350 -- so a point-blank grenade can drain-cancel the
+		# swing. At range 2+ the attack still wins the race (380/420): the counterplay is close-quarters only.
 		# Disrupt, not damage: drains 20 energy and ROOTS the target (its next move is cancelled).
 		"effect": { "type": "disrupt", "energy_drain": 20, "status": "rooted", "amount": 1 },   # 1 dmg: interrupts a rest AND blocks next turn's (damaged_tick path)
 		"no_guard_combo": true,

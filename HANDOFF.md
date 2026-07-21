@@ -37,6 +37,287 @@
 - **DELIBERATELY NOT SPLIT: the serpent span/turn + 2-tile reach-clip machinery.** Its branches encode a graveyard of fixed visual bugs (stranded mid-tile sprites, compounding drift, double-draws — the comments document each). Splitting it into subclasses blind (no runtime here) risks re-introducing exactly those; it should only be attempted WITH the game running on the same screen. It is contained, documented, and correct — leave it until then.
 - PLAYTEST: one duel (player anims: idle/move/attack/guard cube/buff/teleport + gear overlays on idle), one story fight (bat rotation aims, ooze mirror + spit, twin boss slither/turn/2-tile bites), an NPC village walk.
 
+## 2026-07-21 ROUND 17 — THE WEB ERA (Fra-ratified: "web only as long as we can change it later"; hosting = PC now, itch.io later)
+- **Strategy:** the website build is the GDSCRIPT game -- browsers can't run C#, and the
+  mirrored-twin discipline is what makes this a flip, not a rewrite. AI.gd's verified
+  fallback ("same brain, GDScript body, NEVER a different one") carries EXTREME; the
+  round-13 WebSocket server is already browser-speakable. REVERSIBLE by design: native
+  presets, C# brain, and DEPLOY_MOBILE.md all stay live in the repo.
+- **run_server.bat now serves the website** (WebSocketServer.cs): non-Upgrade GETs are
+  static files from Tools/GameServer/web (repo-root cwd, ./web, exe-relative fallbacks);
+  MIME map incl. application/wasm; ../ traversal blocked; 404 page tells you to export;
+  Cache-Control no-cache (F5 sees re-exports); COOP/COEP/CORP headers on EVERY response
+  so even a threads-ON export boots. One port serves page + matches -> browser clients
+  need no address at all.
+- **SelfTest suite 0 (static hosting): 16/16 PASS in sandbox** -- probe file verbatim,
+  well-formed '/', isolation headers present, RAW ../ blocked via hand-rolled socket
+  (HttpClient squashes dot-segments client-side -- that's why the raw TcpClient).
+- **ServerSession._platform_default():** on web, default URL = the page's own origin via
+  JavaScriptBridge (ws:// from http, wss:// from https); user://server.cfg still
+  overrides (the round-16 lobby box keeps working for pointing elsewhere).
+- **ExtremeAI.set_profile WEB CLAMP:** OS.has_feature("web") -> budget_ms<=900,
+  budget_end_ms<=1200 (duplicate()d dict -- PROFILES is const). Platform clamp, NOT a
+  rules change: no C#/background thread on web means the GD brain runs on the MAIN
+  thread; 3s/6s would freeze the page. BrainAgreement never runs with the web feature ->
+  parity untouched. Native keeps 3000/6000.
+- **Judge ships with builds now:** Eval._cfg_load + BrainBridge.LoadWithFallback (twins):
+  user:// first (refits win), else res://Data/{value_fn,calibration}.cfg. Data/README.md
+  tells Fra to copy his fitted cfgs there before exporting; include_filter="Data/*.cfg"
+  added to ALL THREE presets (fresh desktop installs benefit too). NOTE: BrainBridge.cs
+  is Godot-C# -- not sandbox-compilable; the edit is 8 surgical lines, Fra's next build
+  is the compile check.
+- **Web preset (preset.2):** threads OFF (no-SAB, hosts anywhere; our server could do ON
+  too), extensions off, BOTH vram compressions (mobile browsers need etc2/astc),
+  virtual keyboard ON (LineEdits on phones), export_path=Tools/GameServer/web/index.html
+  (straight into the server's web root); exclude_filter strips Tools/*, Scripts/Port/
+  CSharp/*, *.cs, *.csproj from the pack. .gitignore: web/* except .gitkeep (never
+  commit ~40MB builds). Preset keys hand-written for 4.7 -- DEPLOY_WEB.md has Fra verify
+  Thread Support OFF + Virtual Keyboard ON in the dialog on first export.
+- **DEPLOY_WEB.md** (new): the second-editor story (STANDARD Godot 4.7.x exports web; the
+  .NET editor can't -- keep both, same version), judge-copy step, export, play flow
+  (PC http://IP:8765 on any device incl. iPhone Safari), itch.io packaging + the wss/
+  Cloudflare-Tunnel caveat for online-from-itch (guide when ready), honest what's-
+  different list (0.9s/1.2s EXTREME, per-browser saves, audio unlock tap, GD-Sync
+  keyless boot watch item), and the going-back-to-native paragraph.
+- **Open risks (watch):** GD-Sync autoload on web is HTTP/WS-based and boots keyless on
+  desktop today, but a web-boot hang would point there first (quarantine = its own
+  round); html/experimental_virtual_keyboard is experimental -- test typing room codes
+  on a phone browser first session; two-editor version skew (always match 4.7.x exactly).
+
+## 2026-07-21 ROUND 16 — MOBILE (Fra-ratified: Android + iPhone guidance, online from day one)
+- **LobbyPage server-address box** (the one real feature): a LineEdit above the room-code
+  row, prefilled from ServerSession.server_url(), normalized on entry (bare host ->
+  ws://host:8765; full ws://-wss:// URLs pass through), persisted to user://server.cfg --
+  the SAME file ServerSession already reads, so nothing else changed. Applies on Enter AND
+  on any QUICK/HOST/JOIN click (typed-but-unsubmitted counts); when the address changes,
+  the live session is rebuilt so the next intent talks to the NEW server. Why: phones
+  can't hand-edit user:// files, and this is how a mobile build points at Fra's PC.
+- **project.godot:** window/handheld/orientation=4 (sensor landscape);
+  input_devices/pointing/emulate_mouse_from_touch=true (explicit -- taps are clicks; a
+  Scripts-wide grep confirms NO hover-dependent UI, hover only drives button highlights).
+- **export_presets.cfg:** Android preset added (preset.1) -- gradle build ON (REQUIRED for
+  C#), internet permission ON, arm64-v8a only, immersive mode, com.chibuzu.uko, APK to
+  Build/UKO.apk. Keys hand-written for 4.7: if any renamed, Godot ignores + defaults --
+  DEPLOY_MOBILE.md tells Fra to verify the 3 critical toggles in the dialog.
+- **DEPLOY_MOBILE.md** (new): Android one-time setup (JDK 17, Android Studio SDK, editor
+  paths, templates), preset verification, phone USB debugging, one-click deploy vs APK
+  sideload; online-from-phone networking (LAN IP + firewall allow; port-forward + public
+  IP for cellular -- same step as inviting friends); iPhone reality (Mac+Xcode, EUR99/yr,
+  C# iOS export still EXPERIMENTAL via NativeAOT/trimming) -> ratified sequencing: Android
+  now, iPhone at launch.
+- **Facts checked 2026-07-21:** .NET Android export solid (experimental label being
+  dropped ~4.6/4.7); .NET iOS still experimental (bindings not trimming-safe); C# web
+  export still unavailable.
+- **NOT done (watch):** GD-Sync autoload still boots keyless on mobile (harmless warning
+  at worst; retiring it = its own cleanup round, Fra to call). UI-scale pass if buttons
+  feel small on a 6" screen. Play Store (AAB + release keystore + $25) at launch.
+
+## 2026-07-21 ROUND 15 — RING DRAG + SMASH (Fra's stuck-in-the-zone bug -> a real rule)
+- **Fra's field report:** rooted an enemy inside the closing ring; it "got stuck there." Two
+  distinct diseases found: (1) the old crush rule teleported ring-caught fighters to the
+  NEAREST OPEN tile (BFS wander -- could fling them sideways, feels arbitrary), and (2)
+  rotation shoves moved the MODEL only -- no resolver event ever moved the VIEW, so the
+  sprite stayed put ("stuck" was mostly a model/view desync).
+- **The new rule (Fra spec, both engines):** a fighter caught in the closing zone takes a
+  crush hit (20) and is DRAGGED ONE TILE straight toward the centre -- north edge drags
+  south, west drags east, corners diagonal. If the landing tile holds an INTERIOR blocker,
+  the impact SMASHES it: the wall is destroyed and the fighter takes a SECOND crush hit.
+  If the landing tile holds the other fighter, they slide one more tile centreward (no
+  extra hit; dead-centre pileup nudges south deterministically). Ring tiles themselves are
+  never smashable/clearable -- the zone can't grow walkable holes.
+- **The crushed_idx-per-hit contract:** Grid.rotate_blockers / SimWorld.RotateBlockers list
+  a fighter in `crushed` ONCE PER HIT (catch + each smashed wall). Every caller's existing
+  per-entry MAP_CRUSH_DAMAGE(=20) loop (GameController, ValueArena, OvernightSweep/Arena,
+  SelfPlayArena, CollectCalibration, HarvestRunner, MatchRoom) therefore pays 20+20
+  automatically -- ZERO caller edits.
+- **Files:** Scripts/Core/Grid.gd (rotate_blockers rewritten; `_nearest_open` deleted),
+  Tools/HarvestRunner/SimWorld.cs (exact mirror; NearestOpen deleted -- compiles into the
+  runner AND the server, so training worlds + online matches share the rule),
+  Scripts/Core/GameController.gd (_rotate_map now snaps BOTH sprites via set_state after
+  any crush -- the actual "stuck" fix).
+- **Verified:** GD parses; GameServer release build clean; property probe vs an
+  independently written spec oracle -- 8 directional cases exact, smash=2 hits+wall gone,
+  foe-landing slide, both-caught distinct landings; fuzz 3,000 generated worlds x 6
+  rotations = 18,000 rotations, 5,631 catches, 593 smash hits, 0 oracle diffs, invariants
+  (fighters end out of ring, never on walls/each other, ring never holed) all green.
+- **Reminder:** runner + server exes rebuild automatically via their bats (they compile
+  SimWorld.cs from source). Round-14 two-window test still pending Fra's ServerSession
+  parser-error resolution (reload advice sent).
+
+## 2026-07-21 ROUND 14 — THE ONLINE CLIENT (PvP through OUR server; Fra-ratified: own-PC hosting, no bot button)
+- **ServerSession** (new, /root node): GDSyncSession's drop-in sibling -- same surface
+  (match_ready/match_failed/turn_revealed/opponent_left + quick/host/join/submit_local)
+  over a WebSocketPeer to OUR server. New in this era: `hosted(code)` (the SERVER
+  assigns room codes), `stance_needed(turn)` + send_stance() (the online clash
+  sub-round), and MatchConfig.map_rows (the server's authoritative layout; clients
+  Grid.load_rows it -- rotations then derive identically everywhere). Server address:
+  ws://127.0.0.1:8765 default; user://server.cfg [server] url=... overrides.
+- **ServerTransport** (new): MatchTransport impl; NetworkOpponent unchanged (one new
+  transport() getter). MatchTransport base gained the OPTIONAL clash surface
+  (stance_needed signal + send_stance no-op) -- GDSyncTransport never fires it.
+- **GameController:** loads map_rows when present; online clash hook = the SAME
+  StanceOverlay as offline, answered to the server.
+- **LobbyPage:** backend swapped to ServerSession (GDSync files untouched as the
+  fallback era -- flipping back is re-instancing them in _make_session). HOST now
+  shows the server's code when `hosted` arrives. NO vs-AI button online (Fra:
+  offline Play already owns difficulty selection; server keeps quick_bot capability
+  unused).
+- **run_second_instance.bat** (new): second game window for the localhost duel.
+- **FRA'S TWO-WINDOW TEST:** run_server.bat (keep open) -> editor Play (window 1) ->
+  run_second_instance.bat (window 2) -> both: PLAY ONLINE; window 1 HOST PRIVATE
+  (code appears), window 2 JOIN PRIVATE with the code -> duel yourself. Also try
+  QUICK on both, a head-on collision (clash overlay online!), and closing one window
+  mid-match (other gets the forfeit). Then push everything.
+- **INTERNET PLAY (later, when inviting friends):** own-PC hosting needs a router
+  port-forward for TCP 8765 + sharing the public IP in friends' user://server.cfg --
+  guided when Fra wants it. VPS deploy (DEPLOY_SERVER.md) at launch, Fra-ratified.
+
+## 2026-07-21 ROUND 13 — THE AUTHORITATIVE GAME SERVER (Fra-ratified: custom server, AI in background)
+- **Tools/GameServer** (new): the online mode's real home. The same engine sources the
+  game ships, hosted behind a hand-rolled RFC-6455 WebSocket layer (TcpListener; no
+  packages, no Godot, cross-platform by construction). The server IS the MatchMediator
+  made trustworthy: it holds each committed plan until BOTH are in (no client can peek
+  -- an airtight upgrade over p2p), detects contested-tile clashes with a pure dry run
+  and holds the ONLINE stance sub-round (closing round 11's online gap), resolves every
+  turn as the arbiter of record, enforces turn deadlines (auto-wait), awards forfeits on
+  disconnect, and appends every completed match to a training csv -- the learn-from-
+  humans stream, in the exact v3 format (shared writer: **Tools/Shared/TrainingCsv.cs**).
+- **Protocol** (JSON over WS): hello/host/join{code}/quick/quick_bot/plan/stance/leave;
+  server: welcome/hosted{code}/queued/matched{seat,rows,gear}/clash/reveal{seq_a,seq_b}/
+  over{result}/foe_left/err. Map = server-generated (SimWorld) LAYOUT ROWS shipped in
+  matched{} -- round 14's client loads rows instead of seeding (the server can't replay
+  Godot's PRNG, and this is cleaner authority anyway). Rotations derive deterministically.
+- **Bot seats:** quick_bot duels the EXTREME brain server-side (judge-armed via
+  --value-cfg). ALL brain work serializes through one semaphore (the brain's statics are
+  single-threaded by design) -- fine for a handful of concurrent bot duels; humans scale.
+- **SELF-TESTED, 12/12 PASS** (real ClientWebSocket clients over localhost): bot match
+  completes unbeaten; scripted head-on collision fires the clash sub-round and the
+  reveal carries stamped stances; leaver forfeits; 3 concurrent bot matches complete;
+  training log well-formed with real damage.
+- **DISCOVERY -- THE STATUE-STALL FIXTURE (brain gate candidate):** a bot vs a
+  full-resource do-nothing statue chips it to ~80 hp then DANCES for 40+ turns once its
+  own mp runs dry (the untouched full-mp arsenal reads as danger forever). Reproducible
+  offline (probe BotProbe). This is Fra's passivity complaint in lab form -- a prime
+  target for gen-2/depth-4, and a candidate 7th position gate.
+- **run_server.bat** ("test" arg = selftest) + **DEPLOY_SERVER.md** (local/LAN/VPS).
+- **ROUND 14 QUEUED -- the client:** WebSocketTransport (MatchTransport impl) +
+  ServerSession beside GDSyncSession, Grid rows-loading, LobbyPage backend, GameController
+  online-clash hook (StanceOverlay on {t:"clash"}). Then Fra's two-windows-localhost test.
+
+## 2026-07-20 ROUND 12 — THE THROUGHPUT ENGINE (from-scratch plan, step 1; Fra-ratified)
+Fra asked "how would you build it from scratch" -- answer: same search + same flywheel,
+but 100x the games and learned move priors. This round ships the first half.
+- **Tools/HarvestRunner** (new): the game's C# engine + EXTREME brain compiled into a
+  plain console exe -- the SAME source files the game ships (a rules change in the repo
+  is automatically a rules change here), no Godot. Parallel at the PROCESS level (the
+  brain's statics are single-threaded by design): parent spawns N workers with disjoint
+  seed ranges, each writes a shard, parent merges serially -- kill it any time, finished
+  waves are already in the csv. **SimWorld.cs** mirrors Grid.gd's generation/rotation/
+  shrink/crush rules with its own PRNG (same distribution, fresh layouts every night --
+  deliberately NOT Godot's exact seeds; more coverage). **ValueCfg.cs** parses
+  value_fn.cfg without Godot (v1 + v3-with-crosses) so nights play JUDGE-ARMED. CSV
+  rows come from Eval.ValueFeatures -- the exact inference vector; harvest/fit/
+  inference cannot drift. Seed base 900001 (Godot harnesses use 770001+; no collisions).
+- **Measured in the sandbox** (2 weak cores, budget 0, depth 3): ~7 matches/min; rows
+  byte-compatible with the fitter (32 columns); draw-rate under the round-11 rules came
+  back ~17-33% (vs 58% at the old rules -- the passivity levers are biting). On a real
+  desktop expect **~12-15k matches/night vs 450 -- ~30x**.
+- **run_fast_harvest.bat** (new): builds the runner, harvests **16 HOURS (Fra's ask)**
+  straight into user://selfplay_v3.csv, Ctrl+C-safe. Then run_fit_value.bat ->
+  run_value_arena.bat exactly as usual. Flags: --minutes --matches --workers --budget --depth.
+- **UKO.csproj** now excludes Tools/**/*.cs from the game assembly (standalone exes must
+  not be swept into Godot's build). If Godot's build ever complains, report it.
+- **DELIVERY NOTE (2026-07-20): the catch-up zip.** Fra's first runner build failed with
+  "Eval has no VCROSS" -- his machine was missing round 10's Eval.cs (some zips between
+  rounds 10-12 were extracted partially), and rounds 10-11 were never gate-verified on
+  his machine. The catch-up zip = EVERY file changed since round 9d (rounds 10 + 11 +
+  12 + all bats), one extraction to fully current. After it: Godot Build, verify_all,
+  position tests (six green), THEN the 16h harvest.
+- **STEP 2 QUEUED (round 13): the learned POLICY head** -- move priors trained from the
+  equilibrium mixes in these harvests, replacing the hand candidate ranker (the component
+  behind the 9b/11 artifact patches). Needs this round's data volume first.
+
+## 2026-07-20 ROUND 11 — THE RULES ROUND (Fra's bug list + the passivity levers)
+- **CRUSH WAS INVISIBLE, NOT MISSING (Fra: "no damage when the blocker lands"):** the
+  rotation crush ALWAYS applied hp (proven by a 65,819-case offline property test of the
+  rotation/telegraph math -- zero misses) but _rotate_map never refreshed the HUD, so the
+  bar only moved after the NEXT resolve. The HUDs now repaint the moment a crush lands.
+- **CLASH RPS IS NOW A REAL DECISION (offline).** The resolver's push/pull/feint triangle
+  existed but nothing ever set the stance rider -- every collision was push-vs-push =
+  a mute bounce. New flow, resolver kept pure: Resolver.clash_pending() (GD-only helper)
+  dry-runs the committed plans; on a clash the board dims and **StanceOverlay** (new,
+  ChoiceOverlay subclass) takes the player's stance while **ClashOracle** (new) answers
+  for the AI -- a 3x3 matrix of the ACTUAL turn outcomes per stance pair, solved with
+  NashSolver and sampled (unexploitable over repeated clashes). Stances are stamped on
+  the declared moves, then the ONE real resolve runs. ONLINE still plays pre-declared
+  push (the stance-exchange message is queued; needs a GD-Sync round-trip).
+- **DRAINED DRY (new rule, both resolvers):** grenade tick_per_tile 180 -> 40, so the
+  range-1 impact (340) beats a basic swing (350); range 2+ still loses the race. A
+  disrupt that EMPTIES the tank breaks the victim's queued basic ATTACK this turn -- no
+  refund, new ATTACK_DRAINED event (registry both languages; CombatLog narrates "attack
+  breaks -- drained dry"). Phase-2 dispatch now honors the _resolved flag (it never had
+  to before -- nothing could cancel violence entries; caught offline when the first
+  probe showed the receipt firing while the swing still landed).
+- **PIVOT COSTS 5 (both Configs):** free pivots subsidized wait->pivot stalling. This is
+  a GAME RULE: every tier and every story creature pays it. Candidate gen now gates
+  pivots on affordability (both languages). PLAYTEST WATCH: if a story mob stops turning
+  to face (energy-starved kinds), report it -- an exemption for story kinds is trivial.
+- **HARVEST ERA v3:** rules moved -> user://selfplay_v3.csv (sweep + fit). v2 rows
+  describe a game that no longer exists. The LIVE gen-1 judge stays (slightly stale is
+  still better than the hand eval it beat 64.6%) until a v3-trained challenger dethrones
+  it -- run the flywheel night AFTER this round is verified in.
+- Offline verification: cscheck compiles clean; rule probes green (drain-cancel fires
+  r1, absent r2; pivot 4en illegal / 5en works); all six gates green on the C# twin.
+  Parity: both resolvers changed in lockstep (same new event type/tick/owner).
+- **FRA'S CHECKLIST:** extract -> Build -> verify_all.bat -> run_position_tests.bat (six
+  green) -> playtest: (1) step onto a telegraphed tile, watch hp drop THE MOMENT walls
+  shift; (2) walk head-on into the AI over an empty tile -> CLASH overlay appears, pick
+  each stance across tries, check the log receipts; (3) pivot now shows -5 energy;
+  (4) story fight sanity (mobs still turn); (5) one CHALLENGING duel. Then push, then
+  the flywheel night (fresh v3 harvest -> fit -> arena) + the sweep night when convenient.
+
+## 2026-07-19 ROUND 10 — "STILL NOT STRONG ENOUGH": think time, flywheel, smarter judge (Fra-ratified 3s+, fronts 1-3)
+- **THINK TIME 3s/6s (both languages, PROFILES):** EXTREME now spends 3000ms/turn (6000 in
+  the squeezed endgame). At 700ms half the root matrix stayed shallow; at 3s it deepens to
+  full coverage. Rollback = two numbers in the profile line.
+- **BACKGROUND THINKING (BrainBridge StartChoose/ChooseDone/TakeChosen + AIOpponent poll):**
+  a 3-6s synchronous search would freeze the window ("not responding"). The C# search now
+  runs on a worker thread; marshaling stays on the calling thread (Godot objects never
+  cross); GD polls per frame. ONE search at a time by construction (the turn loop is
+  serial). Exceptions fall back to wait with a warning. Non-EXTREME tiers stay synchronous.
+- **MEASURED (C# twin, budget-0 deterministic): the judge leaf runs the SAME search at ~70%
+  of the hand eval's cost** -- the 3s budget buys ~1.4x more search on top of the raise.
+  22 crossed features add ~0% (the leaf is resolver-dominated; the dot product is noise).
+- **FIT v3 (FitValue.gd): CROSSED FEATURES + honest validation.** 22 hand-chosen feature
+  products (resources x distance, hp fronts, lockout x proximity, curvature squares) appended
+  after the 28 base columns; the PAIR LIST travels inside the cfg, so inference (Eval.gd
+  learned_p / Eval.cs LearnedP, both crosses-aware now; v1 cfgs still load as K=0) replays
+  whatever the fitter chose -- change the list in FitValue only. 80/20 train/val split BY
+  MATCH SEED (row-level splits leak outcomes between correlated rows); the reported number
+  is VALIDATION accuracy. Output is now **user://value_fn_new.cfg -- THE CHALLENGER.**
+- **VALUE ARENA v2: champion vs challenger.** With value_fn_new.cfg + value_fn.cfg both
+  present the arena plays NEW vs LIVE (bridge LoadValueSlot/UseValueSlot -- weight-set swap
+  per decision, no disk IO); only value_fn.cfg -> the old ON-vs-OFF bootstrap. Budget PINNED
+  at 700ms (the live 3s profile would make 450 matches a multi-day run; A/Bs stay comparable
+  at the established condition). PROMOTE >=55% -> gates with USE_VALUE -> run_promote_value.bat
+  (NEW: copies new -> live with a value_fn_prev.cfg rollback backup; never automatic).
+- **NIGHTS PLAY WITH THE JUDGE (OvernightSweep):** harvest + sweep arm value_fn.cfg when
+  present (UKO_VALUE=off for a hand-eval baseline). Generation-2 data comes from
+  generation-1 play; sweep conclusions describe the brain that ships.
+- **SWEEP RE-AIMED (old answers stale -- the eval bottleneck is gone, budget is 3s):**
+  PHASE 1 d3@3000 vs d3@700 (what the raise bought), PHASE 2 d4@3000 vs d3@3000 (is depth 4
+  the right spend -- if >=55%, flip AI.gd SetDepth(3) to 4), PHASE 3 d4@6000 vs d3@3000.
+  60 matches/phase (3s matches are slow; partials count).
+- **FRA'S ROUND-10 PROTOCOL:** extract -> Build -> verify_all.bat -> run_position_tests.bat
+  (six green; now 5-12 min -- the gates think at live budget) -> ONE EXTREME duel (feel the
+  3s pace; window must stay responsive) + one CHALLENGING duel (unchanged) -> push. Then the
+  nights, in any order across the week: (1) run_harvest.bat -> run_fit_value.bat ->
+  run_value_arena.bat -> if PROMOTE: USE_VALUE gates -> run_promote_value.bat -> push the
+  cfg story in HANDOFF; (2) run_sweep.bat -> paste phase results (decides depth 4).
+- QUEUED (ratified for later): learn-from-Fra (live-match logging into the harvest CSV +
+  opponent-model deepening); judge recalibration night (CAL_A was fitted on the old score
+  scale); tiny-MLP judge if crosses plateau.
+
 ## 2026-07-19 ROUND 9d — THE JUDGE GOES LIVE (adoption complete)
 Full protocol passed: arena FINAL 124-68 (64.6%, +12.4 avg margin, 450 matches) →
 six gates green value-OFF → six gates green value-ON (critical-survival 81%). Live

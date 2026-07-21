@@ -24,7 +24,7 @@ public static class ExtremeAI
 	public static readonly Dictionary<string, Profile> Profiles = new()
 	{
 		["challenging"] = new Profile { BudgetMs = 250, BudgetEndMs = 250, Rows = 3, Cols = 6, RowsEnd = 5, ColsEnd = 9, Lambda = 0.0 },
-		["extreme"] = new Profile { BudgetMs = 700, BudgetEndMs = 1400, Rows = 4, Cols = 8, RowsEnd = 6, ColsEnd = 10, Lambda = 0.6 },
+		["extreme"] = new Profile { BudgetMs = 3000, BudgetEndMs = 6000, Rows = 4, Cols = 8, RowsEnd = 6, ColsEnd = 10, Lambda = 0.6 },   // ROUND 10: 3s/6s think time (mirrors ExtremeAI.gd)
 	};
 
 	public static Profile P = Profiles["extreme"];

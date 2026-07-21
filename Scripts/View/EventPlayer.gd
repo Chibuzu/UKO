@@ -203,7 +203,7 @@ func _visualize(e: Dictionary) -> float:
 			# the bolt stays in sync with the sim and the hit lands on time.
 			return 0.0
 		ResolverEvents.CLASH, ResolverEvents.BLINK_FIZZLE, ResolverEvents.ENERGY_PULSE, \
-		ResolverEvents.GUARD_FAILED, ResolverEvents.GAME_OVER, \
+		ResolverEvents.GUARD_FAILED, ResolverEvents.GAME_OVER, ResolverEvents.ATTACK_DRAINED, \
 		ResolverEvents.DEAD_SKIP, ResolverEvents.ILLEGAL_ACTION:
 			# Deliberately unrendered here: CombatLog narrates these (clash animations
 			# are the tick bundle's pending Stage C).

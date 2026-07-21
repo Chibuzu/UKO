@@ -16,5 +16,12 @@ func _init(difficulty: int, tree: SceneTree) -> void:
 
 func opponent_sequence(me: Combatant, foe: Combatant, grid: Grid, turn_num: int, local_seq: Array, opp_model) -> Array:
 	await _tree.process_frame   # let "Waiting for opponent..." actually paint...
-	await _tree.process_frame   # ...before the synchronous search blocks the thread
+	await _tree.process_frame   # ...before the search starts
+	# EXTREME (ROUND 10): the C# brain now thinks 3s/turn on a BACKGROUND thread
+	# -- the window keeps painting and never goes "not responding". All other
+	# tiers (and the GD fallback if the bridge is missing) remain synchronous.
+	if _difficulty == AI.Difficulty.EXTREME and AI.start_async_choose(me, foe, grid, opp_model):
+		while not AI.async_done():
+			await _tree.process_frame
+		return AI.take_async_choice()
 	return AI.choose_sequence(_difficulty, me, foe, grid, me.spell_ids(), opp_model)

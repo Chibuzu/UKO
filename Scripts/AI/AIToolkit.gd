@@ -113,7 +113,7 @@ static func slot_actions(c: Combatant, foe: Combatant, grid: Grid) -> Array:
 		acts.append({"id": "attack", "tile": foe.pos})
 
 	var face := facing_toward(c.pos, foe.pos)
-	if face != c.facing:
+	if face != c.facing and Config.can_afford(c.energy, c.mp, c.statuses, "pivot"):
 		acts.append({"id": "pivot", "facing": face})
 
 	# GUARD only earns a slot when the foe actually has a blockable melee this turn.

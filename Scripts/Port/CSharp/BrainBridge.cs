@@ -34,21 +34,83 @@ public partial class BrainBridge : RefCounted
 	public void LoadCalibration()
 	{
 		var cf = new ConfigFile();
-		Eval.CAL_A = cf.Load("user://calibration.cfg") == Error.Ok
+		Eval.CAL_A = LoadWithFallback(cf, "calibration.cfg")
 			? (double)cf.GetValue("cal", "a", 0.0) : 0.0;
 	}
+
+	// ROUND 17: user:// first (refits win), else the SHIPPED res://Data/ copy --
+	// fresh installs start with an empty user:// and would silently lose the
+	// fitted judge/calibration. Mirror of Eval.gd._cfg_load (GD twin).
+	private static bool LoadWithFallback(ConfigFile cf, string name)
+		=> cf.Load("user://" + name) == Error.Ok || cf.Load("res://Data/" + name) == Error.Ok;
 
 	// ── learned value function (fitted by FitValue.gd -> user://value_fn.cfg) ──
 	public void SetValueEnabled(bool on) => Eval.VALUE_ON = on;
 
-	public bool LoadValueFn()
+	// One parsed weight set. v3 cfgs may carry CROSSES (feature-pair products
+	// appended after the 28 base features); a cfg without them is a v1 (K = 0).
+	private sealed class ValueSet
+	{
+		public double[] W, Mean, Std;
+		public int[][] Cross;
+	}
+	private readonly ValueSet[] _valueSlots = new ValueSet[2];
+
+	private static ValueSet ParseValueCfg(string path)
 	{
 		var cf = new ConfigFile();
-		if (cf.Load("user://value_fn.cfg") != Error.Ok) return false;
-		Eval.VW = ToDoubles(cf.GetValue("value", "w", new GC.Array()).AsGodotArray());
-		Eval.VMEAN = ToDoubles(cf.GetValue("value", "mean", new GC.Array()).AsGodotArray());
-		Eval.VSTD = ToDoubles(cf.GetValue("value", "std", new GC.Array()).AsGodotArray());
-		return Eval.VW.Length == 29 && Eval.VMEAN.Length == 28 && Eval.VSTD.Length == 28;
+		if (cf.Load(path) != Error.Ok) return null;
+		var vs = new ValueSet
+		{
+			W = ToDoubles(cf.GetValue("value", "w", new GC.Array()).AsGodotArray()),
+			Mean = ToDoubles(cf.GetValue("value", "mean", new GC.Array()).AsGodotArray()),
+			Std = ToDoubles(cf.GetValue("value", "std", new GC.Array()).AsGodotArray()),
+		};
+		var cr = cf.GetValue("value", "crosses", new GC.Array()).AsGodotArray();
+		vs.Cross = new int[cr.Count][];
+		for (int k = 0; k < cr.Count; k++)
+		{
+			var pair = cr[k].AsGodotArray();
+			if (pair.Count != 2) return null;
+			vs.Cross[k] = new[] { pair[0].AsInt32(), pair[1].AsInt32() };
+		}
+		int n = 28 + vs.Cross.Length;
+		bool ok = vs.W.Length == n + 1 && vs.Mean.Length == n && vs.Std.Length == n;
+		return ok ? vs : null;
+	}
+
+	private static void ApplyValueSet(ValueSet vs)
+	{
+		Eval.VW = vs.W;
+		Eval.VMEAN = vs.Mean;
+		Eval.VSTD = vs.Std;
+		Eval.VCROSS = vs.Cross;
+	}
+
+	public bool LoadValueFn()
+	{
+		var vs = ParseValueCfg("user://value_fn.cfg")
+			?? ParseValueCfg("res://Data/value_fn.cfg");   // shipped copy (round 17)
+		if (vs == null) return false;
+		ApplyValueSet(vs);
+		return true;
+	}
+
+	// Champion-vs-challenger support (ValueArena v2): parse two cfgs once, swap
+	// per decision by reference (no per-decision disk IO).
+	public bool LoadValueSlot(int slot, string path)
+	{
+		if (slot < 0 || slot >= _valueSlots.Length) return false;
+		_valueSlots[slot] = ParseValueCfg(path);
+		return _valueSlots[slot] != null;
+	}
+
+	public void UseValueSlot(int slot)
+	{
+		var vs = _valueSlots[slot];
+		if (vs == null) return;
+		ApplyValueSet(vs);
+		Eval.VALUE_ON = true;
 	}
 
 	private static double[] ToDoubles(GC.Array a)
@@ -67,6 +129,45 @@ public partial class BrainBridge : RefCounted
 		var cfoe = FromDict(foe);
 		var seq = ExtremeAI.ChooseSequence(cme, cfoe, grid, useModel ? _model : null);
 		return SeqOut(seq);
+	}
+
+	// ── background thinking (ROUND 10: 3s+ budgets must not freeze the UI) ──
+	// StartChoose marshals ON the calling thread (Godot objects never cross
+	// threads), then searches on a worker. GD polls ChooseDone each frame and
+	// collects with TakeChosen -- which returns the marshaled result, again on
+	// the calling thread. ONE search at a time (the turn loop is serial); the
+	// harness probes and the arena never use this path.
+	private System.Threading.Tasks.Task<List<PlanAction>> _job;
+
+	public void StartChoose(string[] gridRows, string[] baseRows, int rotStep, int shrinkLevel,
+			GC.Dictionary me, GC.Dictionary foe, bool useModel)
+	{
+		var grid = MakeGrid(gridRows, baseRows, rotStep, shrinkLevel);
+		var cme = FromDict(me);
+		var cfoe = FromDict(foe);
+		var model = useModel ? _model : null;
+		_job = System.Threading.Tasks.Task.Run(() => ExtremeAI.ChooseSequence(cme, cfoe, grid, model));
+	}
+
+	public bool ChooseDone() => _job == null || _job.IsCompleted;
+
+	public GC.Array TakeChosen()
+	{
+		if (_job == null) return new GC.Array();
+		try
+		{
+			var seq = _job.Result;
+			return SeqOut(seq);
+		}
+		catch (System.Exception e)
+		{
+			GD.PushWarning($"[BrainBridge] background search failed: {e.Message} -- falling back to wait.");
+			return new GC.Array();
+		}
+		finally
+		{
+			_job = null;
+		}
 	}
 
 	// ── opponent model ───────────────────────────────────────────────────────

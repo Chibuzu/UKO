@@ -140,12 +140,47 @@ func rotate_blockers(occupants: Array) -> Dictionary:
 		if not in_bounds(p):
 			continue
 		if _edge_depth(p.x, p.y) < shrink_level:
-			# Caught inside the closing zone -> shove to the nearest open live tile, and crush.
-			var np := _nearest_open(i, positions)
-			if blocked[np.y][np.x]:
-				blocked[np.y][np.x] = false   # last resort: nowhere open -> clear a spot to stand
-			positions[i] = np
+			# Caught inside the closing zone (Fra's rule, round 15): DRAGGED one tile
+			# straight toward the centre -- the north edge drags south, west drags
+			# east, corners go diagonal -- taking crush damage. If the landing tile
+			# holds a blocker the impact SMASHES it: the wall dies and the fighter
+			# takes a SECOND crush charge. Contract: crushed_idx lists the fighter
+			# once per hit, so every caller's per-entry damage loop pays both
+			# automatically. (Replaces the old nearest-open wander, which could
+			# fling fighters sideways and read as "stuck in the ring".)
 			crushed_idx.append(i)
+			var guard := 0
+			while guard < SIZE:
+				guard += 1
+				var in_ring := _edge_depth(p.x, p.y) < shrink_level
+				var taken := _tile_taken(p, i, positions)
+				if not in_ring and not taken:
+					break
+				var dx := 0
+				var dy := 0
+				if in_ring:
+					if p.x < shrink_level:
+						dx = 1
+					elif p.x >= SIZE - shrink_level:
+						dx = -1
+					if p.y < shrink_level:
+						dy = 1
+					elif p.y >= SIZE - shrink_level:
+						dy = -1
+				else:
+					# Landing occupied by the other fighter: keep sliding centreward.
+					dx = signi(SIZE / 2 - p.x)
+					dy = signi(SIZE / 2 - p.y)
+					if dx == 0 and dy == 0:
+						dy = 1   # dead-centre pileup: nudge south, deterministically
+				p += Vector2i(dx, dy)
+				# Only INTERIOR walls smash (and charge the extra hit). Ring tiles
+				# are the zone itself -- pass through without clearing them, or the
+				# closed ring would grow walkable holes.
+				if blocked[p.y][p.x] and _edge_depth(p.x, p.y) >= shrink_level:
+					blocked[p.y][p.x] = false      # smashed straight through a blocker...
+					crushed_idx.append(i)          # ...which costs a second crush hit
+			positions[i] = p
 		elif blocked[p.y][p.x]:
 			blocked[p.y][p.x] = false          # an interior wall landed on them -> suppress + crush
 			crushed_idx.append(i)
@@ -167,22 +202,6 @@ func _apply_shrink_rings() -> void:
 				blocked[y][x] = true
 
 # BFS to the nearest open, unoccupied tile inside the live zone for a shoved fighter.
-func _nearest_open(idx: int, occupants: Array) -> Vector2i:
-	var start: Vector2i = occupants[idx]
-	var seen := {start: true}
-	var q: Array = [start]
-	while not q.is_empty():
-		var cur: Vector2i = q.pop_front()
-		if in_bounds(cur) and not blocked[cur.y][cur.x] and not _tile_taken(cur, idx, occupants):
-			return cur
-		for d in [Vector2i(0, -1), Vector2i(0, 1), Vector2i(-1, 0), Vector2i(1, 0),
-				Vector2i(-1, -1), Vector2i(1, -1), Vector2i(-1, 1), Vector2i(1, 1)]:
-			var np: Vector2i = cur + d
-			if in_bounds(np) and not seen.has(np):
-				seen[np] = true
-				q.append(np)
-	return start
-
 func _tile_taken(tile: Vector2i, idx: int, occupants: Array) -> bool:
 	for j in range(occupants.size()):
 		if j != idx and occupants[j] == tile:
@@ -216,6 +235,21 @@ func _copy(src: Array) -> Array:
 # A deep copy of the current wall layout, so the replay can record each turn.
 func snapshot() -> Array:
 	return _copy(blocked)
+
+# Load a server-authoritative layout ("#"/"." row strings) as the canonical base.
+# Spawns keep their fixed inset positions; rot/shrink start at zero and derive
+# from this base on every client identically.
+func load_rows(rows: Array) -> void:
+	_clear()
+	for y in range(mini(SIZE, rows.size())):
+		var line := String(rows[y])
+		for x in range(mini(SIZE, line.length())):
+			blocked[y][x] = line[x] == "#"
+	spawn_a = Vector2i(Config.SPAWN_INSET, SIZE / 2)
+	spawn_b = Vector2i(SIZE - 1 - Config.SPAWN_INSET, SIZE / 2)
+	rot_step = 0
+	shrink_level = 0
+	base_blocked = _copy(blocked)
 
 # Restore a recorded wall layout, so a replayed turn shows the arena as it was
 # then (quadrant shifts included), not the final layout.

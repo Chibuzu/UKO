@@ -73,7 +73,10 @@ func _ready() -> void:
 	else:
 		rng.randomize()
 	grid = Grid.new()
-	grid.generate(rng)
+	if match_config != null and not match_config.map_rows.is_empty():
+		grid.load_rows(match_config.map_rows)   # server-authoritative layout (round 14)
+	else:
+		grid.generate(rng)
 
 	board = BoardView.new()
 	add_child(board)
@@ -164,6 +167,12 @@ func _game_loop() -> void:
 	opp_model.load_disk()                  # ...and remembers them across matches
 	if opponent == null:
 		opponent = AIOpponent.new(difficulty, get_tree())   # offline default; a lobby swaps in NetworkOpponent
+	# ONLINE CLASH (round 14): the server detects contested-tile collisions and
+	# asks for a stance mid-turn; show the same overlay the offline flow uses.
+	if opponent is NetworkOpponent:
+		var t: MatchTransport = (opponent as NetworkOpponent).transport()
+		if t != null:
+			t.stance_needed.connect(_on_online_clash)
 	while true:
 		turn_num += 1
 		_shift_notes.clear()
@@ -187,6 +196,17 @@ func _game_loop() -> void:
 		# right slots so the host (local=A) and client (local=B) feed identical args.
 		var seq_a: Array = local_plan if _local_is_a() else opponent_plan
 		var seq_b: Array = opponent_plan if _local_is_a() else local_plan
+		# ── CLASH SUB-ROUND (Fra's spec, round 11; OFFLINE only for now) ──
+		# A contested-tile clash is detectable before resolving (deterministic dry
+		# run), so the RPS becomes a real decision: the board pauses, the player
+		# picks a stance from the overlay, the AI answers with a Nash mix over the
+		# actual 3x3 outcomes, and only then does the turn resolve. Online keeps
+		# pre-declared stances until the exchange message exists (HANDOFF).
+		if opponent is AIOpponent and Resolver.clash_pending(grid, a, b, seq_a, seq_b, turn_num):
+			var ai_stance := ClashOracle.choose_stance(grid, a, b, seq_a, seq_b, turn_num, not _local_is_a())
+			var my_stance: String = await _await_stance()
+			_set_stances(local_plan, my_stance)
+			_set_stances(opponent_plan, ai_stance)   # seq_a/seq_b alias these arrays
 		var out := Resolver.resolve(grid, a, b, seq_a, seq_b, turn_num)
 		var obs_sit := OpponentModel.situation_of(a if _local_is_a() else b, b if _local_is_a() else a, grid)
 		opp_model.observe(local_plan, obs_sit)   # learn the move IN ITS SITUATION
@@ -245,6 +265,17 @@ func _rotate_map() -> void:
 		who.hp = maxi(1, who.hp - Config.MAP_CRUSH_DAMAGE)   # avoidable + telegraphed -> non-lethal cap
 		who.rest_ready = false                                # took damage -> no REST next turn
 		_log_shift("%s crushed by the closing wall (-%d)" % [who.id, Config.MAP_CRUSH_DAMAGE], ViewConfig.COL_WIN_B)
+	if not res["crushed_idx"].is_empty():
+		# THE FIX (Fra's report "no damage when the blocker lands"): the hp WAS
+		# applied but the HUD only refreshed after the NEXT resolve -- the crush
+		# was invisible exactly when it happened. Paint it now.
+		hud_a.refresh(a if _local_is_a() else b)
+		hud_b.refresh(b if _local_is_a() else a)
+		# ...and the SPRITES too (Fra's "stuck in the ring"): the ring drag moves
+		# the model, but no resolver event ever moves the view -- snap both units
+		# onto their true tiles the moment the walls land.
+		ua.set_state(a)
+		ub.set_state(b)
 	if grid.shrink_level > 0:
 		var side: int = Grid.SIZE - 2 * grid.shrink_level
 		_log_shift("-- ZONE CLOSES (%dx%d) --" % [side, side], ViewConfig.COL_DRAW)
@@ -314,6 +345,29 @@ func _unhandled_input(event: InputEvent) -> void:
 		if _pause_menu == null and end_screen == null:
 			_open_pause()
 			get_viewport().set_input_as_handled()
+
+# The server called a clash: pick a stance in the overlay, answer the server.
+# Runs alongside NetworkOpponent's pending await; the reveal follows our answer.
+func _on_online_clash(_turn: int) -> void:
+	var s := await _await_stance()
+	if opponent is NetworkOpponent:
+		(opponent as NetworkOpponent).transport().send_stance(s)
+
+# ── Clash stance sub-round (offline) ──────────────────────────────────────
+# Blocks until the player picks PUSH / PULL / FEINT from the overlay.
+func _await_stance() -> String:
+	var ov := StanceOverlay.new()
+	add_child(ov)
+	var picked: Variant = await ov.choice
+	ov.queue_free()
+	return String(picked)
+
+# Stamp the chosen stance on every declared MOVE in a plan (the clash reads the
+# rider off the colliding move; a plan holds at most two moves).
+func _set_stances(plan: Array, stance: String) -> void:
+	for act in plan:
+		if String(act.get("id", "")) == "move":
+			act["stance"] = stance
 
 func _open_pause() -> void:
 	var pm := PauseMenu.new()

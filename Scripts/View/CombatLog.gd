@@ -131,6 +131,8 @@ func _format(e: Dictionary) -> String:
 			return "%s clash: %s takes the tile" % [o, stance]
 		ResolverEvents.BLINK_FIZZLE:
 			return "%s blink fizzles" % o
+		ResolverEvents.ATTACK_DRAINED:
+			return "%s attack breaks -- drained dry" % o
 		ResolverEvents.REST, ResolverEvents.BLINK_DEPART, ResolverEvents.PROJECTILE_STEP, \
 		ResolverEvents.GUARD_DROPPED, ResolverEvents.DEAD_SKIP, ResolverEvents.ILLEGAL_ACTION:
 			return ""    # deliberately hidden: paced/bookkeeping events, not narration
