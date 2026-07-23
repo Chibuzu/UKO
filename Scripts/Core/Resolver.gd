@@ -211,7 +211,17 @@ static func _legalize(c: Combatant, action: Dictionary, vpos: Vector2i, vfacing:
 		events.append(_ev(ResolverEvents.ILLEGAL_ACTION, -1, c.id, {"reason": "rest_locked", "id": id}))
 		return {"id": "_noop"}
 	if d.get("category", "") == "move" and action.has("tile"):
-		if c.energy < Config.effective_move_cost(vfacing, vpos, action["tile"], statuses):
+		var mcost := c.move_energy if c.move_energy > 0 else \
+				Config.effective_move_cost(vfacing, vpos, action["tile"], statuses)
+		if c.energy < mcost:
+			events.append(_ev(ResolverEvents.ILLEGAL_ACTION, -1, c.id, {"reason": "cost", "id": id}))
+			return {"id": "_noop"}
+	elif d.get("category", "") == "attack" and action.has("tile"):
+		# ROUND 30 (Fra): attacks priced by aim direction (front 20 / side 25 / back 30).
+		# ROUND 32: a creature's flat cost (bat 10/10) replaces the formula outright.
+		var acost := c.attack_energy if c.attack_energy > 0 else \
+				Config.effective_attack_cost(vfacing, vpos, action["tile"], statuses)
+		if c.energy < acost:
 			events.append(_ev(ResolverEvents.ILLEGAL_ACTION, -1, c.id, {"reason": "cost", "id": id}))
 			return {"id": "_noop"}
 	elif not Config.can_afford(c.energy, c.mp, statuses, id):
@@ -229,7 +239,11 @@ static func _pay(c: Combatant, action: Dictionary, vpos: Vector2i, vfacing: int,
 	var d := Config.def(id)
 	var ecost := Config.effective_energy_cost(id, statuses)
 	if d.get("category", "") == "move" and action.has("tile"):
-		ecost = Config.effective_move_cost(vfacing, vpos, action["tile"], statuses)
+		ecost = c.move_energy if c.move_energy > 0 else \
+				Config.effective_move_cost(vfacing, vpos, action["tile"], statuses)
+	elif d.get("category", "") == "attack" and action.has("tile"):
+		ecost = c.attack_energy if c.attack_energy > 0 else \
+				Config.effective_attack_cost(vfacing, vpos, action["tile"], statuses)   # rounds 30+32
 	c.energy = maxi(0, c.energy - ecost)
 	c.mp = maxi(0, c.mp - int(d.get("mp_cost", 0)))
 	return ecost
@@ -527,8 +541,23 @@ static func _attack(attacker: Combatant, target: Combatant, s: Dictionary,
 		events.append(_ev(ResolverEvents.ATTACK_WHIFF, tick, attacker.id, {"tile": s["tile"], "dir": dir}))
 		return
 	if not attacker.attack_all_adjacent and not _occupies(target, s["tile"]):
-		events.append(_ev(ResolverEvents.ATTACK_WHIFF, tick, attacker.id, {"tile": s["tile"], "dir": dir}))
-		return
+		# RANGED LINE-TRACK (round 27, Fra): a ranged sting (range >= 2) flies DOWN
+		# ITS FIRING LINE -- a defender who stepped onto a NEARER tile of that same
+		# line is hit anyway (you walked into the shot). Melee (range 1) keeps the
+		# classic dodge; duels are untouched (every duelist is range 1).
+		var tracked := false
+		if attacker.attack_range >= 2:
+			var step := dir_from(attacker.pos, Vector2i(s["tile"]))
+			if step != Vector2i.ZERO:
+				var p: Vector2i = attacker.pos
+				for _k in attacker.attack_range:
+					p += step
+					if _occupies(target, p):
+						tracked = true
+						break
+		if not tracked:
+			events.append(_ev(ResolverEvents.ATTACK_WHIFF, tick, attacker.id, {"tile": s["tile"], "dir": dir}))
+			return
 	var rel := _flank(target, attacker.pos)
 	# Per-unit attack POWER (story units carry their own via their MobSpec loadout).
 	# 0 = the duel default, so a duelist resolves the identical original expression.

@@ -36,3 +36,4 @@ fast_harvest_build.txt
 # The build artifacts are big binaries -- never commit them.
 Tools/GameServer/web/*
 !Tools/GameServer/web/.gitkeep
+cloudflared.exe

@@ -292,8 +292,18 @@ public static class Resolver
 		{ events.Add(Ev(ResolverEvents.IllegalAction, -1, c.Id)); return new PlanAction("_noop"); }
 		if (d.Category == "move" && action.HasTile)
 		{
-			if (c.Energy < Config.EffectiveMoveCost(vfacing, vpos, action.Tile.Value, statuses))
+			int mcost = c.MoveEnergy > 0 ? c.MoveEnergy
+				: Config.EffectiveMoveCost(vfacing, vpos, action.Tile.Value, statuses);
+			if (c.Energy < mcost)
 			{ events.Add(Ev(ResolverEvents.IllegalAction, -1, c.Id)); return new PlanAction("_noop"); }
+		}
+		else if (d.Category == "attack" && action.HasTile)
+		{
+			// ROUND 30 aim pricing; ROUND 32: a creature's flat cost replaces the formula.
+			int acost = c.AttackEnergy > 0 ? c.AttackEnergy
+				: Config.EffectiveAttackCost(vfacing, vpos, action.Tile.Value, statuses);
+			if (c.Energy < acost)
+			{ events.Add(Ev(ResolverEvents.IllegalAction, -1, c.Id)); return new PlanAction("_noop", null, null); }
 		}
 		else if (!Config.CanAfford(c.Energy, c.Mp, statuses, id))
 		{ events.Add(Ev(ResolverEvents.IllegalAction, -1, c.Id)); return new PlanAction("_noop"); }
@@ -312,7 +322,11 @@ public static class Resolver
 		var d = Config.Def(id);
 		int ecost = Config.EffectiveEnergyCost(id, statuses);
 		if (d.Category == "move" && action.HasTile)
-			ecost = Config.EffectiveMoveCost(vfacing, vpos, action.Tile.Value, statuses);
+			ecost = c.MoveEnergy > 0 ? c.MoveEnergy
+				: Config.EffectiveMoveCost(vfacing, vpos, action.Tile.Value, statuses);
+		else if (d.Category == "attack" && action.HasTile)
+			ecost = c.AttackEnergy > 0 ? c.AttackEnergy
+				: Config.EffectiveAttackCost(vfacing, vpos, action.Tile.Value, statuses);   // rounds 30+32
 		c.Energy = Math.Max(0, c.Energy - ecost);
 		c.Mp = Math.Max(0, c.Mp - d.MpCost);
 		return ecost;
@@ -601,7 +615,27 @@ public static class Resolver
 			if (Grid.Dist(attacker.Pos, target.Pos) != 1) { events.Add(Ev(ResolverEvents.AttackWhiff, tick, attacker.Id)); return; }
 		}
 		else if (Grid.Dist(attacker.Pos, s.Tile) > attacker.AttackRange) { events.Add(Ev(ResolverEvents.AttackWhiff, tick, attacker.Id)); return; }
-		if (!attacker.AttackAllAdjacent && target.Pos != s.Tile) { events.Add(Ev(ResolverEvents.AttackWhiff, tick, attacker.Id)); return; }
+		if (!attacker.AttackAllAdjacent && target.Pos != s.Tile)
+		{
+			// RANGED LINE-TRACK (round 27, mirror of Resolver.gd): a range>=2 sting
+			// hits a defender standing on a nearer tile of its firing line. Duels
+			// are untouched (every duelist is range 1), so parity holds.
+			bool tracked = false;
+			if (attacker.AttackRange >= 2)
+			{
+				var step = DirFrom(attacker.Pos, s.Tile);
+				if (step != new Vec2I(0, 0))
+				{
+					var p = attacker.Pos;
+					for (int k = 0; k < attacker.AttackRange; k++)
+					{
+						p += step;
+						if (target.Pos == p) { tracked = true; break; }
+					}
+				}
+			}
+			if (!tracked) { events.Add(Ev(ResolverEvents.AttackWhiff, tick, attacker.Id)); return; }
+		}
 		string rel = Flank(target, attacker.Pos);
 		int dmg = Rnd(Config.ATTACK_DAMAGE * Config.FLANK_MULT[rel]);
 		if (guarding[target.Id])

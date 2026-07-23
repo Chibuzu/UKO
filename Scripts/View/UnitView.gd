@@ -226,7 +226,18 @@ func play_attack(dir: Vector2) -> void:
 var show_facing := true        # mobs: false -- mobs have no facing, so no bars
 # COSMETIC look vector: the direction this unit's RESTING art points. The story keeps it
 # aimed at the player. Art-only -- it never touches rules, legality, damage, or flank.
-var aim := Vector2.ZERO
+# ROUND 28 (Fra): a REACTIVE setter -- writing `aim` refreshes the resting pose
+# and the facing bar THE SAME FRAME, so the sprite can never disagree with the
+# bar (it used to lag one animation behind whenever aim changed while idle).
+# One-shot anims are left alone mid-play; _on_anim_finished re-reads aim anyway.
+var aim := Vector2.ZERO:
+	set(v):
+		aim = v
+		if body != null and _span_axis == "" and not _turning and not _reaching \
+				and body.animation == "idle":
+			body.rotation = _mob_facing_rotation()
+			body.flip_h = _mob_facing_flip()
+		queue_redraw()
 # The art rows for THIS unit: the player's table by default, swapped to the mob's
 # SpriteBook set by _build_mob_body. Every "points" lookup MUST read this -- reading the
 # player table directly would ask which way a BAT is drawn (and get nothing).

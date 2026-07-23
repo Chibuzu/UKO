@@ -23,8 +23,10 @@ const TABLE := {
 		"hp": 45,
 		"body": [],                                  # single tile
 		"loadout": {
-			"move":   {},                            # engine defaults
-			"attack": { "range": 2, "power": 10 },   # ranged poke down a cardinal line
+			# ROUND 32 (Fra): bats fly CHEAP -- flat 10 to move, 10 to sting
+			# (replaces the duel's directional pricing outright).
+			"move":   { "energy": 10 },
+			"attack": { "range": 2, "power": 10, "energy": 10 },
 			"wait":   {},                            # the always-act-twice filler (0 EP)
 		},
 		"brain": "CharacterBat",
@@ -85,3 +87,6 @@ static func apply_spec(c: Combatant, prof: Dictionary) -> void:
 		c.attack_power = int(lo["attack"].get("power", 0))          # 0 = the duel default
 		c.attack_range = int(lo["attack"].get("range", 1))
 		c.attack_all_adjacent = bool(lo["attack"].get("all_adjacent", false))
+		c.attack_energy = int(lo["attack"].get("energy", 0))        # round 32: flat cost override
+	if lo.has("move"):
+		c.move_energy = int(lo["move"].get("energy", 0))

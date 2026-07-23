@@ -37,6 +37,362 @@
 - **DELIBERATELY NOT SPLIT: the serpent span/turn + 2-tile reach-clip machinery.** Its branches encode a graveyard of fixed visual bugs (stranded mid-tile sprites, compounding drift, double-draws — the comments document each). Splitting it into subclasses blind (no runtime here) risks re-introducing exactly those; it should only be attempted WITH the game running on the same screen. It is contained, documented, and correct — leave it until then.
 - PLAYTEST: one duel (player anims: idle/move/attack/guard cube/buff/teleport + gear overlays on idle), one story fight (bat rotation aims, ooze mirror + spit, twin boss slither/turn/2-tile bites), an NPC village walk.
 
+## 2026-07-23 ROUND 32 — BATS FLY CHEAP (Fra: 10 EP attack, 10 EP move)
+- **Per-creature FLAT energy costs** (the attack_power pattern): Combatant gains
+  move_energy/attack_energy (0 = duel formula; >0 replaces it outright), cloned, both
+  twins; Resolver _legalize+_pay honor them (both twins); MobSpec.apply_spec reads
+  loadout "move"/"attack" energy keys. BAT: move 10, sting 10 (TABLE).
+- **Economy consequence:** bat kite cycle ~45 -> ~20/turn vs +10 income = long press
+  waves (winded ~turn 8-10 instead of 3); guarded stings are an economic WIN for the
+  player (refund 15 vs the bat's 10 paid). L3 (30 HP) gets meaningfully harder --
+  Fra playtests the feel; slime/serpent costs unchanged (standard formula).
+- Parity: overrides default 0 on every duelist -> duel outcomes byte-identical; the
+  era's pending golden regen (rounds 27-30) covers everything, nothing new owed.
+- Verified: parses; GameServer + HarvestRunner rebuilt clean.
+
+## 2026-07-23 ROUND 30 — WAIT 5 + DIRECTIONAL ATTACK PRICING (Fra rulings; both twins)
+- **CORRECTION OWNED:** I claimed duel waits grant nothing -- WRONG. Resolver grants
+  Config.WAIT_ENERGY per wait ("still tops up a little energy", Resolver:113). Fra was
+  right; the design consult was amended live.
+- **WAIT_ENERGY 10 -> 5** (Config twins). Anti-stall math: double-wait used to earn
+  +20/turn (double the activity pulse's 10/turn) -- now +10/turn, no longer strictly
+  superior to acting. Fra's instinct, endorsed.
+- **Attacks priced by aim direction: front 20 / side 25 / back 30** (Fra). New
+  Config.effective_attack_cost/EffectiveAttackCost (rel_of tiers + status discounts);
+  wired into Resolver _legalize+_pay (both twins) AND the AI: AIToolkit projection's
+  attack branch + candidate affordability (both twins) -- the menu's slot-2 projection
+  and the brain's candgen see true costs. Second tax on the facing axis (with the tick
+  tax) -- deliberate, small, completes "your facing is your cheap arc" as universal law.
+- **RIPPLE -- L2 RETUNED:** the +15 level breather was ALSO silently stacking on the
+  engine's +10 (waits in L2 really paid +25; it played easier than designed). Breather
+  system REMOVED (Fra: "in levels it should be the same") -- waits pay the engine 5
+  everywhere. Re-solved L2 at +5: clock 16 IMPOSSIBLE, min feasible 22 -> clock now 24
+  (two spare), teach text updated. Stuck-fail now keys on "wait not offered" (L1) --
+  with WAIT on the menu the clock is the only executioner.
+- **Era note:** rounds 27+29+30 = ONE physics era (line-track + pivot T=0 + wait 5 +
+  attack pricing). ONE parity-golden regeneration covers all (run both bats after
+  extracting); next harvest bakes everything; refit then. In-flight arena verdict
+  still valid (judge-vs-judge).
+- Verified: all parses; GameServer + HarvestRunner rebuilt clean.
+
+## 2026-07-23 ROUND 29 — PIVOT T=0 (Fra ruling; RULES CHANGE, both twins)
+- **The question answered:** pivot+guard resolved at 390 (pivot 110 + guard 200 +
+  versatility tax 80) vs attack 350 -- the first sting beat the guard. Nobody DECIDED
+  that; it emerged from three ratified rules composing (band clock + guard's first-
+  action-only instant block + the round-11 anti-stall tax).
+- **The ruling:** pivot is now TIME-FREE -- Band.BUFF, base_tick 0 (Config.gd +
+  Config.cs). New math: [pivot,guard] = 0+200+80 = 280 < 350 -> the re-facing turtle
+  WORKS. [pivot,attack] = 430 still loses to plain attack 350 (turning into an attack
+  stays a commitment). The anti-stall lives on in pivot's ENERGY cost (5, unchanged).
+  Band tie nuance: pivot now sorts with BUFF priority (before blink arrivals on exact
+  ties) -- cosmetic-rare.
+- **"Does that ruin all the simulations?" -- NO, with the standing caveats:** (a) the
+  4.9M-row CSV carries old-timing dynamics = mild label noise, same class as the ring/
+  grenade/pivot-cost rounds; don't discard. (b) The IN-FLIGHT arena verdict stays a
+  valid judge-vs-judge comparison (judges score states, not tick rules) -- promote per
+  gates as usual. (c) NEXT harvest (any run after extracting this round) bakes the new
+  timing in automatically (runner compiles from source); refit on that. (d) The search
+  brain needs NO port: it simulates the real resolver, so its lines adapt instantly;
+  BrainAgreement stays green (twins mirrored). (e) **PARITY GOLDEN CHANGES:** the 673
+  cases are full of pivots -- REGENERATE BOTH oracles + diff after extracting
+  (run both parity bats; expect identical GD-vs-C#, different from the old golden).
+- Verified: GD parses; GameServer + HarvestRunner rebuilt clean with the mirror.
+
+## 2026-07-23 ROUND 28 — SPRITE-FACING COHERENCE + L3 AT 30 HP (Fra)
+- **UnitView.aim is now a REACTIVE SETTER:** writing aim refreshes the resting pose
+  (rotation via the existing "points" table -- bat idle drawn UP, move/attack drawn
+  RIGHT, exactly Fra's description, already encoded in SpriteBook) + flip + facing-bar
+  redraw THE SAME FRAME. Root cause of "sprite disagrees with the bar": aim writes only
+  took visual effect at the NEXT anim boundary (init/anim-finished), so spawn-facing and
+  earned-facing changes lagged one beat. Guarded: no yank mid one-shot/turn/reach/span
+  (idle only); _on_anim_finished still re-reads aim after clips. Serpent span untouched.
+- **Level spawn order fixed** (aim FIRST -> _face -> unconditional set_facing): bar,
+  sprite and rules agree at frame one.
+- **Directional anim plays**: already correct -- resolver events carry "dir",
+  EventPlayer passes it, _rot_for rotates from each clip's "points". No change needed.
+- **Per-level player_hp** (clamped 1..MAX): L3 = 30 HP ("guard or die" -- three stings
+  end you); teach text updated. Other levels default 100.
+- Fra playtest: bat art aligns with its bar at spawn + after every earned-facing turn;
+  attack clips point at the strike; L3 opens with the 30/100 bar.
+
+## 2026-07-23 ROUND 27 — THREE PLAYTEST BUGS (Fra): confirm gating, free roam step, line-track
+- **CONFIRM after 2 actions again, everywhere:** round-22's min_actions machinery
+  REMOVED (SelectionController reverted to phase=="confirm" only; LevelBook defs and
+  LevelController wiring stripped). The L1/L2 finish-line problem it solved is now
+  handled by MID-TURN ARRIVAL: the tutorial loop scans owner-A events -- a MOVE onto
+  the target counts as arrival; if any MOVE/PIVOT executed AFTER it, arrival energy
+  was >0 by construction, so [step-on-mark, pivot-to-0] PASSES and a genuine
+  arrive-at-zero still fails. L1's optimal line is [E,E][pv,S][S,S][S,S][S,pivot].
+- **"Bat starts adjacent" FOUND:** _process's _mob_roam tick gave every mob ONE free
+  beeline wander step (~0.55s) before the first combat turn. Levels now override
+  _mob_roam to nothing and _ready flips straight into _combat_loop for mob levels --
+  mobs fight from their AUTHORED tiles; the bat at dist-2 lined up plans
+  [attack, attack] turn one = Fra's "start double attacking" ✓.
+- **RANGED LINE-TRACK (engine, BOTH twins):** in Resolver.gd + Resolver.cs, a range>=2
+  attack whose aimed tile is empty walks its firing line (dir_from snap, up to range)
+  and hits the defender standing on a NEARER tile of it -- "you walked into the shot."
+  Melee (range 1) keeps the classic dodge. DUELS UNTOUCHED (every duelist is range 1;
+  parity golden has no range-2 cases -- Fra's parity rerun will confirm byte-identity).
+  GameServer + HarvestRunner rebuilt clean with the mirror.
+- **Verified:** all parses; both C# consumers compile. Fra playtest: L1 pivot-finish
+  passes, L2 unchanged feel, L3/L4 bats open with the double sting from authored
+  tiles, step-closer-into-the-line gets stung, confirm shows only at 2 picks.
+
+## 2026-07-23 ROUND 26 — L3 PAYS THE HELM + LEVEL 4: THE PINCER (Fra spec)
+- **L3 reward -> {"gear": "discount_charm"}** (Sage Helm, head slot, grants the DISCOUNT
+  energy buff -- 10mp, cd3, energy_discount status cuts action costs). The new ladder
+  begins: helm at L3; chest placement pending Fra. Owned-already -> 300g consolation
+  path unchanged.
+- **Level 4 "THE PINCER":** player (0,0) FACING EAST; bats at (2,0) and (0,2) -- the
+  parallel both-axes read of "2 under you... and two to the right there is another" --
+  both spawn-facing the player, both with clear range-2 lines at turn one (hot start:
+  move off the crossfire immediately). Pillar LATTICE (1,2)(3,2)(1,4)(3,4) per spec
+  ("two under+one right; another 2 under that; two right of the first; two right of the
+  second"). Buttons: + REST (engine rest: heals ~5-15% HP+MP scaled by how LATE the
+  enemy's action lands -- safer timing pays more; rest_ready always true in levels via
+  the inherited story rule) + the BUFF SLOT.
+- **ActionMenu.allowed learns spell slots:** entries like "spell:buff" unlock ONE spell
+  category button; bare allowed lists still hide all spells. Duels (empty list)
+  unchanged.
+- "Bats attack from 2 tiles distance" -- confirmed existing MobSpec range ✓ untouched.
+- **Verified:** parses; L4 map machine-checked (bat/pillar coordinates exact, both
+  firing lines clear at spawn). Playtest focus: BUFF button lights only when the helm
+  is equipped (if Fra unequipped it in the shop, the slot shows "(none)" -- flagged);
+  DISCOUNT actually cheapens moves while active; rest heals mid-level; two-bat pincer
+  difficulty feel (hot start may need a pillar shift if too brutal -- one map-string
+  edit).
+
+## 2026-07-23 ROUND 25 — LEVELS ON THE PLAY BOARD + EAST FACINGS + THE VANISHING-SPRITE FIX
+- **Fra: "always draw the same 8x8 map we have for playmode."** Levels now render on
+  BoardView -- the duel's own board, art, origin and scale. LevelController drops the
+  whole story-window stack (WorldBoard, clip, CameraRig, VIEW_FRAME chrome, 60x60
+  OverworldMap fill, ANCHOR): maps are PURE 8x8 board coordinates, no wall ring (the
+  arena edge is the wall), '#' draws the duel blocker art. omap stays an EMPTY shell
+  (inherited helpers read its empty sets). Camera overrides collapsed to always-
+  visible (_apply_window override matters: spawn_split calls it); _mob_visible true.
+- **Type seam:** StoryController.board is now UNTYPED (was WorldBoard; WorldBoard
+  extends BoardView so the subclass member couldn't hold the parent). Duck-typed on
+  purpose, both modes call the same surface; story behavior unchanged.
+- **THE BUG (Fra: "after confirming, the character's sprite disappears"): FOUND+FIXED.**
+  In foe-less tutorial levels, EventPlayer's "B" slot still pointed at the PLAYER'S
+  sprite (the _ready setup default), so play() ended each turn by snapping the player's
+  own sprite to the DUMMY'S far-away tile. B now owns an invisible stand-in UnitView;
+  the dummy itself parks OFF-BOARD at (-4,-4) (engine-legal, blink-transit state) --
+  no board tile spent, nothing to draw. (L3+ unaffected: combat turns re-point B per
+  turn, story-style.)
+- **L1/L2 face EAST (Fra).** SOLVER MODEL CORRECTED in the process: moves NEVER change
+  facing (Resolver: only pivot:92 + blink:105 write facing) -- my earlier solvers
+  wrongly re-faced on moves. Re-solved with the true model: L1-east = 9 actions
+  (E,E, pivot S, S x6) arriving with 5 -- pivot lesson intact, mirrored; L2-east =
+  breather +15 still the right tuning (SOLVED in 15 of 16; +10 now PROVABLY impossible,
+  +0 impossible) -- round-23's shipped conclusion survives the correction, re-verified.
+- **Verified:** parses; all three maps machine-checked as 8x8 with exact glyph/blocker
+  positions + facings. Fra playtest focus: the arena look (should be indistinguishable
+  from PLAY), L1 pivot route arrives with 5, sprite stays put after CONFIRM, L3 bat
+  duel regression, T-marker visible on the new board.
+
+## 2026-07-23 ROUND 24 — LEVELS GLOBAL RULES + LEVEL 3: THE KITER (Fra spec)
+- **FIRST STORY-FILE EDIT, flag-gated:** StoryController.mob_energy_refill (default
+  true = story unchanged) guards the free MAX-tank refill in _combat_turn. Levels set
+  false -> mobs live on the RESOLVER'S OWN economy: real costs + native pulse (+30 per
+  6 planned real actions; the engine tallies PLANNED, not landed -- Resolver:404 -- so
+  an exhausted mob's fizzled turns still wind the spring: no brick, exhaustion WAVES).
+- **Foe HUD (levels):** ResourceHUD top-right (PANEL_RIGHT +40,+28), combat log slides
+  down 84px; click any mob tile -> inspect it (extra tile_clicked connect; harmless
+  alongside targeting); watched mob dies -> auto-rebind nearest; hidden when no mobs.
+- **Facing bars on ALL level mobs** + every mob SPAWNS FACING the player
+  (Resolver.dir_from snap); per-level PLAYER facing via def "facing" (FACINGS const;
+  L1/L2 default south -- their math assumed it).
+- **No aggro in levels:** _engaged override = every living mob, cheb-sorted, from turn
+  one (boss gate n/a).
+- **Level 3 "THE KITER":** player (0,0) facing WEST (into the wall -- facing is the
+  first lesson), bat (2,0) facing the player, open 8x8, kills objective, buttons
+  MOVE/PIVOT/WAIT/ATTACK/GUARD, min_actions DEFAULT 2 (real duel rhythm starts here;
+  1-action confirm stays a L1/L2 finish-line tool). CharacterBat's stock brain IS
+  Fra's spec (backpedal when hugged, sting at 2). Economy math: its kite cycle burns
+  ~45/turn vs ~+10/turn income -> tires in ~3 turns; lesson = read the foe HUD, guard
+  facing it, corner the winded kiter. Reward 100g placeholder.
+- **Verified:** parses; L3 map machine-checked (bat two east, open room, spawn-facing
+  west toward player... bat faces west = toward player ✓). NOT runtime-verified: Fra
+  playtest = foe HUD position vs log (tune offsets on sight), bat exhaustion rhythm
+  feel, guard-refund vs sting, L1/L2 regression (facing default still south).
+
+## 2026-07-23 ROUND 23 — LEVEL 2: AGAINST THE CLOCK (Fra spec; wait becomes the breather)
+- **Spec, verbatim mapping:** reach the mark before a 16-action clock; buttons MOVE/
+  PIVOT/WAIT; blockers (2,0)+(2,1) two right of spawn (stacked pair read of "and there
+  is another one"), (6,2) one-under+four-right of the pair's lower wall, target (7,2)
+  right of it. Machine-validated: exact glyph positions.
+- **BRUTE-FORCED FEASIBILITY (the design fact):** full state-space search (pos x facing
+  x energy x clock x pulse/any counters) -- with wait doing NOTHING the level is
+  IMPOSSIBLE in 16 actions (min 11 moves + 2 turns = 175 energy > 100 + reachable
+  pulses). Options solved: wait +10 = exactly-16 (too cruel), **wait +15 = 15-action
+  optimum, one spare (SHIPPED)**, +20 = 14. Story ambient regen kept OUT of the
+  tutorial loop (one clean rule instead of two hidden ones).
+- **New level-data dials:** objective.clock (countdown = seq.size() per turn, log line
+  + float, red at <=4; fail at 0 before reaching) and wait_energy (post-resolve +N per
+  wait, capped). Energy-stuck fail now only when wait_energy<=0 (the clock is the
+  executioner when breathing exists). Duels untouched.
+- **Solver's optimal line (for Fra's own playtest):** S,S,S, pivot E, E,E (pulse), E,E,
+  E, breathe, E, breathe, E... variants exist; 3-south-then-row-3-highway avoids the
+  (6,2) detour entirely -- the two-wall pair punishes row-0/1 greed, the third wall
+  punishes row-2 greed, the answer is the humble row 3.
+- Reward 75g placeholder; new-ladder rewards pending Fra's 1-5 sequence.
+
+## 2026-07-23 ROUND 22 — LEVELS REBOOT: LEVEL 1 = THE ENERGY WALK (Fra spec, verbatim)
+- **Campaign reset:** LevelBook now holds ONLY level 1; rounds-20 levels 2-10 deleted
+  (draft parked in git history). Fra designs 2-5 next, one at a time.
+- **Level 1 "FIRST STEPS":** 10x10 room = 8x8 interior; '@' interior (0,0) top-left,
+  'T' target at +2 east +6 south (machine-checked); buttons = MOVE + PIVOT only; rule =
+  reach WITH energy left. THE MATH (fwd 15 / side 20 / pivot 5 / pulse +30 per 6):
+  naive side-step route = 130-30 = exactly 100 -> arrives at ZERO -> fails the level's
+  own rule; the pivot route (6 fwd, pivot, 2 fwd) = 125-30 = 95 -> arrives with 5.
+  Fra's coordinates make the pivot THE lesson -- likely deliberate, preserved exactly.
+- **Tutorial turn loop (LevelController):** foe-less turns through the REAL resolver --
+  begin_turn -> await seq -> Resolver.resolve vs an invisible wait-wait dummy in a
+  sealed pocket at (50,50) (carved open; owner-B events filtered from playback) ->
+  commit r.a, HUD refresh, log turn. Pass: pos==T and energy>0. Fail: pos==T with 0,
+  or energy < COST_MOVE_FWD before arriving -> banner + free scene-reload retry.
+  _phase=COMBAT from _ready so roam WASD (which costs no energy) never runs.
+- **Two new engine-adjacent dials (duels unchanged by default):**
+  (a) ActionMenu.allowed -- non-empty = only those basic buttons, spell slots hidden;
+  (b) SelectionController.min_actions (default 2) -- at 1, CONFIRM appears from the
+  first action (needed: the last leg is 1 move; a forced filler pivot would land the
+  pivot-route at 0 = fail at the finish line). Flagged in LEVELS_DESIGN.md: the AI
+  already plays 1-action turns in duels, humans can't -- Fra to rule someday.
+- **'T' glyph** + gold disc marker; player faces SOUTH at spawn (the math assumes it).
+- **Verified:** all parses; map geometry + both-route energy math machine-checked.
+  NOT runtime-verified (no Godot here) -- Fra: menu shows exactly MOVE/PIVOT(+CONFIRM
+  after first pick), naive route fails at 0, pivot route clears with 5, retry loops.
+
+## 2026-07-22 ROUND 21 — THE FITTER AT HARVEST SCALE (C# port; second 16h run banked)
+- **Fra's run 2 (NEW-rules era, seed base 550540001 -- the rerun-safe bat worked): 34,320
+  matches / 2,903,986 rows / draw 13.0% / avg-turns 42.3 / 35.5 per min record.**
+  selfplay_v3.csv now ~4.9M rows total (~2.0M old-rule + 2.9M ring-drag era).
+- **FitValue.cs (Tools/HarvestRunner, --fit mode):** exact port of FitValue.gd -- same 28
+  features + SAME 22 CROSSES (change the list in the .gd SPEC file and mirror here), draws
+  skipped, split BY MATCH SEED (80/20, sorted, last fifth = val), train-stat
+  standardization, full-batch logistic LR 1.0 x 400 epochs, bias last. DETERMINISTIC
+  under parallelism: fixed row-range chunks summed in index order (never scheduler-
+  dependent). Emits Godot ConfigFile text BY HAND (no Godot dependency): [value]
+  w/mean/std/crosses/n/acc/names; every float carries '.'/exponent so GD parses floats.
+- **Sandbox verification:** (a) recovery test -- trending synthetic matches with planted
+  truth: 98.8% val acc, hp/foe_hp + curvature terms top-ranked with correct signs;
+  (b) first synthetic attempt (independent random rows) gave ~50% BY DESIGN -- no
+  in-match persistence = no signal; noted so nobody mistakes it for a fitter bug;
+  (c) cfg format machine-checked against Eval.load_value_fn's guard (w=51=n+1,
+  mean/std=50, crosses=22 int pairs, no NaN/Inf). Speed: 257k rows in 12s ->
+  ~4-5 min projected at 4.9M.
+- **run_fit_value_fast.bat** (new): build + fit whole CSV -> value_fn_new.cfg. The GD
+  run_fit_value.bat stays as the readable spec/reference (do NOT run it at millions of
+  rows). Ritual unchanged after the fit: run_value_arena.bat -> USE_VALUE gates ->
+  run_promote_value.bat.
+- **Answered Fra directly:** harvests only WRITE experience; EXTREME adopts nothing until
+  a challenger wins arena+gates and is PROMOTED. Live adaptation today = opponent model
+  only. The mixed-rules CSV (old-rule 2.0M + new-rule 2.9M) is deliberate -- flag the
+  val number and signal list when he pastes the fit output.
+
+## 2026-07-22 ROUND 20 — THE LEVELS MODE (Fra-ratified: story on ice, 10-room teaching campaign, shop set as the prize ladder, rewards live everywhere incl. online, retry-free deaths)
+- **Design:** LEVELS_DESIGN.md is the ratified sheet (curve table, ladder, rules, open
+  dials). Ladder: L2 Sage Helm, L4 Burst Plate, L6 Blink Greaves, L8 THE GRENADE
+  (levels-only gate), L10 Bolt Amulet + 500g; odd levels pay gold; owned rewards ->
+  300g consolation. Pedagogy loop: earn a piece -> next level teaches its spell.
+- **Architecture: LevelController EXTENDS StoryController** -- zero story-file edits; the
+  multi-mob pairwise combat, earned facing, gather minigames, loot, slime splits and
+  the serpent BOSS-PAIR wiring are all INHERITED. Own _ready builds a 14x14 room
+  (12x12 interior = the story window exactly) carved into a hand-filled REAL
+  OverworldMap at ANCHOR (24,24) (clear of village/cavern/belt statics); overrides:
+  _init/_follow_window (camera pinned on room centre), _nightfall/_dawn/_seal_cavern/
+  _spawn_npcs (no-ops -- no wall reshuffles, no NPCs, no cavern door), _pause_save
+  (refuses politely -- a story save from level state would corrupt story saves), _die
+  (no gold penalty; 1.6s banner -> scene reload = retry, LevelBook.current persists),
+  _clear_dead + _on_gather_done (super + objective tally + completion check).
+- **Grenade gate mechanism:** pre-L8-clear the player enters levels with
+  spent_once["grenade"]=true -- the ENGINE's own once-per-match rule refuses the throw
+  (Resolver:207), the menu shows it spent. No new UI, no new rule; duels untouched.
+- **Data:** Levels/LevelBook.gd -- 10 ASCII maps ('#','.','@','b' bat,'s' slime,'x'
+  serpent twin,'G' gem,'m' mushroom,'R' rest tile), objectives {kills/gems/mushrooms},
+  rewards {gear/gold/grenade}; MACHINE-VALIDATED in sandbox (14x14, sealed ring, exact
+  inventories, BFS reachability incl. gem adjacency). LevelProgress.gd =
+  user://levels.cfg (unlocked/beaten; grenade_unlocked() == beaten(8); mark_beaten
+  idempotent). PlayerProfile.grant(gear_id) = own+equip, no cost (levels reward path).
+- **Menu:** STORY button seat -> LEVELS (LevelsPage: 2x5 slots, locked/next/CLEARED
+  states, objective + prize labels, BACK). Story world fully intact underneath;
+  restoring it = swapping the button entry back.
+- **NOT verified (no runtime here -- Fra's first playtest checklist):** (1) menu ->
+  LEVELS -> level 1 loads, room renders, slime fights; (2) mid-level ESC/exit; (3) die
+  -> auto-retry; (4) clear -> banner, gold, ladder advances, menu returns; (5) L2 clear
+  grants+equips Sage Helm (check GEAR screen); (6) L7 gather-under-fire (GATHER button
+  lights beside gem mid-combat-lull), gem tally completes level with mobs alive; (7)
+  grenade greyed in levels pre-L8, normal in duels; (8) L10 twins get labels A/B +
+  bruiser/flanker roles. If "Could not find type LevelsPage/LevelBook" parser errors:
+  Project -> Reload Current Project (class registry rescan -- same as ServerSession).
+- **Open dials (Fra):** STARTING_GOLD 2000 undercuts the ladder for new accounts
+  (recommend ~250 + duel/level gold once ratified); per-level tuning after playtest;
+  wave timers/par-turns later.
+
+## 2026-07-22 ROUND 19 — THE LANDING PAGE (Fra-ratified: free tunnel link until launch + real site now; domain deferred to launch checklist)
+- **Site structure:** "/" = landing page (Tools/GameServer/web/index.html, tracked in git,
+  one self-contained file: inline CSS, zero external requests, responsive, og-tags);
+  game at **/play/** (Web preset export_path now web/play/index.html, untracked).
+  Screenshots: web/shots/{1,2,3}.png drop-ins -- gallery slots hide via onerror when
+  missing. gitignore: web/* ignored EXCEPT index.html, .gitkeep, shots/**.
+- **Server routing (WebSocketServer.ServeStatic):** directory candidates serve their
+  index.html; a directory WITHOUT trailing slash 301-redirects (+"/") first -- without
+  that, the game's RELATIVE asset urls would resolve against the root and 404. Selftest
+  grew to **18/18 PASS**: /play->301 Location /play/, /play/ serves the game index
+  (temp-file technique, works pre- and post-export).
+- **Landing copy notes:** tagline "Plan in secret. Strike at once."; features = WEGO /
+  cross-device online / self-trained EXTREME; how-a-duel-works IV mentions the round-15
+  ring-drag rule ("the map itself will drag you back in"). PLAY button -> play/ (relative
+  href, works behind any tunnel/domain).
+- **Hygiene:** selftest_matches.csv untracked + gitignored (was committed scratch).
+- **Migration note for Fra's existing root export:** delete old game files from web/
+  (everything except index.html, .gitkeep, shots/, play/), re-export to the new path.
+- **Launch checklist (accumulating):** domain (~EUR10/yr) + free Cloudflare named tunnel
+  replaces quick-tunnel randomness; VPS EUR5/mo replaces the PC; itch.io page optional;
+  GD-Sync key rotation STILL OUTSTANDING (burned keys in git history; rotate in
+  dashboard); Play Store later ($25 + AAB + release keystore).
+
+## 2026-07-21 ROUND 18b — HARVEST RERUN OPS (first 16h-class run banked; reruns now seed-safe)
+- **Fra's run (old-rules era, pre-round-15 SimWorld): ~22,440 matches / 1,915,564 rows /
+  draw 13.2-14.1% steady / avg-turns 42.7 / throughput 26.8->33.0 per min** (paste ended
+  at 679m -- waves save as they finish, so the CSV holds whatever completed).
+  selfplay_v3.csv now ~2.0M rows total (21k GD-era + 65k cloud + this).
+- **run_fast_harvest.bat rerun-safe:** %1 = minutes (default 960; `run_fast_harvest.bat
+  720` = 12h) + a RANDOM seed base per launch (10,000,001 + %RANDOM%*60000, int32-safe,
+  above every legacy range: godot 770k, runner 900k+22.4k used, cloud 1.9M, server 4M).
+  Without this, every launch replayed seeds 900001+ -> byte-identical matches (budget-0
+  deterministic brain) -> duplicate rows poisoning the fit and FitValue's seed-based
+  val split.
+- **Rules-mix note (deliberate):** next runs harvest under ROUND-15 physics (ring drag+
+  smash); the 1.9M banked rows are old-rule. Mild distribution shift, correct direction
+  -- the judge should track live rules; discarding 1.9M rows would cost more than the
+  mix does. Flag in the next fit report.
+- **Fit-scale warning (next flywheel turn):** run_fit_value.bat is GDScript -- fine at
+  21k rows, unknown at 2M (likely very slow). If it crawls, port the fitter into
+  HarvestRunner as a --fit mode (C#, minutes not hours) -- queued, not built.
+- **Coexistence:** harvest (11 workers) + run_server.bat + tunnel can run together --
+  online is pure PvP (server does cheap dry-run resolves; browser AI runs on the
+  PLAYER'S device), so harvesting only starves unused bot seats.
+
+## 2026-07-21 ROUND 18 — INTERNET PLAY (run_public.bat: free Cloudflare quick tunnel)
+- **run_public.bat** (new, repo root): downloads cloudflared once (curl, gitignored exe),
+  then `cloudflared tunnel --url http://localhost:8765` -> prints a random
+  https://xxx.trycloudflare.com link that fronts the WHOLE server (website + WebSocket
+  matches -- cloudflared proxies WS; round 17's same-origin default means the https page
+  auto-connects via wss, no address typing). No router changes, no account, CGNAT-proof.
+  New link per start; closing the window ends internet access, Wi-Fi play unaffected.
+  run_server.bat must already be running in its own window.
+- **The permanent alternative (documented, not built): router port-forward** TCP 8765 ->
+  PC's LAN IP + share the public IP (http://PUBLIC-IP:8765); needs a DHCP reservation for
+  the PC + survives only if the ISP grants a real public IP (CGNAT common in IT -- if the
+  router's WAN IP differs from whatismyip, forwarding can't work; the tunnel is the
+  answer there). DuckDNS for a stable name when he goes this route -- guide when asked
+  (ask his router model/ISP).
+- This same tunnel is the future itch.io online story (wss requirement) -- when the
+  public page happens, a NAMED tunnel (free CF account + a domain) replaces the random
+  quick-tunnel URL.
+
 ## 2026-07-21 ROUND 17 — THE WEB ERA (Fra-ratified: "web only as long as we can change it later"; hosting = PC now, itch.io later)
 - **Strategy:** the website build is the GDSCRIPT game -- browsers can't run C#, and the
   mirrored-twin discipline is what makes this a flip, not a rewrite. AI.gd's verified

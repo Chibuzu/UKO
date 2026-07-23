@@ -118,6 +118,20 @@ static func buy(gear_id: String) -> bool:
 	_save()
 	return true
 
+# Grant a piece outright -- the LEVELS reward path (round 20): earned by blade,
+# not bought. Owns it and equips it (same post-state as buy), costs nothing.
+# Returns false if it was already owned (caller decides on a consolation).
+static func grant(gear_id: String) -> bool:
+	_ensure_loaded()
+	if _owned.has(gear_id) or GearBook.gear_def(gear_id).is_empty():
+		return false
+	_owned[gear_id] = true
+	var slot := String(GearBook.gear_def(gear_id).get("slot", ""))
+	if slot != "":
+		_equipped[slot] = gear_id
+	_save()
+	return true
+
 # Wipe to a fresh account (starting gold, no gear). Handy for a reset button / testing.
 static func reset() -> void:
 	_gold = STARTING_GOLD

@@ -37,6 +37,10 @@ var attack_power: int = 0              # 0 = the duel default (Config.ATTACK_DAM
                                        # units set their own from their MobSpec loadout.
 var attack_range: int = 1              # bat = 2: strikes from two tiles away
 var attack_all_adjacent: bool = false  # ooze = true: every attack hits ALL 4 adjacent tiles
+# ROUND 32 (Fra): per-creature FLAT energy costs. 0 = the duel formula (directional
+# pricing); >0 replaces it outright. Bats fly cheap: move 10, sting 10.
+var move_energy: int = 0
+var attack_energy: int = 0
 # STORY FOOTPRINT: the unit's BODY as local offsets in its facing basis (x = its
 # right, y = forward); (0,0) is `pos`. Empty = single tile -- ALWAYS empty in duels.
 # Scale freely: the serpent is Resolver.shape_line(2); a big boss shape_rect(4, 4).
@@ -129,6 +133,8 @@ func clone() -> Combatant:
 	c.action_count = action_count
 	c.attack_power = attack_power
 	c.attack_range = attack_range
+	c.move_energy = move_energy
+	c.attack_energy = attack_energy
 	c.attack_all_adjacent = attack_all_adjacent
 	c.body = body.duplicate()
 	c.gear = gear.duplicate()

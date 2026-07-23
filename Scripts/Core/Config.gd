@@ -42,7 +42,7 @@ const MAX_MP := 100
 const MAX_ENERGY := 100
 const ENERGY_REGEN := 30
 const ENERGY_PULSE_ACTIONS := 6   # a fighter regains energy every 6 of their OWN non-Wait actions
-const WAIT_ENERGY := 10           # small personal energy top-up WAIT now grants (tunable)
+const WAIT_ENERGY := 5            # ROUND 30 (Fra): halved from 10 -- double-wait no longer out-earns the activity pulse
 
 # ── Rewards: gold for beating the AI ────────────────────────────────────
 # Paid only when the PLAYER (A) wins. Keyed by AI.Difficulty (EASY=0 ..
@@ -67,6 +67,10 @@ const COST_MOVE_FWD := 15    # toward your facing: closing distance
 const COST_MOVE_SIDE := 20   # lateral: repositioning / dodging a line
 const COST_MOVE_BACK := 25   # away from facing: retreat bleeds the kiter
 const COST_ATTACK := 20
+# ROUND 30 (Fra): attacks are priced by facing like moves -- your facing is your
+# cheap arc, universally. Front = COST_ATTACK, side +5, back +10.
+const COST_ATTACK_SIDE_TAX := 5
+const COST_ATTACK_BACK_TAX := 10
 const COST_GUARD := 30
 const GUARD_REFUND := 15
 # Directional guard: fraction of an incoming melee a raised guard absorbs, by the
@@ -146,7 +150,11 @@ static func flank_tier(facing: int, def_pos: Vector2i, atk_pos: Vector2i) -> Str
 # ── Basic actions ───────────────────────────────────────────────────────
 const ACTIONS := {
 	"move":  { "band": Band.MOVE,   "base_tick": 20, "energy_cost": COST_MOVE_FWD, "mp_cost": 0, "needs_tile": true,  "category": "move" },
-	"pivot": { "band": Band.PIVOT,  "base_tick": 10, "energy_cost": 5, "mp_cost": 0, "needs_tile": false, "category": "pivot" },   # ROUND 11 (Fra): facing is worth something -- free pivots subsidized wait->pivot stalling
+	# ROUND 29 (Fra): pivot T=0 -- turning is INSTANT on the clock (BUFF band, tick 0),
+	# so pivot+guard (0 + 200 + 80 versatility tax = 280) beats an attack (350): the
+	# re-facing turtle works. The round-11 anti-stall lives in the ENERGY cost (5),
+	# which stays. Pivot+attack still loses to plain attack (430 vs 350).
+	"pivot": { "band": Band.BUFF,   "base_tick": 0,  "energy_cost": 5, "mp_cost": 0, "needs_tile": false, "category": "pivot" },
 	"attack":{ "band": Band.ATTACK, "base_tick": 50, "energy_cost": COST_ATTACK, "mp_cost": 0, "needs_tile": true, "category": "attack" },
 	"guard": { "band": Band.GUARD,  "base_tick": 0,  "energy_cost": COST_GUARD, "mp_cost": 0, "needs_tile": false, "category": "guard" },
 	"rest":  { "band": Band.REST,   "base_tick": 90, "energy_cost": 0, "mp_cost": 0, "needs_tile": false, "category": "rest" },
@@ -255,6 +263,21 @@ static func move_base_cost(facing: int, from: Vector2i, to: Vector2i) -> int:
 
 static func effective_move_cost(facing: int, from: Vector2i, to: Vector2i, statuses: Dictionary) -> int:
 	var base := move_base_cost(facing, from, to)
+	var reduction := 0
+	for sid in statuses:
+		if int(statuses[sid]) > 0:
+			reduction += int(status_def(sid).get("energy_cost_reduction", 0))
+	return maxi(0, base - reduction)
+
+# ROUND 30 (Fra): the attack's energy cost by aim direction relative to facing
+# (front 20 / side 25 / back 30), discounted by statuses like every other cost.
+static func effective_attack_cost(facing: int, from: Vector2i, to: Vector2i, statuses: Dictionary) -> int:
+	var base := COST_ATTACK
+	match rel_of(facing, from, to):
+		"side":
+			base += COST_ATTACK_SIDE_TAX
+		"back":
+			base += COST_ATTACK_BACK_TAX
 	var reduction := 0
 	for sid in statuses:
 		if int(statuses[sid]) > 0:

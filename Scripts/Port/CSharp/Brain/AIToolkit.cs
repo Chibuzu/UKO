@@ -20,6 +20,10 @@ public static class AIToolkit
 			c.Energy = Math.Max(0, c.Energy - Config.EffectiveMoveCost(c.Facing, c.Pos, action.Tile.Value, c.Statuses));
 			c.Pos = action.Tile.Value;
 		}
+		else if (cat == "attack" && action.HasTile)
+		{
+			c.Energy = Math.Max(0, c.Energy - Config.EffectiveAttackCost(c.Facing, c.Pos, action.Tile.Value, c.Statuses));   // round 30
+		}
 		else if (cat == "pivot" && action.HasFacing)
 		{
 			c.Facing = action.Facing.Value;
@@ -104,7 +108,7 @@ public static class AIToolkit
 				acts.Add(new PlanAction("move", tile));
 		}
 
-		if (dist == 1 && Config.CanAfford(c.Energy, c.Mp, c.Statuses, "attack"))
+		if (dist == 1 && c.Energy >= Config.EffectiveAttackCost(c.Facing, c.Pos, foe.Pos, c.Statuses))
 			acts.Add(new PlanAction("attack", foe.Pos));
 
 		int face = FacingToward(c.Pos, foe.Pos);

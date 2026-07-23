@@ -13,14 +13,18 @@ const STORY_SCENE := "res://Story.tscn"
 
 const BTN_W := 300
 
-var _mode := "main"        # "main" | "difficulty"  (shop/lobby are their own pages)
+var _mode := "main"        # "main" | "difficulty"  (shop/lobby/levels are their own pages)
 var _hover := -1
 var _shop: GearShopPage
 var _lobby: LobbyPage
+var _levels: LevelsPage
 
+# ROUND 20 (Fra): STORY is on ice -- its button seat now belongs to LEVELS, the
+# ten-room campaign that teaches the duel and pays out the gear set. The story
+# world is untouched underneath; restoring it is swapping this entry back.
 var _buttons := [
 	{"id": "play", "label": "PLAY", "on": true},
-	{"id": "story", "label": "STORY", "on": true},
+	{"id": "levels", "label": "LEVELS", "on": true},
 	{"id": "multiplayer", "label": "MULTIPLAYER", "on": true},
 	{"id": "gear", "label": "GEAR", "on": true},
 ]
@@ -45,6 +49,10 @@ func _ready() -> void:
 	_lobby.visible = false
 	add_child(_lobby)
 	_lobby.closed.connect(_on_page_closed)
+	_levels = LevelsPage.new()
+	_levels.visible = false
+	add_child(_levels)
+	_levels.closed.connect(_on_page_closed)
 
 func _on_page_closed() -> void:
 	_mode = "main"
@@ -52,7 +60,7 @@ func _on_page_closed() -> void:
 	queue_redraw()
 
 func _page_open() -> bool:
-	return _shop.visible or _lobby.visible
+	return _shop.visible or _lobby.visible or _levels.visible
 
 func _active() -> Array:
 	return _buttons if _mode == "main" else _diff_buttons
@@ -135,8 +143,8 @@ func _input(event: InputEvent) -> void:
 				elif items[i]["id"] == "gear":
 					_shop.open()                   # GEAR: the shop page takes over
 					queue_redraw()
-				elif items[i]["id"] == "story":
-					get_tree().change_scene_to_file(STORY_SCENE)   # STORY opens the story world
+				elif items[i]["id"] == "levels":
+					_levels.open()                 # LEVELS: the campaign page takes over
 				elif items[i]["id"] == "multiplayer":
 					_lobby.open()                  # MULTIPLAYER: the lobby page takes over
 					queue_redraw()

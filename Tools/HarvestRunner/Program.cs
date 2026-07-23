@@ -38,6 +38,10 @@ public static class Program
     public static int Main(string[] rawArgs)
     {
         var args = ParseArgs(rawArgs);
+        // ROUND 21: the fitter lives here too -- same exe, harvest-scale speed.
+        //   HarvestRunner --fit <selfplay_v3.csv> --fit-out <value_fn_new.cfg>
+        if (args.ContainsKey("fit"))
+            return FitValue.Run(args["fit"], args.GetValueOrDefault("fit-out", "value_fn_new.cfg"));
         int budget = GetInt(args, "budget", 0);
         int depth = GetInt(args, "depth", 3);
         long seedBase = GetLong(args, "seed-base", 900001);

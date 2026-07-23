@@ -35,6 +35,9 @@ const SPELL_SLOTS := [
 var player: Combatant = null
 var enemy: Combatant = null
 var enabled := false
+# ROUND 22: when non-empty, ONLY these basic actions are offered (spell slots
+# hidden too). The LEVELS tutor dial -- duels never set it, so nothing changes.
+var allowed: Array = []
 var spells: Array = []          # spell ids available to the player
 var planned: Array = []         # short labels of actions chosen so far
 var confirming := false         # both actions chosen; awaiting confirm
@@ -97,9 +100,14 @@ func set_state(p: Combatant, e: Combatant, is_enabled: bool, spell_ids: Array,
 	queue_redraw()
 
 func _entries() -> Array:
-	var list: Array = BASIC.duplicate()
+	var list: Array = []
+	for id in BASIC:
+		if allowed.is_empty() or allowed.has(id):
+			list.append(id)
 	for slot in SPELL_SLOTS:
-		list.append("spell:" + String(slot["role"]))   # fixed category buttons
+		var sid := "spell:" + String(slot["role"])   # fixed category buttons; a level
+		if allowed.is_empty() or allowed.has(sid):   # may unlock one by listing e.g.
+			list.append(sid)                         # "spell:buff" (round 26)
 	if confirming:
 		list.append("confirm")
 	for e in roam_extras:

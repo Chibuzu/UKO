@@ -17,6 +17,8 @@ static func apply_projection(c: Combatant, action: Dictionary) -> void:
 	if cat == "move" and action.has("tile"):
 		c.energy = maxi(0, c.energy - Config.effective_move_cost(c.facing, c.pos, action["tile"], c.statuses))
 		c.pos = action["tile"]
+	elif cat == "attack" and action.has("tile"):
+		c.energy = maxi(0, c.energy - Config.effective_attack_cost(c.facing, c.pos, action["tile"], c.statuses))   # round 30
 	elif cat == "pivot" and action.has("facing"):
 		c.facing = int(action["facing"])
 	elif Config.is_blink(id) and action.has("tile"):
@@ -109,7 +111,7 @@ static func slot_actions(c: Combatant, foe: Combatant, grid: Grid) -> Array:
 		if c.energy >= Config.effective_move_cost(c.facing, c.pos, tile, c.statuses):
 			acts.append({"id": "move", "tile": tile})
 
-	if dist == 1 and Config.can_afford(c.energy, c.mp, c.statuses, "attack"):
+	if dist == 1 and c.energy >= Config.effective_attack_cost(c.facing, c.pos, foe.pos, c.statuses):
 		acts.append({"id": "attack", "tile": foe.pos})
 
 	var face := facing_toward(c.pos, foe.pos)

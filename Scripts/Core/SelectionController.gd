@@ -43,6 +43,9 @@ func begin_turn(p_a: Combatant, p_b: Combatant) -> void:
 	_refresh_menu()
 
 # ── Selection (two actions, then confirm) ───────────────────
+# (Round 27, Fra: CONFIRM appears only after BOTH actions -- the round-22
+# 1-action confirm is gone everywhere; tutorial arrivals are honored mid-turn
+# by LevelController instead.)
 func _on_action_chosen(id: String) -> void:
 	preview = {}
 	if id == "confirm":

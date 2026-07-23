@@ -76,7 +76,7 @@ public static class Config
 	public const int MAX_ENERGY = 100;
 	public const int ENERGY_REGEN = 30;
 	public const int ENERGY_PULSE_ACTIONS = 6;
-	public const int WAIT_ENERGY = 10;
+	public const int WAIT_ENERGY = 5;   // ROUND 30: halved (mirrors Config.gd)
 
 	// ── Rewards (gold for beating the AI), keyed by difficulty int ───────────
 	public static readonly Dictionary<int, int> GOLD_REWARD = new()
@@ -89,6 +89,9 @@ public static class Config
 	public const int COST_MOVE_SIDE = 20;
 	public const int COST_MOVE_BACK = 25;
 	public const int COST_ATTACK = 20;
+	// ROUND 30 (Fra): attacks priced by facing like moves (front 20 / side 25 / back 30).
+	public const int COST_ATTACK_SIDE_TAX = 5;
+	public const int COST_ATTACK_BACK_TAX = 10;
 	public const int COST_GUARD = 30;
 	public const int GUARD_REFUND = 15;
 	public static readonly Dictionary<string, double> GUARD_BLOCK = new()
@@ -156,7 +159,7 @@ public static class Config
 	public static readonly Dictionary<string, ActionDef> ACTIONS = new()
 	{
 		["move"]  = new ActionDef { Id = "move",  Band = Band.MOVE,   BaseTick = 20, EnergyCost = COST_MOVE_FWD, MpCost = 0, NeedsTile = true,  Category = "move" },
-		["pivot"] = new ActionDef { Id = "pivot", Band = Band.PIVOT,  BaseTick = 10, EnergyCost = 5,             MpCost = 0, NeedsTile = false, Category = "pivot" },   // ROUND 11: pivots cost 5 (mirrors Config.gd)
+		["pivot"] = new ActionDef { Id = "pivot", Band = Band.BUFF,   BaseTick = 0,  EnergyCost = 5,             MpCost = 0, NeedsTile = false, Category = "pivot" },   // ROUND 29: pivot T=0 -- instant turn; energy 5 stays (mirrors Config.gd)
 		["attack"]= new ActionDef { Id = "attack",Band = Band.ATTACK, BaseTick = 50, EnergyCost = COST_ATTACK,  MpCost = 0, NeedsTile = true,  Category = "attack" },
 		["guard"] = new ActionDef { Id = "guard", Band = Band.GUARD,  BaseTick = 0,  EnergyCost = COST_GUARD,   MpCost = 0, NeedsTile = false, Category = "guard" },
 		["rest"]  = new ActionDef { Id = "rest",  Band = Band.REST,   BaseTick = 90, EnergyCost = 0,             MpCost = 0, NeedsTile = false, Category = "rest" },
@@ -249,6 +252,19 @@ public static class Config
 				if (sd != null) reduction += sd.EnergyCostReduction;
 			}
 		return Math.Max(0, base_ - reduction);
+	}
+
+	// ROUND 30: mirror of Config.gd.effective_attack_cost -- aim-relative pricing.
+	public static int EffectiveAttackCost(int facing, Vec2I from, Vec2I to, Dictionary<string, int> statuses)
+	{
+		int b = COST_ATTACK;
+		string rel = RelOf(facing, from, to);
+		if (rel == "side") b += COST_ATTACK_SIDE_TAX;
+		else if (rel == "back") b += COST_ATTACK_BACK_TAX;
+		int reduction = 0;
+		foreach (var kv in statuses)
+			if (kv.Value > 0) reduction += StatusDef(kv.Key).EnergyCostReduction;
+		return Math.Max(0, b - reduction);
 	}
 
 	// A self-buff that commits earlier in a sequence discounts LATER actions this same

@@ -41,7 +41,9 @@ enum Phase { ROAM, COMBAT }
 
 var omap: OverworldMap
 var grid: WorldGrid
-var board: WorldBoard
+var board                             # WorldBoard (story) / BoardView (levels, round 25):
+                                      # both share the full surface this file calls;
+                                      # deliberately untyped so either can serve
 var fx: Fx
 var play: EventPlayer
 var menu: ActionMenu
@@ -64,6 +66,11 @@ var _quests: Array = []               # live QuestKind objects for currently-act
 var _talk_npc: String = ""            # id of the NPC whose dialog is open (for re-refresh)
 var _paused: bool = false
 var roamer := MobRoamer.new()         # out-of-combat mob movement policy lives there
+# ROUND 24 (levels): when false, mobs STOP getting a free full tank every turn
+# and live on the resolver's own economy instead -- real costs, the native
+# +30-per-6-planned-actions pulse (fizzles still wind the spring, so an
+# exhausted mob recovers instead of bricking). Story mode keeps true.
+var mob_energy_refill := true
 var _boss_slain := false              # the cavern serpent stays dead once slain (saved)
 var _boss_awake := false              # it does not stir until you cross the cavern door
 var clock := DayNightClock.new()      # time policy (regen cadence + day/night) lives there
@@ -421,7 +428,8 @@ func _combat_turn(engaged: Array) -> void:
 	var mob_cs: Array = []
 	var mob_kinds: Array = []
 	for e in engaged:
-		e["combatant"].energy = Config.MAX_ENERGY   # HP-only: refill so planning/moving never stalls
+		if mob_energy_refill:
+			e["combatant"].energy = Config.MAX_ENERGY   # HP-only: refill so planning/moving never stalls
 		mob_cs.append(e["combatant"])
 		mob_kinds.append(e["kind"])
 	var mob_seqs: Array = []

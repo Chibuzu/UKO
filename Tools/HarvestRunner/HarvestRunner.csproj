@@ -30,6 +30,7 @@
     <Compile Include="../../Scripts/Port/CSharp/Brain/OpponentModel.cs" />
     <Compile Include="../../Scripts/Port/CSharp/Brain/ThreatModel.cs" />
     <Compile Include="SimWorld.cs" />
+    <Compile Include="FitValue.cs" />
     <Compile Include="ValueCfg.cs" />
     <Compile Include="Program.cs" />
   </ItemGroup>
